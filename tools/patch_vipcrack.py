@@ -3,6 +3,7 @@ import argparse, hashlib, struct
 
 MH_MAGIC_64 = 0xfeedfacf
 LC_LOAD_DYLIB = 0x0c
+LC_LOAD_WEAK_DYLIB = 0x80000018
 
 
 def align8(n): return (n + 7) & ~7
@@ -18,6 +19,7 @@ def main():
     ap.add_argument('input')
     ap.add_argument('output')
     ap.add_argument('--load', default='@loader_path/CyberSkinStandalone.dylib')
+    ap.add_argument('--strong', action='store_true', help='use LC_LOAD_DYLIB; default is weak to avoid dyld abort when helper is absent/moved')
     a=ap.parse_args()
     data=bytearray(open(a.input,'rb').read())
     if len(data) < 32: raise SystemExit('short Mach-O')
@@ -53,7 +55,8 @@ def main():
         raise SystemExit(f'no load-command slack: need {cmdsize}, have {first_fileoff-insert}')
     if any(data[insert:insert+cmdsize]):
         raise SystemExit('load-command slack is non-zero; refusing destructive patch')
-    cmd=struct.pack('<IIIIII',LC_LOAD_DYLIB,cmdsize,24,0,0,0)+raw
+    load_cmd = LC_LOAD_DYLIB if a.strong else LC_LOAD_WEAK_DYLIB
+    cmd=struct.pack('<IIIIII',load_cmd,cmdsize,24,0,0,0)+raw
     cmd += b'\0'*(cmdsize-len(cmd))
     data[insert:insert+cmdsize]=cmd
     struct.pack_into('<II',data,16,ncmds+1,sizeofcmds+cmdsize)
@@ -61,6 +64,7 @@ def main():
     print('input_sha256=',sha256(a.input))
     print('output_sha256=',sha256(a.output))
     print('added=',a.load)
+    print('mode=', 'strong' if a.strong else 'weak')
     print('ncmds=',ncmds,'->',ncmds+1,'sizeofcmds=',sizeofcmds,'->',sizeofcmds+cmdsize,'first_section_fileoff=',hex(first_fileoff))
 
 if __name__=='__main__': main()
