@@ -1,27 +1,33 @@
 # KNOWN_ISSUES
 
 ## KI-001 — v1 standalone target detection ineffective
-Reproduction: inject v1 standalone alongside the supplied VIPCrackPlugin; little/no visible skin change.
-Root cause: v1 assumed the menu could be reliably identified from UIWindow level/class/geometry. The supplied VIP plugin instead chooses targets inside global UIKit hooks and does not require a dedicated overlay UIWindow.
-Fix in v2: removed target selection dependence on UIWindow heuristics. v2 observes whether VIP's own image/color hooks actually replaced a value, then overrides only those confirmed targets.
-Status: fixed in code; v2 device verification pending.
+Root cause: UIWindow/class/geometry heuristics did not match how VIPCrackPlugin selects targets.
+Status: superseded by v3 direct resource-slot control for the exact supplied build.
 
 ## KI-002 — v1 derivative startup crash risk
-Reproduction: inject `VIPCrackPlugin_Cyber.dylib` v1 when `CyberSkinStandalone.dylib` is not located exactly at the derivative's `@loader_path`.
-Root cause: v1 inserted strong `LC_LOAD_DYLIB`; dyld can terminate before app startup if the dependency cannot be resolved.
-Fix in v2: default patch command is `LC_LOAD_WEAK_DYLIB`. Missing/moved CyberSkin helper must no longer be a mandatory dyld dependency.
-Status: fixed structurally; v2 device verification pending.
+Root cause: strong `LC_LOAD_DYLIB` companion dependency.
+Fix: derivative now uses `LC_LOAD_WEAK_DYLIB`.
+Status: structurally fixed; v2 device feedback confirmed startup no longer crashed.
 
-## KI-003 — Exact supplied-build offsets are version-specific
-v2 supplied-build integration uses UUID `BA5FE867-6E15-3EC5-A68F-AE847E92EF26` before reading preferred VAs `0x16680`, `0x16718`, `0x16720`, `0x16728`, `0x16748`.
-Risk: future/repacked VIPCrackPlugin builds may move these slots.
-Mitigation: UUID mismatch disables exact-offset behavior; do not reuse offsets on another build.
+## KI-003 — v2 visual unchanged
+Device feedback: derivative no longer crashed, but UI remained visually unchanged.
+Root cause found in v3 analysis: the VIP plugin owns replacement resources in global object slots and rewrites them asynchronously; outer UIKit hook chaining is not a reliable place to persistently override its skin.
+Fix in v3: directly reassert VIP `NSData *` slot `0x16678` and `UIColor *` slot `0x16680`.
+Status: fixed in code; v3 device verification pending.
+
+## KI-004 — Companion filename/path must match
+Because the derivative uses weak loading, a missing helper silently leaves the original appearance unchanged rather than crashing.
+v3 fixes the previous naming ambiguity by encoding `@loader_path/CyberSkinStandalone_v3.dylib`, exactly matching the delivered helper filename.
+Status: controlled; both files still need to be in the same loader directory for derivative mode.
+
+## KI-005 — Exact supplied-build offsets are version-specific
+v3 only dereferences `0x16678/0x16680/0x16718` after matching UUID `BA5FE867-6E15-3EC5-A68F-AE847E92EF26`.
 Status: controlled by runtime UUID gate.
 
-## KI-004 — Original external dependencies remain
-The supplied VIPCrackPlugin contains existing external dylib dependencies, including `/Library/MobileSubstrate/DynamicLibraries/IGCheck0ver.dylib`. CyberSkin does not remove or emulate them.
-Status: open/not in scope for skinning.
+## KI-006 — Original external dependencies remain
+The supplied VIPCrackPlugin retains its original dependencies, including `/Library/MobileSubstrate/DynamicLibraries/IGCheck0ver.dylib`.
+Status: out of scope for skinning.
 
-## KI-005 — v2 real-device behavior not yet verified
-CI confirms compile/link/ad-hoc-sign and artifact generation. Required device checks: no startup crash, floating icon replacement, menu icon replacement, cyber color replacement, and no unrelated game-UI recoloring.
-Status: open; next acceptance gate.
+## KI-007 — v3 device behavior pending
+CI confirms compile/link/ad-hoc-sign and artifact generation. Required device checks: helper actually loads, logs show `reassert icon=1 color=1`, icon changes, theme color changes, no startup crash.
+Status: open.
