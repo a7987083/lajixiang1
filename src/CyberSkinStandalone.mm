@@ -64,8 +64,9 @@ static inline IMP VIPStoredIMP(uintptr_t preferredVA) {
 
 static inline UIColor *VIPThemeColor(void) {
     if (!gVIPExactBuild) return nil;
-    id __unsafe_unretained *slot = (id __unsafe_unretained *)(gVIPSlide + kVIPThemeColorVA);
-    return slot ? *slot : nil;
+    void **slot = (void **)(gVIPSlide + kVIPThemeColorVA);
+    void *raw = slot ? *slot : NULL;
+    return raw ? (__bridge UIColor *)raw : nil;
 }
 
 typedef UIColor *(*ColorRedFn)(id, SEL, CGFloat, CGFloat, CGFloat, CGFloat);
@@ -76,7 +77,7 @@ typedef void (*SetImageFn)(id, SEL, UIImage *);
 static UIColor *RawColor(CGFloat r, CGFloat g, CGFloat b, CGFloat a) {
     ColorRedFn fn = (ColorRedFn)VIPStoredIMP(kVIPOrigColorRedVA);
     if (fn) return fn(UIColor.class, @selector(colorWithRed:green:blue:alpha:), r,g,b,a);
-    return [UIColor systemCyanColor];
+    return [UIColor cyanColor];
 }
 static inline UIColor *CyberCyan(void) { return RawColor(0.00,0.93,1.00,1.0); }
 static inline UIColor *CyberMagenta(void) { return RawColor(1.00,0.12,0.78,1.0); }
@@ -207,8 +208,8 @@ static IMP ReplaceInstance(Class cls, SEL sel, IMP imp) {
     IMP old=method_getImplementation(m); method_setImplementation(m,imp); return old;
 }
 static IMP ReplaceClass(Class cls, SEL sel, IMP imp) {
-    Class meta=object_getClass(cls); Method m=class_getClassMethod(cls,sel); if(!m) return NULL;
-    IMP old=method_getImplementation(m); method_setImplementation(m,imp); (void)meta; return old;
+    Method m=class_getClassMethod(cls,sel); if(!m) return NULL;
+    IMP old=method_getImplementation(m); method_setImplementation(m,imp); return old;
 }
 
 static void InstallHooks(void) {
@@ -226,7 +227,5 @@ static void InstallHooks(void) {
 }
 
 __attribute__((constructor)) static void CyberSkinInit(void) {
-    // All dyld constructors finish before the first main-queue turn. This intentionally installs after VIPCrackPlugin,
-    // so our previous IMPs are VIP's hooks rather than UIKit's originals, avoiding hook cycles.
     dispatch_async(dispatch_get_main_queue(), ^{ InstallHooks(); });
 }
