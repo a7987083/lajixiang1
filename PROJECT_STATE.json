@@ -1,24 +1,28 @@
 {
-  "version": "1.0.0-dev",
+  "version": "2.0.0-dev",
   "repository": "a7987083/lajixiang1",
   "branch": "main",
-  "source_commit_built": "661485c4339fafa65bbe8b5ee7c1cbb1ea43306f",
+  "source_commit_built": "c8b46c52a6ff199925b2e3b39b9d4d7f893e0296",
   "baseline": {
     "artifact": "VIPCrackPlugin.dylib",
     "arch": "arm64",
+    "uuid": "BA5FE867-6E15-3EC5-A68F-AE847E92EF26",
     "sha256": "90dd5288c91d14e404d74780d1b62a5b1a057dcc51a8defee2f78e6e6ea22f67"
   },
   "build": {
     "status": "success",
-    "standalone_sha256": "f1ef05d25d97b0c089979872bd159a6204138c452b2ce893923ce2a722072def",
-    "derived_sha256": "940ae555cc26a1093526a591d05d271088e80bd18325ce331142afad0d519d3b"
+    "standalone_sha256": "2356177adec1a1ef8c5bef8689dea5db6b02b981ffd29377bdb6101eb7fdcd93",
+    "derived_sha256": "f7bc0dac6cd8611ff87e36afceeebbf9b939d2f5035c02a69518dbd752ae2632"
   },
   "ci": {
     "status": "success",
-    "run_id": 35830125612,
-    "artifact_id": 10736327933
+    "run_id": 35832535796,
+    "artifact_id": 10738062034
   },
-  "runtime": "not-verified",
-  "phase": "phase1-cyber-skin-v1-built",
-  "next_task": "real-device verify overlay selection, floating icon, menu icons and color scope"
+  "runtime": {
+    "v1": "failed-acceptance: standalone little/no effect; strong-load derivative crashed",
+    "v2": "not-verified"
+  },
+  "phase": "phase2-vip-exact-hook-chaining",
+  "next_task": "real-device verify v2 floating/menu icon replacement, theme color replacement, and no startup crash"
 }
