@@ -15,7 +15,7 @@ jobs:
           set -euxo pipefail
           SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
           mkdir -p dist
-          xcrun clang++ -std=c++17 -fobjc-arc -arch arm64 -dynamiclib \
+          xcrun clang++ -std=c++17 -fno-objc-arc -arch arm64 -dynamiclib \
             -isysroot "$SDK" -miphoneos-version-min=13.0 \
             -framework UIKit -framework Foundation -framework QuartzCore -framework CoreGraphics \
             -Wl,-install_name,@rpath/CyberSkinStandalone.dylib \
@@ -28,11 +28,11 @@ jobs:
         shell: bash
         run: |
           cp README.md dist/
-          cd dist && zip -9 CyberSkinStandalone-v2.zip CyberSkinStandalone.dylib README.md SHA256SUMS.txt
+          cd dist && zip -9 CyberSkinStandalone-v3.zip CyberSkinStandalone.dylib README.md SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: CyberSkinStandalone-v2
+          name: CyberSkinStandalone-v3
           path: |
             dist/CyberSkinStandalone.dylib
-            dist/CyberSkinStandalone-v2.zip
+            dist/CyberSkinStandalone-v3.zip
             dist/SHA256SUMS.txt
