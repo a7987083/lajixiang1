@@ -16,6 +16,7 @@ jobs:
           SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
           mkdir -p dist
           xcrun clang++ -std=c++17 -fno-objc-arc -arch arm64 -dynamiclib \
+            -include src/ObjcStrongCompat.h \
             -isysroot "$SDK" -miphoneos-version-min=13.0 \
             -framework UIKit -framework Foundation -framework QuartzCore -framework CoreGraphics \
             -Wl,-install_name,@rpath/CyberSkinStandalone.dylib \
