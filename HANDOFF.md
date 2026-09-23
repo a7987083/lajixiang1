@@ -4,31 +4,35 @@
 Input: user-supplied `VIPCrackPlugin.dylib`, arm64 Mach-O, SHA-256 `90dd5288c91d14e404d74780d1b62a5b1a057dcc51a8defee2f78e6e6ea22f67`, UUID `BA5FE867-6E15-3EC5-A68F-AE847E92EF26`.
 
 ## Static call chain
-Constructor at preferred VA `0x8194` installs Objective-C IMP replacements through helper `0x8788`. Relevant supplied-build hooks: UIColor class-method hooks at `0xD5C8/0xD64C/0xD710`, UIButton layout hook `0xD798`, UIImageView `setImage:` hook `0xD870`.
+Constructor at preferred VA `0x8194` installs Objective-C IMP replacements through helper `0x8788`. Relevant hooks: UIColor class methods at `0xD5C8/0xD64C/0xD710`, UIButton layout `0xD798`, UIImageView `setImage:` `0xD870`.
 
-The supplied build stores its runtime replacement UIColor at preferred VA `0x16680`. It stores UIKit original IMPs at `0x16718` (`colorWithRed`), `0x16720` (`colorWithHue`), `0x16728` (`colorWithCGColor`) and `0x16748` (`UIImageView setImage:`). These offsets are only used after matching the exact Mach-O UUID.
+The important v3 finding is the plugin's own replacement resources:
+- preferred VA `0x16678`: `NSData *` used by `UIImageView -setImage:` hook when a target image matches; hook calls `+[UIImage imageWithData:]` from this slot and then invokes saved original `setImage:`.
+- preferred VA `0x16680`: cached replacement `UIColor *` returned by the three UIColor hooks when the internal color matcher succeeds.
+- VIP async refresh code rewrites both slots later (`0xEF20` and `0xEF88` paths), so one-shot outer-hook replacements may be overwritten.
 
-## v1 runtime feedback
-- `CyberSkinStandalone` v1: little/no visible effect. Overlay-window heuristics were too restrictive and did not reflect how VIPCrackPlugin chooses its targets.
-- `VIPCrackPlugin_Cyber` v1: startup crash. The derivative introduced a strong `LC_LOAD_DYLIB @loader_path/CyberSkinStandalone.dylib`, so a helper installed elsewhere can make dyld abort before constructors.
+## Runtime feedback history
+- v1 standalone: little/no visible effect.
+- v1 derivative: startup crash from strong companion load path.
+- v2 derivative: no startup crash, but visual appearance unchanged.
 
-## v2 implementation
-- Standalone installs on the first main-queue turn so VIPCrackPlugin's constructor-installed hooks are already current.
-- Image path: call VIP's current `UIImageView setImage:` hook first; if the final `UIImageView.image` differs from the incoming UIImage, VIP itself selected/replaced that image. v2 then calls VIP's saved UIKit original IMP (`0x16748`) directly with the generated cyber icon. No UIWindow guessing is required for target identification.
-- Color path: call VIP's current UIColor hook first; if the returned UIColor is VIP's exact cached replacement color (`0x16680`), v2 returns cyber cyan instead. Cyber colors are created through VIP's saved UIKit original color IMP, avoiding recursion.
-- A matched image marks its actual window for secondary label/button/switch styling.
-- Derivative patcher now inserts `LC_LOAD_WEAK_DYLIB`; missing helper must not become a dyld startup failure.
+## v3 implementation
+- Exact UUID-gated integration only for the supplied VIP build.
+- No UIWindow guessing for the main path.
+- Generates a procedural cyber icon, encodes it to PNG `NSData`, and directly stores it into VIP slot `0x16678`.
+- Generates cyber cyan `UIColor` and directly stores it into VIP slot `0x16680`.
+- Reasserts both resources every 500 ms on the main queue because VIP may refresh them asynchronously.
+- Diagnostic logs report exact image discovery, resource creation, and `reassert icon/color` status.
+- If the exact VIP build is not present, a conservative UIKit fallback remains for standalone use.
+- Derivative weak-load path exactly matches delivered helper filename: `@loader_path/CyberSkinStandalone_v3.dylib`.
 
 ## Current build state
-- Source commit built: `c8b46c52a6ff199925b2e3b39b9d4d7f893e0296`
-- Actions Run: `35832535796` — success
-- Artifact: `10738062034` (`CyberSkinStandalone-v2`)
-- `CyberSkinStandalone.dylib` SHA-256: `2356177adec1a1ef8c5bef8689dea5db6b02b981ffd29377bdb6101eb7fdcd93`
-- `VIPCrackPlugin_Cyber_v2.dylib` SHA-256: `f7bc0dac6cd8611ff87e36afceeebbf9b939d2f5035c02a69518dbd752ae2632`
-- v2 runtime/device verification: pending.
+- Source commit built: `51abf0c49ff981a65b88dfb352941c6730c13791`
+- Actions Run: `35836242669` — success
+- Artifact: `10739566699` (`CyberSkinStandalone-v3`)
+- `CyberSkinStandalone_v3.dylib` SHA-256: `9419c81aef26df03dd9f7f6c3e9c0c252e6477695d8c2eb4e535e95d32f0abbe`
+- `VIPCrackPlugin_Cyber_v3.dylib` SHA-256: `35a80cd71baae133a783f313a58e48caee9e4fb61ab559f3bcd88f633db30037`
+- v3 runtime/device verification: pending.
 
-## Risks / acceptance
-- Exact-offset mode intentionally supports only the supplied UUID; a changed VIPCrackPlugin build must be re-located rather than reusing offsets.
-- The original VIPCrackPlugin retains all original external dependencies, including `IGCheck0ver.dylib`.
-- CI ad-hoc signing is not the final IPA signing step.
-- Acceptance requires: no startup crash, floating icon changed, menu icon(s) changed, theme color changed, and no unintended game-UI recoloring.
+## Acceptance
+For modified mode, both `VIPCrackPlugin_Cyber_v3.dylib` and `CyberSkinStandalone_v3.dylib` must be present in the same loader directory. Expected logs include `exact VIP build found`, `resources ready`, and `reassert icon=1 color=1`.
