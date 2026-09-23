@@ -1,0 +1,38 @@
+name: Build CyberSkin dylib
+on:
+  push:
+    branches: [ main, 'feature/**' ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build standalone arm64 dylib
+        shell: bash
+        run: |
+          set -euxo pipefail
+          SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
+          mkdir -p dist
+          xcrun clang++ -std=c++17 -fobjc-arc -arch arm64 -dynamiclib \
+            -isysroot "$SDK" -miphoneos-version-min=13.0 \
+            -framework UIKit -framework Foundation -framework QuartzCore -framework CoreGraphics \
+            -Wl,-install_name,@rpath/CyberSkinStandalone.dylib \
+            src/CyberSkinStandalone.mm -o dist/CyberSkinStandalone.dylib
+          codesign --force --sign - --timestamp=none dist/CyberSkinStandalone.dylib
+          file dist/CyberSkinStandalone.dylib
+          xcrun otool -L dist/CyberSkinStandalone.dylib
+          shasum -a 256 dist/CyberSkinStandalone.dylib | tee dist/SHA256SUMS.txt
+      - name: Package
+        shell: bash
+        run: |
+          cp README.md dist/
+          cd dist && zip -9 CyberSkinStandalone-v1.zip CyberSkinStandalone.dylib README.md SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CyberSkinStandalone-v1
+          path: |
+            dist/CyberSkinStandalone.dylib
+            dist/CyberSkinStandalone-v1.zip
+            dist/SHA256SUMS.txt
