@@ -28,11 +28,11 @@ jobs:
         shell: bash
         run: |
           cp README.md dist/
-          cd dist && zip -9 CyberSkinStandalone-v1.zip CyberSkinStandalone.dylib README.md SHA256SUMS.txt
+          cd dist && zip -9 CyberSkinStandalone-v2.zip CyberSkinStandalone.dylib README.md SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: CyberSkinStandalone-v1
+          name: CyberSkinStandalone-v2
           path: |
             dist/CyberSkinStandalone.dylib
-            dist/CyberSkinStandalone-v1.zip
+            dist/CyberSkinStandalone-v2.zip
             dist/SHA256SUMS.txt
