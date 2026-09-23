@@ -1,0 +1,15 @@
+{
+  "version": "1.0.0-dev",
+  "repository": "a7987083/lajixiang1",
+  "branch": "main",
+  "baseline": {
+    "artifact": "VIPCrackPlugin.dylib",
+    "arch": "arm64",
+    "sha256": "90dd5288c91d14e404d74780d1b62a5b1a057dcc51a8defee2f78e6e6ea22f67"
+  },
+  "build": "pending-ci",
+  "ci": "pending",
+  "runtime": "not-verified",
+  "phase": "phase1-cyber-skin-v1",
+  "next_task": "run GitHub Actions then real-device verify overlay selection/icons/colors"
+}
