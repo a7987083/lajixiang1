@@ -1,8 +1,7 @@
 {
-  "version": "3.0.0-dev",
+  "version": "10.0-device-test",
   "repository": "a7987083/lajixiang1",
   "branch": "main",
-  "source_commit_built": "51abf0c49ff981a65b88dfb352941c6730c13791",
   "baseline": {
     "artifact": "VIPCrackPlugin.dylib",
     "arch": "arm64",
@@ -11,23 +10,19 @@
   },
   "runtime_anchors": {
     "icon_data_va": "0x16678",
-    "theme_color_va": "0x16680"
-  },
-  "build": {
-    "status": "success",
-    "standalone_sha256": "9419c81aef26df03dd9f7f6c3e9c0c252e6477695d8c2eb4e535e95d32f0abbe",
-    "derived_sha256": "35a80cd71baae133a783f313a58e48caee9e4fb61ab559f3bcd88f633db30037"
-  },
-  "ci": {
-    "status": "success",
-    "run_id": 35836242669,
-    "artifact_id": 10739566699
+    "theme_color_va": "0x16680",
+    "title_hook_va": "0x9110",
+    "title_data_offset": "0x15190"
   },
   "runtime": {
-    "v1": "failed-acceptance: standalone little/no effect; strong-load derivative crashed",
-    "v2": "device feedback: derivative no crash but visual unchanged",
-    "v3": "not-verified"
+    "v8": "device verified: replacement icon works; color unchanged",
+    "v9": "built: v8 plus locked #00FFFF theme; device verification pending",
+    "v10": "built locally from v9: title replacement Check0ver Team -> taobaozonoe; device verification pending"
   },
-  "phase": "phase3-direct-vip-resource-slot-control",
-  "next_task": "real-device verify v3 direct replacement of VIP icon NSData and theme UIColor globals"
+  "artifacts": {
+    "v9_sha256": "4ebd1fa612040b5c4db5d929a122c05871cb9b4b794cdb13ac989641afe0ad01",
+    "v10_sha256": "7825c5511e9f36306e5726f37a2944bc783e08262d6223e0cf6f0d605e57b9cf"
+  },
+  "phase": "phase10-title-replacement",
+  "next_task": "real-device verify v10 keeps icon/color behavior and changes title to taobaozonoe"
 }
