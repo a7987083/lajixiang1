@@ -1,31 +1,23 @@
 # ROADMAP
 
-## Phase 1 — Cyber skin v1
-- [x] Recover major UIKit hook registration.
-- [x] Build first independent skin and derivative loader experiment.
-- [x] CI green (`35830125612`).
-- [x] Device acceptance attempted: standalone little/no effect; derivative startup crash.
+## Phase 8 — URL + image integrity
+- [x] Replace icon URL with `https://ios.zonoeios.xyz/1c.png`.
+- [x] Synchronize runtime/default and fallback image MD5 to `4de386e134d3f739c7f879ef883b04fc`.
+- [x] Preserve original MD5 validation and `_exit(111)` behavior.
+- [x] Real-device verify replacement icon works.
 
-## Phase 2 — VIP hook chaining v2
-- [x] Recover exact supplied-build UUID and runtime IMP/theme slots.
-- [x] Replace strong dependency with weak loading.
-- [x] CI green (`35832535796`).
-- [x] Device acceptance attempted: derivative no crash, but appearance still unchanged.
+## Phase 9 — Theme color
+- [x] Recover runtime color source path and final `UIColor *` slot.
+- [x] Generate encrypted color source that decrypts to `#00FFFF`.
+- [x] Prevent runtime configuration from overwriting the color source.
+- [ ] Real-device verify the menu theme changes to cyan while icon remains correct.
 
-## Phase 3 — Direct VIP resource-slot control v3
-- [x] Recover actual icon replacement `NSData *` slot at preferred VA `0x16678`.
-- [x] Confirm replacement `UIColor *` slot at preferred VA `0x16680`.
-- [x] Confirm VIP async refresh rewrites both resources.
-- [x] Generate cyber PNG data and cyber UIColor inside helper.
-- [x] Reassert both exact VIP resources on the main queue.
-- [x] Preserve UUID gate before preferred-VA access.
-- [x] Add diagnostic logs for helper load/resource-slot success.
-- [x] Make derivative weak dependency filename exactly match `CyberSkinStandalone_v3.dylib`.
-- [x] GitHub Actions build green (`35836242669`), Artifact `10739566699`.
-- [ ] Real-device verify `exact VIP build found`.
-- [ ] Verify `reassert icon=1 color=1` appears.
-- [ ] Verify floating/menu icon changes.
-- [ ] Verify theme color changes without startup crash.
+## Phase 10 — Title
+- [x] Recover `UINavigationItem -setTitle:` hook at `0x9110`.
+- [x] Recover replacement-title XOR block at file offset `0x15190` and decoder `0xF250`.
+- [x] Replace decoded `Check0ver Team` with `taobaozonoe` using only 14 data bytes.
+- [x] Verify Mach-O dependencies unchanged.
+- [ ] Real-device verify title shows `taobaozonoe`.
 
-## Next acceptance
-For derivative mode put `VIPCrackPlugin_Cyber_v3.dylib` and `CyberSkinStandalone_v3.dylib` in the same loader directory. If visuals still do not change, collect only the `[CyberSkin:v3]` log lines first; those now distinguish helper-not-loaded, UUID mismatch, and successful slot override.
+## Current acceptance
+Test v10 as one file. Expected: working replacement icon from v8, cyan theme from v9, and title `taobaozonoe`. If one item fails, isolate that chain without changing the already verified icon/MD5 path.
