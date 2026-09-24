@@ -10,14 +10,31 @@
 - [x] Recover runtime color source path and final `UIColor *` slot.
 - [x] Generate encrypted color source that decrypts to `#00FFFF`.
 - [x] Prevent runtime configuration from overwriting the color source.
-- [ ] Real-device verify the menu theme changes to cyan while icon remains correct.
+- [ ] Keep color behavior under separate device acceptance; do not modify it while testing embedded icons.
 
 ## Phase 10 — Title
-- [x] Recover `UINavigationItem -setTitle:` hook at `0x9110`.
-- [x] Recover replacement-title XOR block at file offset `0x15190` and decoder `0xF250`.
-- [x] Replace decoded `Check0ver Team` with `taobaozonoe` using only 14 data bytes.
-- [x] Verify Mach-O dependencies unchanged.
-- [ ] Real-device verify title shows `taobaozonoe`.
+- [x] Recover `UINavigationItem -setTitle:` hook and replacement-title data.
+- [x] Build v10 static-title experiment (`Check0ver Team` -> `taobaozonoe`).
+- [x] Real-device result: title did not change.
+- [ ] Title work deferred. Do not use v10 as the embedded-icon baseline.
 
-## Current acceptance
-Test v10 as one file. Expected: working replacement icon from v8, cyan theme from v9, and title `taobaozonoe`. If one item fails, isolate that chain without changing the already verified icon/MD5 path.
+## Phase 11 — Embedded icon (verified success)
+- [x] Freeze v9 as the embedded-icon baseline (`4ebd1fa6...fe0ad01`).
+- [x] Identify zero-filled `0x16800..0x17fff` region (6144 bytes).
+- [x] Replace remote NSData creation with `+[NSData dataWithBytes:length:]` path.
+- [x] Store complete encoded JPEG/PNG bytes directly in the dylib.
+- [x] Disable only the old remote-image MD5 failure branch at `0xDC1C` for this embedded path.
+- [x] Preserve v9 icon/color configuration and all unrelated control flow.
+- [x] Build JPEG v11 and PNG v11 variants.
+- [x] Byte-for-byte reproduce both successful dylibs from the documented patch algorithm.
+- [x] User confirmed embedded-icon method works on device.
+
+## Current accepted path
+Use `success/v11-embedded-icon` and `tools/patch_embedded_icon_v11.py`.
+
+Requirements for an embedded image:
+- JPEG or PNG
+- preferably 120x120
+- encoded size <= 6144 bytes
+
+Do not base new embedded builds on v10. Start from the exact v9 SHA-256 documented in `docs/V11_EMBEDDED_ICON_SUCCESS.md`.
