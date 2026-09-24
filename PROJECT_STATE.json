@@ -1,28 +1,38 @@
 {
-  "version": "10.0-device-test",
+  "version": "11.0-embedded-icon-verified",
   "repository": "a7987083/lajixiang1",
-  "branch": "main",
+  "branch": "success/v11-embedded-icon",
   "baseline": {
-    "artifact": "VIPCrackPlugin.dylib",
+    "original_artifact": "VIPCrackPlugin.dylib",
+    "original_sha256": "90dd5288c91d14e404d74780d1b62a5b1a057dcc51a8defee2f78e6e6ea22f67",
+    "embedded_patch_baseline": "VIPCrackPlugin_RuntimeURL_MD5_Color_v9.dylib",
+    "embedded_patch_baseline_sha256": "4ebd1fa612040b5c4db5d929a122c05871cb9b4b794cdb13ac989641afe0ad01",
     "arch": "arm64",
-    "uuid": "BA5FE867-6E15-3EC5-A68F-AE847E92EF26",
-    "sha256": "90dd5288c91d14e404d74780d1b62a5b1a057dcc51a8defee2f78e6e6ea22f67"
+    "uuid": "BA5FE867-6E15-3EC5-A68F-AE847E92EF26"
   },
   "runtime_anchors": {
     "icon_data_va": "0x16678",
-    "theme_color_va": "0x16680",
-    "title_hook_va": "0x9110",
-    "title_data_offset": "0x15190"
+    "embedded_image_offset": "0x16800",
+    "embedded_image_capacity": 6144,
+    "remote_md5_failure_branch_offset": "0xDC1C",
+    "image_source_patch_start": "0xEEF8",
+    "image_source_patch_end": "0xEF10"
   },
   "runtime": {
     "v8": "device verified: replacement icon works; color unchanged",
-    "v9": "built: v8 plus locked #00FFFF theme; device verification pending",
-    "v10": "built locally from v9: title replacement Check0ver Team -> taobaozonoe; device verification pending"
+    "v9": "accepted baseline for embedded-icon work",
+    "v10": "device result: title replacement did not change visible title; deferred",
+    "v11": "device verified: embedded icon method works"
   },
   "artifacts": {
-    "v9_sha256": "4ebd1fa612040b5c4db5d929a122c05871cb9b4b794cdb13ac989641afe0ad01",
-    "v10_sha256": "7825c5511e9f36306e5726f37a2944bc783e08262d6223e0cf6f0d605e57b9cf"
+    "embedded_jpg_v11_sha256": "573ca474c3c8b4a9c4c3503d93f9b0866fb39e16740538c1d8808413060671bc",
+    "embedded_png_v11_sha256": "6919c9b448b5c9f89db8d411397c09e8626e7a63088cbd5121729e6db1072c02"
   },
-  "phase": "phase10-title-replacement",
-  "next_task": "real-device verify v10 keeps icon/color behavior and changes title to taobaozonoe"
+  "reproduction": {
+    "script": "tools/patch_embedded_icon_v11.py",
+    "documentation": "docs/V11_EMBEDDED_ICON_SUCCESS.md",
+    "byte_exact_reproduction_verified": true
+  },
+  "phase": "phase11-embedded-icon-verified",
+  "next_task": "use v9 plus patch_embedded_icon_v11.py for future embedded icon variants; keep title work separate"
 }
