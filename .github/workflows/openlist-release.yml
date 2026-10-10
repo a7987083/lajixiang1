@@ -1,0 +1,45 @@
+name: Publish OpenList v4.2.6 Baseline
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/openlist-v4.2.6-ipa-manager
+    paths:
+      - ".github/workflows/openlist-release.yml"
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download validated baseline artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p release
+          gh run download 38064567149 -R "${{ github.repository }}" -n openlist-v4.2.6-linux-amd64-baseline -D release
+          test -s release/openlist-linux-amd64
+          sed 's#  out/#  #' release/SHA256SUMS > release/SHA256SUMS.fixed
+          mv release/SHA256SUMS.fixed release/SHA256SUMS
+          (cd release && sha256sum -c SHA256SUMS)
+      - name: Publish public GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG=openlist-ipa-v4.2.6-baseline
+          if gh release view "$TAG" -R "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release already exists; refusing overwrite"
+            exit 1
+          fi
+          gh release create "$TAG" release/openlist-linux-amd64 release/SHA256SUMS \
+            -R "${{ github.repository }}" \
+            --target "${{ github.sha }}" \
+            --title "OpenList v4.2.6 Linux amd64 (baseline)" \
+            --notes "Pinned official v4.2.6 baseline built from upstream frontend and backend. IPA enhancements NOT yet implemented. Source CI: https://github.com/${{ github.repository }}/actions/runs/38064567149" \
+            --latest=false
