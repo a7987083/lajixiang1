@@ -23,7 +23,7 @@ trap 'rm -rf "$TMP"' EXIT
 gh run download "$RUN_ID" -R "$REPO" -n "$ARTIFACT" -D "$TMP"
 test -s "$TMP/openlist-linux-amd64"
 test -s "$TMP/SHA256SUMS"
-(cd "$TMP" && sha256sum -c SHA256SUMS)
+(cd "$TMP" && sed "s#  out/#  #" SHA256SUMS | sha256sum -c -)
 install -d -m 0755 "$ROOT"
 install -m 0755 "$TMP/openlist-linux-amd64" "$ROOT/openlist"
 install -d -m 0700 "$ROOT/data"
