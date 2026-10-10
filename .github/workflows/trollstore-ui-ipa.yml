@@ -1,0 +1,47 @@
+name: Build TrollStore Style UI IPA
+on:
+  push:
+    branches: ['feature/trollstore-iosdump-ui-ipa-v1']
+    paths:
+      - 'TrollStoreUI/**'
+      - '.github/workflows/trollstore-ui-ipa.yml'
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build iOS UI preview
+        shell: bash
+        run: |
+          set -euxo pipefail
+          SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
+          mkdir -p Payload/TrollStoreUIPreview.app dist
+          xcrun clang -fobjc-arc -arch arm64 -isysroot "$SDK" -miphoneos-version-min=13.0 \
+            -framework UIKit -framework Foundation \
+            TrollStoreUI/main.m -o Payload/TrollStoreUIPreview.app/TrollStoreUIPreview
+          cat > Payload/TrollStoreUIPreview.app/Info.plist <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+          <key>CFBundleIdentifier</key><string>xyz.zonoe.trollstore-ui-preview</string>
+          <key>CFBundleExecutable</key><string>TrollStoreUIPreview</string>
+          <key>CFBundleName</key><string>TrollStore UI Preview</string>
+          <key>CFBundleDisplayName</key><string>TS UI Preview</string>
+          <key>CFBundlePackageType</key><string>APPL</string>
+          <key>CFBundleShortVersionString</key><string>0.1.0</string>
+          <key>CFBundleVersion</key><string>1</string>
+          <key>LSRequiresIPhoneOS</key><true/>
+          <key>UILaunchScreen</key><dict/>
+          <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string></array>
+          </dict></plist>
+          PLIST
+          plutil -lint Payload/TrollStoreUIPreview.app/Info.plist
+          codesign --force --sign - --timestamp=none Payload/TrollStoreUIPreview.app
+          codesign --verify --verbose=2 Payload/TrollStoreUIPreview.app
+          zip -qr dist/TrollStoreUI-Preview-v0.1.ipa Payload
+          shasum -a 256 dist/TrollStoreUI-Preview-v0.1.ipa > dist/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TrollStoreUI-Preview-v0.1-IPA
+          path: dist/*
