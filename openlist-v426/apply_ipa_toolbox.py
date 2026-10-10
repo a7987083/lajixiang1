@@ -38,7 +38,7 @@ if not zh_home.exists() or not zh_index.exists():
     raise SystemExit("Official v4.2.6 zh-CN translation is missing")
 zh = json.loads(zh_home.read_text())
 zh.setdefault("preview", {}).setdefault("names", {})["ipa_toolbox"] = "IPA 工具箱"
-zh_home.write_text(json.dumps(zh, ensure_ascii=False, indent=2) + "\\n")
+zh_home.write_text(json.dumps(zh, ensure_ascii=False, indent=2) + "\n")
 
 component = root / "src/pages/home/previews/ipa-toolbox.tsx"
 if component.exists():
