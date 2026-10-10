@@ -1,0 +1,84 @@
+name: OpenList v4.2.6 Linux Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/openlist-v4.2.6-ipa-manager
+    paths:
+      - ".github/workflows/openlist-v426.yml"
+      - "openlist-v426/**"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout integration branch
+        uses: actions/checkout@v4
+      - name: Checkout pinned backend
+        uses: actions/checkout@v4
+        with:
+          repository: OpenListTeam/OpenList
+          ref: 2bdf16d5967d0a403f67d809efd5a418b8f5bd30
+          path: upstream/backend
+          persist-credentials: false
+      - name: Checkout pinned frontend
+        uses: actions/checkout@v4
+        with:
+          repository: OpenListTeam/OpenList-Frontend
+          ref: 0725e589bb7f0e734a7446f427eed2175f26c15c
+          path: upstream/frontend
+          persist-credentials: false
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.24.0
+          run_install: false
+      - name: Build pinned frontend
+        working-directory: upstream/frontend
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+          pnpm build
+          test -f dist/index.html
+      - name: Embed frontend
+        run: |
+          rm -rf upstream/backend/public/dist
+          mkdir -p upstream/backend/public/dist
+          cp -a upstream/frontend/dist/. upstream/backend/public/dist/
+          test -f upstream/backend/public/dist/index.html
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.0'
+          cache-dependency-path: upstream/backend/go.sum
+      - name: Compile Linux amd64
+        working-directory: upstream/backend
+        env:
+          CGO_ENABLED: '1'
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          mkdir -p ../../out
+          go build -trimpath -tags=jsoniter -ldflags="-s -w -X github.com/OpenListTeam/OpenList/v4/internal/conf.Version=v4.2.6" -o ../../out/openlist-linux-amd64 .
+          ../../out/openlist-linux-amd64 version
+      - name: Build manifest
+        run: |
+          cp openlist-v426/UPSTREAM.md out/UPSTREAM.md
+          sha256sum out/openlist-linux-amd64 > out/SHA256SUMS
+          file out/openlist-linux-amd64
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openlist-v4.2.6-linux-amd64-baseline
+          path: out/
+          if-no-files-found: error
+          retention-days: 14
