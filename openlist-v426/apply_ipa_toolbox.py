@@ -109,7 +109,7 @@ const IpaToolbox = () => {
     </VStack>
   </FileInfo>)
 }
-export default IpaToolbox'''))
+export default IpaToolbox''')
 # Keep the official locale selector and English fallback; change only first-run default.
 i18n_path = root / "src/app/i18n.ts"
 i18n_src = i18n_path.read_text()
