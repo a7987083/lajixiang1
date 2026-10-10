@@ -32,6 +32,14 @@ if "preview" not in data or "names" not in data["preview"]:
     raise SystemExit("Cannot locate upstream i18n preview names")
 data["preview"]["names"]["ipa_toolbox"] = "IPA Toolbox"
 names.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+zh_home = root / "src/lang/zh-CN/home.json"
+zh_index = root / "src/lang/zh-CN/index.json"
+if not zh_home.exists() or not zh_index.exists():
+    raise SystemExit("Official v4.2.6 zh-CN translation is missing")
+zh = json.loads(zh_home.read_text())
+zh.setdefault("preview", {}).setdefault("names", {})["ipa_toolbox"] = "IPA 工具箱"
+zh_home.write_text(json.dumps(zh, ensure_ascii=False, indent=2) + "\\n")
+
 component = root / "src/pages/home/previews/ipa-toolbox.tsx"
 if component.exists():
     raise SystemExit("IPA toolbox already exists")
