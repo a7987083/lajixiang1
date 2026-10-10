@@ -42,6 +42,8 @@ jobs:
         with:
           version: 11.24.0
           run_install: false
+      - name: Apply IPA toolbox source overlay
+        run: python3 openlist-v426/apply_ipa_toolbox.py upstream/frontend
       - name: Build pinned frontend
         working-directory: upstream/frontend
         run: |
