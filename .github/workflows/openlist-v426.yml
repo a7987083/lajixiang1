@@ -44,10 +44,14 @@ jobs:
           run_install: false
       - name: Restore official frontend v4.2.6 translations
         run: |
-          curl --fail --location --retry 3 \
-            https://github.com/OpenListTeam/OpenList-Frontend/releases/download/v4.2.6/i18n.tar.gz \
-            --output /tmp/openlist-i18n-v4.2.6.tar.gz
-          tar -tzf /tmp/openlist-i18n-v4.2.6.tar.gz | grep -Eq '(^|/)zh-CN/index.json        run: python3 openlist-v426/apply_ipa_toolbox.py upstream/frontend
+          curl --fail --location --retry 3 https://github.com/OpenListTeam/OpenList-Frontend/releases/download/v4.2.6/i18n.tar.gz --output /tmp/openlist-i18n-v4.2.6.tar.gz
+          tar -tzf /tmp/openlist-i18n-v4.2.6.tar.gz | grep -F 'zh-CN/index.json'
+          tar -xzf /tmp/openlist-i18n-v4.2.6.tar.gz -C upstream/frontend/src/lang
+          test -f upstream/frontend/src/lang/zh-CN/index.json
+          test -f upstream/frontend/src/lang/zh-CN/home.json
+          cp upstream/frontend/src/lang/en/entry.ts upstream/frontend/src/lang/zh-CN/entry.ts
+      - name: Apply IPA toolbox source overlay
+        run: python3 openlist-v426/apply_ipa_toolbox.py upstream/frontend
       - name: Build pinned frontend
         working-directory: upstream/frontend
         run: |
