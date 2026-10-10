@@ -18,7 +18,7 @@ jobs:
           SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
           mkdir -p Payload/TrollStoreUIPreview.app dist
           xcrun clang -fobjc-arc -arch arm64 -isysroot "$SDK" -miphoneos-version-min=13.0 \
-            -framework UIKit -framework Foundation \
+            -framework UIKit -framework Foundation -framework CoreGraphics \
             TrollStoreUI/main.m -o Payload/TrollStoreUIPreview.app/TrollStoreUIPreview
           cat > Payload/TrollStoreUIPreview.app/Info.plist <<'PLIST'
           <?xml version="1.0" encoding="UTF-8"?>
