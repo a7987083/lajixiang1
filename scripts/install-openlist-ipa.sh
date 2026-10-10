@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 REPO="a7987083/lajixiang1"
-RUN_ID="38064567149"
-ARTIFACT="openlist-v4.2.6-linux-amd64-baseline"
+TAG="openlist-ipa-v4.2.6-baseline"
+BASE_URL="https://github.com/${REPO}/releases/download/${TAG}"
 ROOT="/opt/openlist"
 SERVICE="openlist"
 PORT="5244"
@@ -13,17 +13,14 @@ if [[ -e "$ROOT/openlist" || -e "/etc/systemd/system/$SERVICE.service" ]]; then 
 if ss -ltnH "( sport = :$PORT )" | grep -q .; then echo "Port $PORT already occupied." >&2; exit 1; fi
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y curl ca-certificates unzip gh
-if ! gh auth status >/dev/null 2>&1; then
-  echo "GitHub Actions artifacts require GitHub authentication. Log in using device code:"
-  gh auth login --hostname github.com --git-protocol https --web
-fi
+apt-get install -y curl ca-certificates
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
-gh run download "$RUN_ID" -R "$REPO" -n "$ARTIFACT" -D "$TMP"
+curl -fL --retry 3 --connect-timeout 15 -o "$TMP/openlist-linux-amd64" "${BASE_URL}/openlist-linux-amd64"
+curl -fL --retry 3 --connect-timeout 15 -o "$TMP/SHA256SUMS" "${BASE_URL}/SHA256SUMS"
 test -s "$TMP/openlist-linux-amd64"
 test -s "$TMP/SHA256SUMS"
-(cd "$TMP" && sed "s#  out/#  #" SHA256SUMS | sha256sum -c -)
+(cd "$TMP" && sha256sum -c SHA256SUMS)
 install -d -m 0755 "$ROOT"
 install -m 0755 "$TMP/openlist-linux-amd64" "$ROOT/openlist"
 install -d -m 0700 "$ROOT/data"
