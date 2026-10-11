@@ -15,14 +15,14 @@ static UILabel *L(NSString *s,CGFloat font,BOOL bold,UIColor *color){UILabel *l=
 }
 - (CGFloat)card:(NSString*)name detail:(NSString*)detail symbol:(NSString*)symbol badge:(NSString*)badge y:(CGFloat)y {
  CGFloat w=self.view.bounds.size.width;
- UIView *v=[[UIView alloc]initWithFrame:CGRectMake(18,y,w-36,48)];v.backgroundColor=UIColor.whiteColor;v.layer.cornerRadius=12;[self.content addSubview:v];
- UIView *ic=[[UIView alloc]initWithFrame:CGRectMake(10,8,32,32)];ic.backgroundColor=C(0xE6F0FF);ic.layer.cornerRadius=8;[v addSubview:ic];
- UIImageView *iv=[[UIImageView alloc]initWithImage:[UIImage systemImageNamed:symbol?:@"app.fill"]];iv.tintColor=C(0x337CFA);iv.contentMode=UIViewContentModeScaleAspectFit;iv.frame=CGRectInset(ic.bounds,7,7);[ic addSubview:iv];
- UILabel *t=L(name,11,YES,UIColor.blackColor);t.frame=CGRectMake(50,3,w-92,15);[v addSubview:t];
- UILabel *d=L(detail,9,NO,C(0x8E8E93));d.adjustsFontSizeToFitWidth=YES;d.minimumScaleFactor=.75;d.frame=CGRectMake(50,17,w-89,13);[v addSubview:d];
- if(badge){UILabel *b=L(badge,8,NO,[badge isEqual:@"TrollStore"]?C(0x36B85A):C(0x337CFA));b.backgroundColor=[badge isEqual:@"TrollStore"]?C(0xE7F8EB):C(0xE6F0FF);b.textAlignment=NSTextAlignmentCenter;b.layer.cornerRadius=4;b.clipsToBounds=YES;b.frame=CGRectMake(50,32,[badge isEqual:@"TrollStore"]?53:47,12);[v addSubview:b];}
+ UIView *v=[[UIView alloc]initWithFrame:CGRectMake(18,y,w-36,70)];v.backgroundColor=UIColor.whiteColor;v.layer.cornerRadius=16;[self.content addSubview:v];
+ UIView *ic=[[UIView alloc]initWithFrame:CGRectMake(13,12,46,46)];ic.backgroundColor=C(0xE6F0FF);ic.layer.cornerRadius=11;[v addSubview:ic];
+ UIImageView *iv=[[UIImageView alloc]initWithImage:[UIImage systemImageNamed:symbol?:@"app.fill"]];iv.tintColor=C(0x337CFA);iv.contentMode=UIViewContentModeScaleAspectFit;iv.frame=CGRectInset(ic.bounds,10,10);[ic addSubview:iv];
+ UILabel *t=L(name,15,YES,UIColor.blackColor);t.frame=CGRectMake(72,8,w-118,22);[v addSubview:t];
+ UILabel *d=L(detail,11,NO,C(0x8E8E93));d.adjustsFontSizeToFitWidth=YES;d.minimumScaleFactor=.75;d.frame=CGRectMake(72,28,w-116,17);[v addSubview:d];
+ if(badge){UILabel *b=L(badge,10,NO,[badge isEqual:@"TrollStore"]?C(0x36B85A):C(0x337CFA));b.backgroundColor=[badge isEqual:@"TrollStore"]?C(0xE7F8EB):C(0xE6F0FF);b.textAlignment=NSTextAlignmentCenter;b.layer.cornerRadius=5;b.clipsToBounds=YES;b.frame=CGRectMake(72,49,[badge isEqual:@"TrollStore"]?68:60,16);[v addSubview:b];}
  UIButton *tap=[UIButton buttonWithType:UIButtonTypeCustom];tap.frame=v.bounds;[tap addTarget:self action:@selector(demo) forControlEvents:UIControlEventTouchUpInside];[v addSubview:tap];
- return y+54;
+ return y+78;
 }
 - (CGFloat)setting:(NSString*)name icon:(NSString*)icon color:(UIColor*)color y:(CGFloat)y {
  CGFloat w=self.view.bounds.size.width;UIView *v=[[UIView alloc]initWithFrame:CGRectMake(18,y,w-36,50)];v.backgroundColor=UIColor.whiteColor;v.layer.cornerRadius=19;[self.content addSubview:v];
@@ -32,7 +32,7 @@ static UILabel *L(NSString *s,CGFloat font,BOOL bold,UIColor *color){UILabel *l=
 }
 - (void)build {
  CGFloat w=self.view.bounds.size.width;
- self.scroll=[[UIScrollView alloc]initWithFrame:self.view.bounds];self.scroll.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;self.scroll.contentInset=UIEdgeInsetsMake(0,0,104,0);[self.view addSubview:self.scroll];
+ self.scroll=[[UIScrollView alloc]initWithFrame:self.view.bounds];self.scroll.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;self.scroll.contentInset=UIEdgeInsetsMake(0,0,86,0);[self.view addSubview:self.scroll];
  self.content=[[UIView alloc]initWithFrame:CGRectMake(0,0,w,1700)];[self.scroll addSubview:self.content];
  CGFloat y=0;
  if(self.tab==3){
