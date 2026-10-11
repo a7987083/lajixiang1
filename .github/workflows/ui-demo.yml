@@ -1,0 +1,29 @@
+name: Build UI Demo IPA
+on:
+  push:
+    branches: [feature/trollstore-ui-replica]
+  workflow_dispatch:
+jobs:
+  ios:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and package unsigned demo
+        shell: bash
+        run: |
+          set -euxo pipefail
+          SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
+          mkdir -p Payload/TrollSkin.app dist
+          xcrun clang -fobjc-arc -arch arm64 -isysroot "$SDK" -miphoneos-version-min=15.0 -framework UIKit -framework Foundation -Wl,-rpath,@executable_path/Frameworks ios-ui/main.m -o Payload/TrollSkin.app/TrollSkin
+          python3 - <<'PY'
+          import plistlib
+          d={'CFBundleIdentifier':'com.demo.trollskin','CFBundleName':'TrollSkin','CFBundleDisplayName':'TrollSkin','CFBundleExecutable':'TrollSkin','CFBundlePackageType':'APPL','CFBundleVersion':'1','CFBundleShortVersionString':'0.1','LSRequiresIPhoneOS':True,'MinimumOSVersion':'15.0','UIDeviceFamily':[1],'UILaunchScreen':{}}
+          with open('Payload/TrollSkin.app/Info.plist','wb') as f: plistlib.dump(d,f)
+          PY
+          cd Payload && /usr/bin/zip -qr ../dist/TrollSkin-UI-Demo-unsigned.ipa TrollSkin.app
+          cd ..
+          file Payload/TrollSkin.app/TrollSkin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TrollSkin-UI-Demo-unsigned
+          path: dist/*.ipa
