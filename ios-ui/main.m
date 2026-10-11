@@ -66,42 +66,65 @@ static UILabel *L(NSString *s,CGFloat font,BOOL bold,UIColor *color){UILabel *l=
  CGFloat w=self.view.bounds.size.width;
  CGFloat safeTop=self.view.safeAreaInsets.top;
  self.searchOriginalFrame=searchBar.frame;
+ CGRect startFrame=[searchBar.superview convertRect:searchBar.frame toView:self.view];
  UIView *overlay=[[UIView alloc]initWithFrame:CGRectMake(0,0,w,safeTop+61)];
  overlay.backgroundColor=C(0xF7F8FA);
+ overlay.alpha=0;
  self.searchOverlay=overlay;
  [self.view addSubview:overlay];
  [searchBar removeFromSuperview];
- searchBar.frame=CGRectMake(12,safeTop+5,w-93,49);
+ searchBar.frame=startFrame;
  [overlay addSubview:searchBar];
  UIButton *cancel=[UIButton buttonWithType:UIButtonTypeSystem];
  cancel.frame=CGRectMake(w-75,safeTop+5,68,49);
  [cancel setTitle:@"取消" forState:UIControlStateNormal];
  cancel.titleLabel.font=[UIFont systemFontOfSize:16];
+ cancel.alpha=0;
  [cancel addTarget:self action:@selector(cancelSearch) forControlEvents:UIControlEventTouchUpInside];
  [overlay addSubview:cancel];
  UIView *separator=[[UIView alloc]initWithFrame:CGRectMake(0,safeTop+60,w,0.5)];
  separator.backgroundColor=C(0xD0D0D4);[overlay addSubview:separator];
  self.compactHeader.hidden=YES;
- self.dock.hidden=YES;
- [self.scroll setContentOffset:CGPointMake(0,MAX(0,self.searchRowsTop-(safeTop+62))) animated:NO];
+ [UIView animateWithDuration:0.28 delay:0 options:UIViewAnimationOptionCurveEaseInOut|UIViewAnimationOptionBeginFromCurrentState animations:^{
+   overlay.alpha=1;
+   searchBar.frame=CGRectMake(12,safeTop+5,w-93,49);
+   cancel.alpha=1;
+   self.dock.alpha=0;
+   [self.scroll setContentOffset:CGPointMake(0,MAX(0,self.searchRowsTop-(safeTop+62))) animated:NO];
+ } completion:^(BOOL finished) {
+   if(self.searching) self.dock.hidden=YES;
+ }];
  return YES;
+}
+- (void)searchBarSearchButtonClicked:(UISearchBar *)searchBar {
+ [searchBar resignFirstResponder];
 }
 - (void)cancelSearch {
  [self.searchBar resignFirstResponder];
  self.searchBar.text=@"";
  [self searchBar:self.searchBar textDidChange:@""];
- [self.searchBar removeFromSuperview];
- self.searchBar.frame=self.searchOriginalFrame;
- [self.content addSubview:self.searchBar];
- [self.searchOverlay removeFromSuperview];
- self.searchOverlay=nil;
- self.searching=NO;
- self.compactHeader.hidden=NO;
+ CGFloat w=self.view.bounds.size.width;
+ CGRect restore=[self.content convertRect:self.searchOriginalFrame toView:self.view];
  self.scroll.frame=self.view.bounds;
  self.scroll.contentInset=UIEdgeInsetsMake(0,0,100,0);
- self.dock.hidden=NO;
  [self.scroll setContentOffset:CGPointZero animated:NO];
- [self scrollViewDidScroll:self.scroll];
+ restore=[self.content convertRect:self.searchOriginalFrame toView:self.view];
+ self.dock.hidden=NO;
+ [UIView animateWithDuration:0.28 delay:0 options:UIViewAnimationOptionCurveEaseInOut|UIViewAnimationOptionBeginFromCurrentState animations:^{
+   self.searchBar.frame=restore;
+   self.searchOverlay.alpha=0;
+   self.dock.alpha=1;
+ } completion:^(BOOL finished) {
+   if(!finished) return;
+   [self.searchBar removeFromSuperview];
+   self.searchBar.frame=self.searchOriginalFrame;
+   [self.content addSubview:self.searchBar];
+   [self.searchOverlay removeFromSuperview];
+   self.searchOverlay=nil;
+   self.searching=NO;
+   self.compactHeader.hidden=NO;
+   [self scrollViewDidScroll:self.scroll];
+ }];
 }
 - (void)searchBar:(UISearchBar *)searchBar textDidChange:(NSString *)searchText {
  NSString *needle=[searchText stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
