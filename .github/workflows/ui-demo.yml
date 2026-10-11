@@ -5,24 +5,37 @@ on:
   workflow_dispatch:
 jobs:
   ios:
-    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            sdk_label: legacy
+          - runner: macos-26
+            sdk_label: ios26
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
       - name: Compile and package unsigned demo
         shell: bash
         run: |
           set -euxo pipefail
+          if [[ "${{ matrix.sdk_label }}" == "ios26" ]]; then
+            export DEVELOPER_DIR=/Applications/Xcode_26.6.app/Contents/Developer
+          fi
+          xcodebuild -version
           SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
+          echo "SDK=$SDK"
           mkdir -p Payload/TrollSkin.app dist
-          xcrun clang -fobjc-arc -arch arm64 -isysroot "$SDK" -miphoneos-version-min=15.0 -framework UIKit -framework Foundation -framework CoreGraphics -Wl,-rpath,@executable_path/Frameworks ios-ui/main.m -o Payload/TrollSkin.app/TrollSkin
+          xcrun clang -fobjc-arc -arch arm64 -isysroot "$SDK" -miphoneos-version-min=13.0 -framework UIKit -framework Foundation -framework CoreGraphics -Wl,-rpath,@executable_path/Frameworks ios-ui/main.m -o Payload/TrollSkin.app/TrollSkin
           python3 - <<'PY'
           import plistlib
-          d={'CFBundleIdentifier':'com.demo.trollskin','CFBundleName':'TrollSkin','CFBundleDisplayName':'TrollSkin','CFBundleExecutable':'TrollSkin','CFBundlePackageType':'APPL','CFBundleVersion':'1','CFBundleShortVersionString':'0.1','LSRequiresIPhoneOS':True,'MinimumOSVersion':'15.0','UIDeviceFamily':[1],'UILaunchScreen':{}}
+          d={'CFBundleIdentifier':'com.demo.trollskin','CFBundleName':'TrollSkin','CFBundleDisplayName':'TrollSkin','CFBundleExecutable':'TrollSkin','CFBundlePackageType':'APPL','CFBundleVersion':'1','CFBundleShortVersionString':'0.1','LSRequiresIPhoneOS':True,'MinimumOSVersion':'13.0','UIDeviceFamily':[1],'UILaunchScreen':{}}
           with open('Payload/TrollSkin.app/Info.plist','wb') as f: plistlib.dump(d,f)
           PY
-          /usr/bin/zip -qr dist/TrollSkin-UI-Demo-unsigned.ipa Payload
+          /usr/bin/zip -qr dist/TrollSkin-UI-Demo-${{ matrix.sdk_label }}-unsigned.ipa Payload
           file Payload/TrollSkin.app/TrollSkin
       - uses: actions/upload-artifact@v4
         with:
-          name: TrollSkin-UI-Demo-unsigned
+          name: TrollSkin-UI-Demo-${{ matrix.sdk_label }}-unsigned
           path: dist/*.ipa
