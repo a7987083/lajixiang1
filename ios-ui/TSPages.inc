@@ -83,7 +83,7 @@
  if(self.tab!=3){UIButton *plus=[UIButton buttonWithType:UIButtonTypeSystem];plus.frame=CGRectMake(w-53,actionY,42,42);[plus setImage:[UIImage systemImageNamed:@"plus.circle.fill" withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:29]] forState:UIControlStateNormal];plus.tintColor=C(0x337CFA);[plus addTarget:self action:@selector(demo) forControlEvents:UIControlEventTouchUpInside];[self.view addSubview:plus];}
  [self tabs];
 }
-- (void)change:(UIButton*)sender {Screen *s=[Screen new];s.tab=sender.tag;self.view.window.rootViewController=s;}
+- (void)change:(UIButton*)sender {Screen *s=[TSSkinScreen new];s.tab=sender.tag;self.view.window.rootViewController=s;}
 - (void)tabs {
  CGFloat w=self.view.bounds.size.width;CGFloat dockWidth=MIN(w-112,320);
  UIView *bar=[[UIView alloc]initWithFrame:CGRectMake((w-dockWidth)/2,self.view.bounds.size.height-self.view.safeAreaInsets.bottom-72,dockWidth,60)];
