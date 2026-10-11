@@ -102,31 +102,37 @@ static UILabel *L(NSString *s,CGFloat font,BOOL bold,UIColor *color){UILabel *l=
  [searchBar resignFirstResponder];
 }
 - (void)cancelSearch {
+ // Preserve the position reached while browsing search results, not the
+ // position saved before search began. Capture it before changing row geometry.
+ CGFloat visibleOffset=self.scroll.contentOffset.y;
+ self.searching=NO; // Ignore the asynchronous keyboard-hide notification.
  [self.searchBar resignFirstResponder];
  self.searchBar.text=@"";
- [self searchBar:self.searchBar textDidChange:@""];
- CGFloat w=self.view.bounds.size.width;
- CGRect restore=[self.content convertRect:self.searchOriginalFrame toView:self.view];
  self.scroll.frame=self.view.bounds;
  self.scroll.contentInset=UIEdgeInsetsMake(0,0,100,0);
- CGFloat maxOffset=MAX(-self.scroll.adjustedContentInset.top,self.scroll.contentSize.height-self.scroll.bounds.size.height+self.scroll.adjustedContentInset.bottom);
- CGFloat targetY=MIN(MAX(self.preSearchOffsetY,-self.scroll.adjustedContentInset.top),maxOffset);
+ [self searchBar:self.searchBar textDidChange:@""];
+ CGFloat minOffset=-self.scroll.adjustedContentInset.top;
+ CGFloat maxOffset=MAX(minOffset,self.scroll.contentSize.height-self.scroll.bounds.size.height+self.scroll.adjustedContentInset.bottom);
+ CGFloat targetY=MIN(MAX(visibleOffset,minOffset),maxOffset);
  [self.scroll setContentOffset:CGPointMake(0,targetY) animated:NO];
- restore=[self.content convertRect:self.searchOriginalFrame toView:self.view];
+ CGRect restore=[self.content convertRect:self.searchOriginalFrame toView:self.view];
  self.dock.hidden=NO;
  [UIView animateWithDuration:0.28 delay:0 options:UIViewAnimationOptionCurveEaseInOut|UIViewAnimationOptionBeginFromCurrentState animations:^{
    self.searchBar.frame=restore;
    self.searchOverlay.alpha=0;
    self.dock.alpha=1;
  } completion:^(BOOL finished) {
-   if(!finished) return;
+   // Complete cleanup even if the animation was interrupted.
    [self.searchBar removeFromSuperview];
    self.searchBar.frame=self.searchOriginalFrame;
    [self.content addSubview:self.searchBar];
    [self.searchOverlay removeFromSuperview];
    self.searchOverlay=nil;
-   self.searching=NO;
    self.compactHeader.hidden=NO;
+   // Re-apply after UIKit's keyboard/layout updates settle.
+   CGFloat minY=-self.scroll.adjustedContentInset.top;
+   CGFloat maxY=MAX(minY,self.scroll.contentSize.height-self.scroll.bounds.size.height+self.scroll.adjustedContentInset.bottom);
+   [self.scroll setContentOffset:CGPointMake(0,MIN(MAX(targetY,minY),maxY)) animated:NO];
    [self scrollViewDidScroll:self.scroll];
  }];
 }
