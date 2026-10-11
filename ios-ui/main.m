@@ -14,6 +14,8 @@ static UILabel *L(NSString *s,CGFloat font,BOOL bold,UIColor *color){UILabel *l=
 @property(nonatomic,strong) UIView *searchOverlay;
 @property(nonatomic,assign) CGRect searchOriginalFrame;
 @property(nonatomic,assign) CGFloat preSearchOffsetY;
+@property(nonatomic,assign) CGFloat normalSearchRowsTop;
+@property(nonatomic,strong) UILabel *largeTitleLabel;
 @property(nonatomic,assign) BOOL searching;
 @end
 @implementation Screen
@@ -87,12 +89,16 @@ static UILabel *L(NSString *s,CGFloat font,BOOL bold,UIColor *color){UILabel *l=
  UIView *separator=[[UIView alloc]initWithFrame:CGRectMake(0,safeTop+60,w,0.5)];
  separator.backgroundColor=C(0xD0D0D4);[overlay addSubview:separator];
  self.compactHeader.hidden=YES;
+ self.largeTitleLabel.hidden=YES;
+ // Remove the collapsed large-title/search placeholder area while editing.
+ self.searchRowsTop=safeTop+70;
+ [self searchBar:searchBar textDidChange:searchBar.text?:@""];
  [UIView animateWithDuration:0.28 delay:0 options:UIViewAnimationOptionCurveEaseInOut|UIViewAnimationOptionBeginFromCurrentState animations:^{
    overlay.alpha=1;
    searchBar.frame=CGRectMake(12,safeTop+5,w-93,49);
    cancel.alpha=1;
    self.dock.alpha=0;
-   [self.scroll setContentOffset:CGPointMake(0,MAX(0,self.searchRowsTop-(safeTop+62))) animated:NO];
+   [self.scroll setContentOffset:CGPointZero animated:NO];
  } completion:^(BOOL finished) {
    if(self.searching) self.dock.hidden=YES;
  }];
@@ -108,6 +114,7 @@ static UILabel *L(NSString *s,CGFloat font,BOOL bold,UIColor *color){UILabel *l=
  self.searching=NO; // Ignore the asynchronous keyboard-hide notification.
  [self.searchBar resignFirstResponder];
  self.searchBar.text=@"";
+ self.searchRowsTop=self.normalSearchRowsTop;
  self.scroll.frame=self.view.bounds;
  self.scroll.contentInset=UIEdgeInsetsMake(0,0,100,0);
  [self searchBar:self.searchBar textDidChange:@""];
@@ -129,6 +136,7 @@ static UILabel *L(NSString *s,CGFloat font,BOOL bold,UIColor *color){UILabel *l=
    [self.searchOverlay removeFromSuperview];
    self.searchOverlay=nil;
    self.compactHeader.hidden=NO;
+   self.largeTitleLabel.hidden=NO;
    // Re-apply after UIKit's keyboard/layout updates settle.
    CGFloat minY=-self.scroll.adjustedContentInset.top;
    CGFloat maxY=MAX(minY,self.scroll.contentSize.height-self.scroll.bounds.size.height+self.scroll.adjustedContentInset.bottom);
@@ -181,6 +189,7 @@ static UILabel *L(NSString *s,CGFloat font,BOOL bold,UIColor *color){UILabel *l=
  }else{
  NSString *heading=@[@"应用",@"安装包",@"插件"][self.tab];
  y=[self line:heading y:largeTitleY x:20 color:UIColor.blackColor size:37 bold:YES height:53]+8;
+ self.largeTitleLabel=(UILabel *)self.content.subviews.lastObject;
  // Shared search UI; settings deliberately has no search field or reserved space.
  UISearchBar *search=[[UISearchBar alloc]initWithFrame:CGRectMake(12,y,w-24,52)];
  search.searchBarStyle=UISearchBarStyleMinimal;
@@ -194,6 +203,7 @@ static UILabel *L(NSString *s,CGFloat font,BOOL bold,UIColor *color){UILabel *l=
  [self.content addSubview:search];
  y+=62;
  self.searchRowsTop=y;
+ self.normalSearchRowsTop=y;
  if(self.tab==0){
  NSArray *items=@[
  @[@"123云盘",@"3.3.2 · com.mfcloudcalculate.123networkdisk",@"cloud.fill",@"App Store"],
