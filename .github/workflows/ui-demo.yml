@@ -16,6 +16,8 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Verify behavior-preserving source extraction
         run: python3 tests/test_source_equivalence.py
       - name: Compile and package unsigned demo
