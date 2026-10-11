@@ -43,7 +43,7 @@ static UILabel *L(NSString *s,CGFloat font,BOOL bold,UIColor *color){UILabel *l=
  CGFloat safeTop=self.view.safeAreaInsets.top;
  CGFloat headerY=safeTop+8.0;
  CGFloat actionY=headerY;
- self.scroll=[[UIScrollView alloc]initWithFrame:self.view.bounds];self.scroll.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;self.scroll.contentInsetAdjustmentBehavior=UIScrollViewContentInsetAdjustmentNever;self.scroll.contentInset=UIEdgeInsetsMake(0,0,95,0);[self.view addSubview:self.scroll];
+ self.scroll=[[UIScrollView alloc]initWithFrame:self.view.bounds];self.scroll.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;self.scroll.contentInsetAdjustmentBehavior=UIScrollViewContentInsetAdjustmentNever;self.scroll.contentInset=UIEdgeInsetsMake(0,0,100,0);[self.view addSubview:self.scroll];
  self.content=[[UIView alloc]initWithFrame:CGRectMake(0,0,w,1700)];[self.scroll addSubview:self.content];
  CGFloat y=0;
  if(self.tab==3){
