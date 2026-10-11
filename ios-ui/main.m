@@ -32,11 +32,11 @@ static UILabel *L(NSString *s,CGFloat font,BOOL bold,UIColor *color){UILabel *l=
 }
 - (void)build {
  CGFloat w=self.view.bounds.size.width;
- self.scroll=[[UIScrollView alloc]initWithFrame:self.view.bounds];self.scroll.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;self.scroll.contentInset=UIEdgeInsetsMake(0,0,43,0);[self.view addSubview:self.scroll];
+ self.scroll=[[UIScrollView alloc]initWithFrame:self.view.bounds];self.scroll.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;self.scroll.contentInset=UIEdgeInsetsMake(0,0,50,0);[self.view addSubview:self.scroll];
  self.content=[[UIView alloc]initWithFrame:CGRectMake(0,0,w,1700)];[self.scroll addSubview:self.content];
  CGFloat y=0;
  if(self.tab==3){
- UILabel *title=L(@"设置",21,YES,UIColor.blackColor);title.textAlignment=NSTextAlignmentCenter;title.frame=CGRectMake(0,68,w,40);[self.content addSubview:title];y=123;
+ UILabel *title=L(@"设置",21,YES,UIColor.blackColor);title.textAlignment=NSTextAlignmentCenter;title.frame=CGRectMake(0,55,w,40);[self.content addSubview:title];y=110;
  y=[self line:@"如果应用安装后没有立即出现在主屏幕，请在此处注销一次。对于无法启动的应用，可以尝试刷新应用注册状态。" y:y x:30 color:C(0x8E8E93) size:14 bold:NO height:59]+15;
  y=[self line:@"设备管理" y:y x:30 color:C(0x8E8E93) size:14 bold:NO height:27]+5;
  NSArray *names=@[@"自定义清理",@"切换 App Store 账户",@"允许所有 App 粘贴",@"屏蔽 / 恢复 系统更新",@"直降应用"];
@@ -51,7 +51,7 @@ static UILabel *L(NSString *s,CGFloat font,BOOL bold,UIColor *color){UILabel *l=
  y=[self setting:@"卸载持久化助手" icon:@"trash" color:UIColor.systemRedColor y:y];
  }else{
  NSString *heading=@[@"应用",@"安装包",@"插件"][self.tab];
- y=[self line:heading y:100 x:20 color:UIColor.blackColor size:37 bold:YES height:53]+8;
+ y=[self line:heading y:72 x:20 color:UIColor.blackColor size:37 bold:YES height:53]+8;
  if(self.tab==0){
  NSArray *items=@[
  @[@"123云盘",@"3.3.2 · com.mfcloudcalculate.123networkdisk",@"cloud.fill",@"App Store"],
@@ -76,9 +76,9 @@ static UILabel *L(NSString *s,CGFloat font,BOOL bold,UIColor *color){UILabel *l=
  }else{y=175;}
  }
  self.content.frame=CGRectMake(0,0,w,MAX(y,self.view.bounds.size.height-104));self.scroll.contentSize=CGSizeMake(w,y);
- if(self.tab==1 || self.tab==2){UIButton *edit=[UIButton buttonWithType:UIButtonTypeSystem];edit.frame=CGRectMake(w-108,72,42,34);[edit setTitle:@"编辑" forState:UIControlStateNormal];edit.titleLabel.font=[UIFont systemFontOfSize:16];[edit addTarget:self action:@selector(demo) forControlEvents:UIControlEventTouchUpInside];[self.view addSubview:edit];}
- if(self.tab==3){UIButton *brush=[UIButton buttonWithType:UIButtonTypeSystem];brush.frame=CGRectMake(w-58,69,40,40);[brush setImage:[UIImage systemImageNamed:@"paintbrush.pointed.fill"] forState:UIControlStateNormal];brush.tintColor=C(0x337CFA);[brush addTarget:self action:@selector(demo) forControlEvents:UIControlEventTouchUpInside];[self.view addSubview:brush];}
- if(self.tab!=3){UIButton *plus=[UIButton buttonWithType:UIButtonTypeSystem];plus.frame=CGRectMake(w-53,68,42,42);[plus setImage:[UIImage systemImageNamed:@"plus.circle.fill" withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:29]] forState:UIControlStateNormal];plus.tintColor=C(0x337CFA);[plus addTarget:self action:@selector(demo) forControlEvents:UIControlEventTouchUpInside];[self.view addSubview:plus];}
+ if(self.tab==1 || self.tab==2){UIButton *edit=[UIButton buttonWithType:UIButtonTypeSystem];edit.frame=CGRectMake(w-108,58,42,34);[edit setTitle:@"编辑" forState:UIControlStateNormal];edit.titleLabel.font=[UIFont systemFontOfSize:16];[edit addTarget:self action:@selector(demo) forControlEvents:UIControlEventTouchUpInside];[self.view addSubview:edit];}
+ if(self.tab==3){UIButton *brush=[UIButton buttonWithType:UIButtonTypeSystem];brush.frame=CGRectMake(w-58,56,40,40);[brush setImage:[UIImage systemImageNamed:@"paintbrush.pointed.fill"] forState:UIControlStateNormal];brush.tintColor=C(0x337CFA);[brush addTarget:self action:@selector(demo) forControlEvents:UIControlEventTouchUpInside];[self.view addSubview:brush];}
+ if(self.tab!=3){UIButton *plus=[UIButton buttonWithType:UIButtonTypeSystem];plus.frame=CGRectMake(w-53,54,42,42);[plus setImage:[UIImage systemImageNamed:@"plus.circle.fill" withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:29]] forState:UIControlStateNormal];plus.tintColor=C(0x337CFA);[plus addTarget:self action:@selector(demo) forControlEvents:UIControlEventTouchUpInside];[self.view addSubview:plus];}
  [self tabs];
 }
 - (void)change:(UIButton*)sender {Screen *s=[Screen new];s.tab=sender.tag;self.view.window.rootViewController=s;}
