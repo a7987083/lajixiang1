@@ -17,7 +17,7 @@ end_old=old.index("\n@end\n@interface SkinDelegate",start_old)
 start_new=new.index("- (void)demo ")
 end_new=new.index("\n@end\n",start_new)
 original=old[start_old:end_old]
-refactored=new[start_new:end_new].replace("[TSSkinScreen new]","[Screen new]")
+refactored=new[start_new:end_new].replace("TSSkinScreen *s=[TSSkinScreen new]","Screen *s=[Screen new]")
 assert original==refactored,"Screen implementation changed relative to stable baseline"
 main=(root/"ios-ui/main.m").read_text()
 header=(root/"ios-ui/TrollSkinUI.h").read_text()
