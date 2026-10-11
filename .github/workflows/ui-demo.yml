@@ -31,7 +31,9 @@ jobs:
           SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
           echo "SDK=$SDK"
           mkdir -p Payload/TrollSkin.app dist
-          xcrun clang -fobjc-arc -arch arm64 -isysroot "$SDK" -miphoneos-version-min=13.0 -framework UIKit -framework Foundation -framework CoreGraphics -Wl,-rpath,@executable_path/Frameworks ios-ui/main.m -o Payload/TrollSkin.app/TrollSkin
+          xcrun clang -fobjc-arc -arch arm64 -isysroot "$SDK" -miphoneos-version-min=13.0 -c ios-ui/TrollSkinUI.m -o dist/TrollSkinUI.o
+          xcrun ar rcs dist/libTrollSkinUI.a dist/TrollSkinUI.o
+          xcrun clang -fobjc-arc -arch arm64 -isysroot "$SDK" -miphoneos-version-min=13.0 -framework UIKit -framework Foundation -framework CoreGraphics ios-ui/main.m dist/libTrollSkinUI.a -o Payload/TrollSkin.app/TrollSkin
           python3 - <<'PY'
           import plistlib
           d={'CFBundleIdentifier':'com.demo.trollskin','CFBundleName':'TrollSkin','CFBundleDisplayName':'TrollSkin','CFBundleExecutable':'TrollSkin','CFBundlePackageType':'APPL','CFBundleVersion':'1','CFBundleShortVersionString':'0.1','LSRequiresIPhoneOS':True,'MinimumOSVersion':'13.0','UIDeviceFamily':[1],'UILaunchScreen':{}}
@@ -42,4 +44,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: TrollSkin-UI-Demo-${{ matrix.sdk_label }}-unsigned
-          path: dist/*.ipa
+          path: |
+            dist/*.ipa
+            dist/libTrollSkinUI.a
+            ios-ui/TrollSkinUI.h
