@@ -13,6 +13,7 @@ static UILabel *L(NSString *s,CGFloat font,BOOL bold,UIColor *color){UILabel *l=
 @property(nonatomic,assign) CGFloat searchRowsTop;
 @property(nonatomic,strong) UIView *searchOverlay;
 @property(nonatomic,assign) CGRect searchOriginalFrame;
+@property(nonatomic,assign) CGFloat preSearchOffsetY;
 @property(nonatomic,assign) BOOL searching;
 @end
 @implementation Screen
@@ -65,6 +66,7 @@ static UILabel *L(NSString *s,CGFloat font,BOOL bold,UIColor *color){UILabel *l=
  self.searching=YES;
  CGFloat w=self.view.bounds.size.width;
  CGFloat safeTop=self.view.safeAreaInsets.top;
+ self.preSearchOffsetY=self.scroll.contentOffset.y;
  self.searchOriginalFrame=searchBar.frame;
  CGRect startFrame=[searchBar.superview convertRect:searchBar.frame toView:self.view];
  UIView *overlay=[[UIView alloc]initWithFrame:CGRectMake(0,0,w,safeTop+61)];
@@ -107,7 +109,9 @@ static UILabel *L(NSString *s,CGFloat font,BOOL bold,UIColor *color){UILabel *l=
  CGRect restore=[self.content convertRect:self.searchOriginalFrame toView:self.view];
  self.scroll.frame=self.view.bounds;
  self.scroll.contentInset=UIEdgeInsetsMake(0,0,100,0);
- [self.scroll setContentOffset:CGPointZero animated:NO];
+ CGFloat maxOffset=MAX(-self.scroll.adjustedContentInset.top,self.scroll.contentSize.height-self.scroll.bounds.size.height+self.scroll.adjustedContentInset.bottom);
+ CGFloat targetY=MIN(MAX(self.preSearchOffsetY,-self.scroll.adjustedContentInset.top),maxOffset);
+ [self.scroll setContentOffset:CGPointMake(0,targetY) animated:NO];
  restore=[self.content convertRect:self.searchOriginalFrame toView:self.view];
  self.dock.hidden=NO;
  [UIView animateWithDuration:0.28 delay:0 options:UIViewAnimationOptionCurveEaseInOut|UIViewAnimationOptionBeginFromCurrentState animations:^{
