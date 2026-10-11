@@ -32,7 +32,7 @@ static UILabel *L(NSString *s,CGFloat font,BOOL bold,UIColor *color){UILabel *l=
 }
 - (void)build {
  CGFloat w=self.view.bounds.size.width;
- self.scroll=[[UIScrollView alloc]initWithFrame:self.view.bounds];self.scroll.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;self.scroll.contentInset=UIEdgeInsetsMake(0,0,134,0);[self.view addSubview:self.scroll];
+ self.scroll=[[UIScrollView alloc]initWithFrame:self.view.bounds];self.scroll.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;self.scroll.contentInset=UIEdgeInsetsMake(0,0,104,0);[self.view addSubview:self.scroll];
  self.content=[[UIView alloc]initWithFrame:CGRectMake(0,0,w,1700)];[self.scroll addSubview:self.content];
  CGFloat y=0;
  if(self.tab==3){
@@ -75,7 +75,7 @@ static UILabel *L(NSString *s,CGFloat font,BOOL bold,UIColor *color){UILabel *l=
  y=[self card:@"test.ipa" detail:@"960 KB · 2026-10-11 06:42（演示）" symbol:@"doc.fill" badge:nil y:y];
  }else{y=175;}
  }
- self.content.frame=CGRectMake(0,0,w,MAX(y+80,self.view.bounds.size.height));self.scroll.contentSize=self.content.bounds.size;
+ self.content.frame=CGRectMake(0,0,w,MAX(y,self.view.bounds.size.height-104));self.scroll.contentSize=CGSizeMake(w,y);
  if(self.tab==1 || self.tab==2){UIButton *edit=[UIButton buttonWithType:UIButtonTypeSystem];edit.frame=CGRectMake(w-108,72,42,34);[edit setTitle:@"编辑" forState:UIControlStateNormal];edit.titleLabel.font=[UIFont systemFontOfSize:16];[edit addTarget:self action:@selector(demo) forControlEvents:UIControlEventTouchUpInside];[self.view addSubview:edit];}
  if(self.tab==3){UIButton *brush=[UIButton buttonWithType:UIButtonTypeSystem];brush.frame=CGRectMake(w-58,69,40,40);[brush setImage:[UIImage systemImageNamed:@"paintbrush.pointed.fill"] forState:UIControlStateNormal];brush.tintColor=C(0x337CFA);[brush addTarget:self action:@selector(demo) forControlEvents:UIControlEventTouchUpInside];[self.view addSubview:brush];}
  if(self.tab!=3){UIButton *plus=[UIButton buttonWithType:UIButtonTypeSystem];plus.frame=CGRectMake(w-53,68,42,42);[plus setImage:[UIImage systemImageNamed:@"plus.circle.fill" withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:29]] forState:UIControlStateNormal];plus.tintColor=C(0x337CFA);[plus addTarget:self action:@selector(demo) forControlEvents:UIControlEventTouchUpInside];[self.view addSubview:plus];}
