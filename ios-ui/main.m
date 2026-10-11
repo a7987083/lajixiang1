@@ -1,12 +1,13 @@
 #import <UIKit/UIKit.h>
 static UIColor *C(int hex){return [UIColor colorWithRed:((hex>>16)&255)/255. green:((hex>>8)&255)/255. blue:(hex&255)/255. alpha:1];}
 static UILabel *L(NSString *s,CGFloat font,BOOL bold,UIColor *color){UILabel *l=[UILabel new];l.text=s;l.textColor=color;l.font=bold?[UIFont boldSystemFontOfSize:font]:[UIFont systemFontOfSize:font];return l;}
-@interface Screen : UIViewController
+@interface Screen : UIViewController <UIScrollViewDelegate>
 @property NSInteger tab;
 @property(nonatomic,strong) UIView *content;
 @property(nonatomic,strong) UIScrollView *scroll;
 @property(nonatomic,strong) UIView *dock;
 @property(nonatomic,assign) CGSize renderedSize;
+@property(nonatomic,strong) UIView *compactHeader;
 @end
 @implementation Screen
 - (void)demo {UIAlertController *a=[UIAlertController alertControllerWithTitle:@"界面演示" message:@"当前为 UI 占位，尚未接入实际安装、插件或系统管理功能。" preferredStyle:UIAlertControllerStyleAlert];[a addAction:[UIAlertAction actionWithTitle:@"知道了" style:UIAlertActionStyleDefault handler:nil]];[self presentViewController:a animated:YES completion:nil];}
@@ -38,12 +39,19 @@ static UILabel *L(NSString *s,CGFloat font,BOOL bold,UIColor *color){UILabel *l=
  UILabel *lab=L(name,16,NO,color);lab.frame=CGRectMake(63,6,w-107,38);lab.adjustsFontSizeToFitWidth=YES;lab.minimumScaleFactor=.7;[v addSubview:lab];
  UIButton *tap=[UIButton buttonWithType:UIButtonTypeCustom];tap.frame=v.bounds;[tap addTarget:self action:@selector(demo) forControlEvents:UIControlEventTouchUpInside];[v addSubview:tap];return y+59;
 }
+- (void)scrollViewDidScroll:(UIScrollView *)scrollView {
+ if (!self.compactHeader) return;
+ // The large title scrolls out; the compact title stays fixed below the status bar.
+ CGFloat progress=MIN(1.0,MAX(0.0,(scrollView.contentOffset.y-18.0)/28.0));
+ self.compactHeader.alpha=progress;
+}
 - (void)build {
  CGFloat w=self.view.bounds.size.width;
  CGFloat safeTop=self.view.safeAreaInsets.top;
  CGFloat headerY=safeTop+8.0;
+ CGFloat largeTitleY=safeTop+66.0;
  CGFloat actionY=headerY;
- self.scroll=[[UIScrollView alloc]initWithFrame:self.view.bounds];self.scroll.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;self.scroll.contentInsetAdjustmentBehavior=UIScrollViewContentInsetAdjustmentNever;self.scroll.contentInset=UIEdgeInsetsMake(0,0,100,0);[self.view addSubview:self.scroll];
+ self.scroll=[[UIScrollView alloc]initWithFrame:self.view.bounds];self.scroll.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;self.scroll.contentInsetAdjustmentBehavior=UIScrollViewContentInsetAdjustmentNever;self.scroll.delegate=self;self.scroll.contentInset=UIEdgeInsetsMake(0,0,100,0);[self.view addSubview:self.scroll];
  self.content=[[UIView alloc]initWithFrame:CGRectMake(0,0,w,1700)];[self.scroll addSubview:self.content];
  CGFloat y=0;
  if(self.tab==3){
@@ -62,7 +70,7 @@ static UILabel *L(NSString *s,CGFloat font,BOOL bold,UIColor *color){UILabel *l=
  y=[self setting:@"卸载持久化助手" icon:@"trash" color:UIColor.systemRedColor y:y];
  }else{
  NSString *heading=@[@"应用",@"安装包",@"插件"][self.tab];
- y=[self line:heading y:headerY x:20 color:UIColor.blackColor size:37 bold:YES height:53]+8;
+ y=[self line:heading y:largeTitleY x:20 color:UIColor.blackColor size:37 bold:YES height:53]+8;
  if(self.tab==0){
  NSArray *items=@[
  @[@"123云盘",@"3.3.2 · com.mfcloudcalculate.123networkdisk",@"cloud.fill",@"App Store"],
@@ -84,11 +92,23 @@ static UILabel *L(NSString *s,CGFloat font,BOOL bold,UIColor *color){UILabel *l=
  y=[self card:@"1" detail:@"文件夹 · 2026-10-11 09:21（演示）" symbol:@"folder.fill" badge:nil y:y];
  y=[self card:@"Random Dice 2.ipa" detail:@"273.6 MB · 2026-10-10 02:35（演示）" symbol:@"doc.fill" badge:nil y:y];
  y=[self card:@"test.ipa" detail:@"960 KB · 2026-10-11 06:42（演示）" symbol:@"doc.fill" badge:nil y:y];
- }else{y=175;}
+ }else{y=largeTitleY+117;}
  }
  CGFloat contentHeight=MAX(y,self.scroll.bounds.size.height-self.scroll.contentInset.bottom);
  self.content.frame=CGRectMake(0,0,w,contentHeight);
  self.scroll.contentSize=CGSizeMake(w,contentHeight);
+ if(self.tab!=3){
+   UIView *header=[[UIView alloc]initWithFrame:CGRectMake(0,0,w,safeTop+52)];
+   header.backgroundColor=C(0xF7F8FA);
+   UILabel *compact=L(@[@"应用",@"安装包",@"插件"][self.tab],20,YES,UIColor.blackColor);
+   compact.textAlignment=NSTextAlignmentCenter;
+   compact.frame=CGRectMake(65,safeTop+5,w-130,36);
+   [header addSubview:compact];
+   UIView *divider=[[UIView alloc]initWithFrame:CGRectMake(0,CGRectGetHeight(header.bounds)-0.5,w,0.5)];
+   divider.backgroundColor=C(0xD0D0D4);[header addSubview:divider];
+   header.alpha=0;header.userInteractionEnabled=NO;self.compactHeader=header;
+   [self.view addSubview:header];
+ }
  if(self.tab==1 || self.tab==2){UIButton *edit=[UIButton buttonWithType:UIButtonTypeSystem];edit.frame=CGRectMake(w-108,actionY,42,34);[edit setTitle:@"编辑" forState:UIControlStateNormal];edit.titleLabel.font=[UIFont systemFontOfSize:16];[edit addTarget:self action:@selector(demo) forControlEvents:UIControlEventTouchUpInside];[self.view addSubview:edit];}
  if(self.tab==3){UIButton *brush=[UIButton buttonWithType:UIButtonTypeSystem];brush.frame=CGRectMake(w-58,actionY,40,40);[brush setImage:[UIImage systemImageNamed:@"paintbrush.pointed.fill"] forState:UIControlStateNormal];brush.tintColor=C(0x337CFA);[brush addTarget:self action:@selector(demo) forControlEvents:UIControlEventTouchUpInside];[self.view addSubview:brush];}
  if(self.tab!=3){UIButton *plus=[UIButton buttonWithType:UIButtonTypeSystem];plus.frame=CGRectMake(w-53,actionY,42,42);[plus setImage:[UIImage systemImageNamed:@"plus.circle.fill" withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:29]] forState:UIControlStateNormal];plus.tintColor=C(0x337CFA);[plus addTarget:self action:@selector(demo) forControlEvents:UIControlEventTouchUpInside];[self.view addSubview:plus];}
