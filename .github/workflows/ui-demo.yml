@@ -14,7 +14,7 @@ jobs:
           set -euxo pipefail
           SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
           mkdir -p Payload/TrollSkin.app dist
-          xcrun clang -fobjc-arc -arch arm64 -isysroot "$SDK" -miphoneos-version-min=15.0 -framework UIKit -framework Foundation -Wl,-rpath,@executable_path/Frameworks ios-ui/main.m -o Payload/TrollSkin.app/TrollSkin
+          xcrun clang -fobjc-arc -arch arm64 -isysroot "$SDK" -miphoneos-version-min=15.0 -framework UIKit -framework Foundation -framework CoreGraphics -Wl,-rpath,@executable_path/Frameworks ios-ui/main.m -o Payload/TrollSkin.app/TrollSkin
           python3 - <<'PY'
           import plistlib
           d={'CFBundleIdentifier':'com.demo.trollskin','CFBundleName':'TrollSkin','CFBundleDisplayName':'TrollSkin','CFBundleExecutable':'TrollSkin','CFBundlePackageType':'APPL','CFBundleVersion':'1','CFBundleShortVersionString':'0.1','LSRequiresIPhoneOS':True,'MinimumOSVersion':'15.0','UIDeviceFamily':[1],'UILaunchScreen':{}}
