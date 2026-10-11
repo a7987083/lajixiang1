@@ -11,14 +11,30 @@ static UILabel *L(NSString *s,CGFloat font,BOOL bold,UIColor *color){UILabel *l=
 @property(nonatomic,strong) UISearchBar *searchBar;
 @property(nonatomic,strong) NSMutableArray<UIView *> *searchRows;
 @property(nonatomic,assign) CGFloat searchRowsTop;
+@property(nonatomic,strong) UIView *searchOverlay;
+@property(nonatomic,assign) CGRect searchOriginalFrame;
+@property(nonatomic,assign) BOOL searching;
 @end
 @implementation Screen
 - (void)demo {UIAlertController *a=[UIAlertController alertControllerWithTitle:@"界面演示" message:@"当前为 UI 占位，尚未接入实际安装、插件或系统管理功能。" preferredStyle:UIAlertControllerStyleAlert];[a addAction:[UIAlertAction actionWithTitle:@"知道了" style:UIAlertActionStyleDefault handler:nil]];[self presentViewController:a animated:YES completion:nil];}
-- (void)viewDidLoad {[super viewDidLoad];self.view.backgroundColor=C(0xF2F2F7);}
+- (void)viewDidLoad {
+ [super viewDidLoad];self.view.backgroundColor=C(0xF2F2F7);
+ [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(keyboardChanged:) name:UIKeyboardWillChangeFrameNotification object:nil];
+}
+- (void)dealloc {[NSNotificationCenter.defaultCenter removeObserver:self];}
+- (void)keyboardChanged:(NSNotification *)notification {
+ if (!self.searching) return;
+ CGRect keyboardFrame=[notification.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue];
+ CGRect local=[self.view convertRect:keyboardFrame fromView:nil];
+ CGFloat visible=MAX(0,MIN(self.view.bounds.size.height,CGRectGetMinY(local)));
+ CGRect frame=self.scroll.frame;frame.size.height=visible;self.scroll.frame=frame;
+ self.scroll.contentInset=UIEdgeInsetsMake(0,0,12,0);
+}
 - (void)viewDidLayoutSubviews {
  [super viewDidLayoutSubviews];
  if (CGSizeEqualToSize(self.renderedSize,self.view.bounds.size)) return;
  self.renderedSize=self.view.bounds.size;
+ self.searching=NO;self.searchOverlay=nil;
  for (UIView *view in [self.view.subviews copy]) [view removeFromSuperview];
  [self build];
 }
@@ -44,6 +60,49 @@ static UILabel *L(NSString *s,CGFloat font,BOOL bold,UIColor *color){UILabel *l=
  UILabel *lab=L(name,16,NO,color);lab.frame=CGRectMake(63,6,w-107,38);lab.adjustsFontSizeToFitWidth=YES;lab.minimumScaleFactor=.7;[v addSubview:lab];
  UIButton *tap=[UIButton buttonWithType:UIButtonTypeCustom];tap.frame=v.bounds;[tap addTarget:self action:@selector(demo) forControlEvents:UIControlEventTouchUpInside];[v addSubview:tap];return y+59;
 }
+- (BOOL)searchBarShouldBeginEditing:(UISearchBar *)searchBar {
+ if (self.tab==3 || self.searching) return YES;
+ self.searching=YES;
+ CGFloat w=self.view.bounds.size.width;
+ CGFloat safeTop=self.view.safeAreaInsets.top;
+ self.searchOriginalFrame=searchBar.frame;
+ UIView *overlay=[[UIView alloc]initWithFrame:CGRectMake(0,0,w,safeTop+61)];
+ overlay.backgroundColor=C(0xF7F8FA);
+ self.searchOverlay=overlay;
+ [self.view addSubview:overlay];
+ [searchBar removeFromSuperview];
+ searchBar.frame=CGRectMake(12,safeTop+5,w-93,49);
+ [overlay addSubview:searchBar];
+ UIButton *cancel=[UIButton buttonWithType:UIButtonTypeSystem];
+ cancel.frame=CGRectMake(w-75,safeTop+5,68,49);
+ [cancel setTitle:@"取消" forState:UIControlStateNormal];
+ cancel.titleLabel.font=[UIFont systemFontOfSize:16];
+ [cancel addTarget:self action:@selector(cancelSearch) forControlEvents:UIControlEventTouchUpInside];
+ [overlay addSubview:cancel];
+ UIView *separator=[[UIView alloc]initWithFrame:CGRectMake(0,safeTop+60,w,0.5)];
+ separator.backgroundColor=C(0xD0D0D4);[overlay addSubview:separator];
+ self.compactHeader.hidden=YES;
+ self.dock.hidden=YES;
+ [self.scroll setContentOffset:CGPointMake(0,MAX(0,self.searchRowsTop-(safeTop+62))) animated:NO];
+ return YES;
+}
+- (void)cancelSearch {
+ [self.searchBar resignFirstResponder];
+ self.searchBar.text=@"";
+ [self searchBar:self.searchBar textDidChange:@""];
+ [self.searchBar removeFromSuperview];
+ self.searchBar.frame=self.searchOriginalFrame;
+ [self.content addSubview:self.searchBar];
+ [self.searchOverlay removeFromSuperview];
+ self.searchOverlay=nil;
+ self.searching=NO;
+ self.compactHeader.hidden=NO;
+ self.scroll.frame=self.view.bounds;
+ self.scroll.contentInset=UIEdgeInsetsMake(0,0,100,0);
+ self.dock.hidden=NO;
+ [self.scroll setContentOffset:CGPointZero animated:NO];
+ [self scrollViewDidScroll:self.scroll];
+}
 - (void)searchBar:(UISearchBar *)searchBar textDidChange:(NSString *)searchText {
  NSString *needle=[searchText stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
  CGFloat y=self.searchRowsTop;
@@ -57,7 +116,7 @@ static UILabel *L(NSString *s,CGFloat font,BOOL bold,UIColor *color){UILabel *l=
  self.scroll.contentSize=CGSizeMake(self.view.bounds.size.width,h);
 }
 - (void)scrollViewDidScroll:(UIScrollView *)scrollView {
- if (!self.compactHeader) return;
+ if (!self.compactHeader || self.searching) return;
  // The large title scrolls out; the compact title stays fixed below the status bar.
  CGFloat progress=MIN(1.0,MAX(0.0,(scrollView.contentOffset.y-18.0)/28.0));
  self.compactHeader.alpha=progress;
@@ -97,6 +156,7 @@ static UILabel *L(NSString *s,CGFloat font,BOOL bold,UIColor *color){UILabel *l=
  search.searchTextField.backgroundColor=C(0xE5E5EA);
  search.searchTextField.layer.cornerRadius=12;
  search.searchTextField.clipsToBounds=YES;
+ search.searchTextField.returnKeyType=UIReturnKeySearch;
  self.searchBar=search;
  [self.content addSubview:search];
  y+=62;
@@ -148,6 +208,7 @@ static UILabel *L(NSString *s,CGFloat font,BOOL bold,UIColor *color){UILabel *l=
 - (void)tabs {
  CGFloat w=self.view.bounds.size.width;CGFloat dockWidth=MIN(w-112,320);
  UIView *bar=[[UIView alloc]initWithFrame:CGRectMake((w-dockWidth)/2,self.view.bounds.size.height-self.view.safeAreaInsets.bottom-72,dockWidth,60)];
+ self.dock=bar;
  bar.autoresizingMask=UIViewAutoresizingFlexibleTopMargin|UIViewAutoresizingFlexibleLeftMargin|UIViewAutoresizingFlexibleRightMargin;bar.layer.cornerRadius=30;bar.layer.borderWidth=.5;bar.layer.borderColor=C(0xD0D0D4).CGColor;bar.backgroundColor=C(0xF9F9FB);bar.layer.shadowColor=UIColor.blackColor.CGColor;bar.layer.shadowOpacity=.08;bar.layer.shadowRadius=11;[self.view addSubview:bar];
  NSArray *names=@[@"应用",@"安装包",@"插件",@"设置"],*icons=@[@"square.grid.3x3.fill",@"shippingbox.fill",@"puzzlepiece.fill",@"gearshape.fill"];
  for(NSInteger i=0;i<4;i++){CGFloat col=dockWidth/4;UIButton *b=[UIButton buttonWithType:UIButtonTypeSystem];b.tag=i;b.frame=CGRectMake(i*col,2,col,38);b.tintColor=i==self.tab?C(0x337CFA):C(0x8E8E93);[b setImage:[UIImage systemImageNamed:icons[i] withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:19]] forState:UIControlStateNormal];[b addTarget:self action:@selector(change:) forControlEvents:UIControlEventTouchUpInside];[bar addSubview:b];UILabel *t=L(names[i],10,i==self.tab,b.tintColor);t.textAlignment=NSTextAlignmentCenter;t.frame=CGRectMake(i*col,38,col,17);[bar addSubview:t];}
