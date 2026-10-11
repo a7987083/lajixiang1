@@ -55,7 +55,7 @@ static UILabel *L(NSString *s,CGFloat font,BOOL bold,UIColor *color){UILabel *l=
  self.content=[[UIView alloc]initWithFrame:CGRectMake(0,0,w,1700)];[self.scroll addSubview:self.content];
  CGFloat y=0;
  if(self.tab==3){
- UILabel *title=L(@"设置",21,YES,UIColor.blackColor);title.textAlignment=NSTextAlignmentCenter;title.frame=CGRectMake(0,headerY,w,40);[self.content addSubview:title];y=headerY+55;
+ y=[self line:@"设置" y:largeTitleY x:20 color:UIColor.blackColor size:37 bold:YES height:53]+8;
  y=[self line:@"如果应用安装后没有立即出现在主屏幕，请在此处注销一次。对于无法启动的应用，可以尝试刷新应用注册状态。" y:y x:30 color:C(0x8E8E93) size:14 bold:NO height:59]+15;
  y=[self line:@"设备管理" y:y x:30 color:C(0x8E8E93) size:14 bold:NO height:27]+5;
  NSArray *names=@[@"自定义清理",@"切换 App Store 账户",@"允许所有 App 粘贴",@"屏蔽 / 恢复 系统更新",@"直降应用"];
@@ -97,10 +97,10 @@ static UILabel *L(NSString *s,CGFloat font,BOOL bold,UIColor *color){UILabel *l=
  CGFloat contentHeight=MAX(y,self.scroll.bounds.size.height-self.scroll.contentInset.bottom);
  self.content.frame=CGRectMake(0,0,w,contentHeight);
  self.scroll.contentSize=CGSizeMake(w,contentHeight);
- if(self.tab!=3){
+ {
    UIView *header=[[UIView alloc]initWithFrame:CGRectMake(0,0,w,safeTop+52)];
    header.backgroundColor=C(0xF7F8FA);
-   UILabel *compact=L(@[@"应用",@"安装包",@"插件"][self.tab],20,YES,UIColor.blackColor);
+   UILabel *compact=L(@[@"应用",@"安装包",@"插件",@"设置"][self.tab],20,YES,UIColor.blackColor);
    compact.textAlignment=NSTextAlignmentCenter;
    compact.frame=CGRectMake(65,safeTop+5,w-130,36);
    [header addSubview:compact];
