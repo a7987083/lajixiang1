@@ -1,13 +1,16 @@
 #import <UIKit/UIKit.h>
 static UIColor *C(int hex){return [UIColor colorWithRed:((hex>>16)&255)/255. green:((hex>>8)&255)/255. blue:(hex&255)/255. alpha:1];}
 static UILabel *L(NSString *s,CGFloat font,BOOL bold,UIColor *color){UILabel *l=[UILabel new];l.text=s;l.textColor=color;l.font=bold?[UIFont boldSystemFontOfSize:font]:[UIFont systemFontOfSize:font];return l;}
-@interface Screen : UIViewController <UIScrollViewDelegate>
+@interface Screen : UIViewController <UIScrollViewDelegate, UISearchBarDelegate>
 @property NSInteger tab;
 @property(nonatomic,strong) UIView *content;
 @property(nonatomic,strong) UIScrollView *scroll;
 @property(nonatomic,strong) UIView *dock;
 @property(nonatomic,assign) CGSize renderedSize;
 @property(nonatomic,strong) UIView *compactHeader;
+@property(nonatomic,strong) UISearchBar *searchBar;
+@property(nonatomic,strong) NSMutableArray<UIView *> *searchRows;
+@property(nonatomic,assign) CGFloat searchRowsTop;
 @end
 @implementation Screen
 - (void)demo {UIAlertController *a=[UIAlertController alertControllerWithTitle:@"界面演示" message:@"当前为 UI 占位，尚未接入实际安装、插件或系统管理功能。" preferredStyle:UIAlertControllerStyleAlert];[a addAction:[UIAlertAction actionWithTitle:@"知道了" style:UIAlertActionStyleDefault handler:nil]];[self presentViewController:a animated:YES completion:nil];}
@@ -31,6 +34,8 @@ static UILabel *L(NSString *s,CGFloat font,BOOL bold,UIColor *color){UILabel *l=
  UILabel *d=L(detail,11,NO,C(0x8E8E93));d.adjustsFontSizeToFitWidth=YES;d.minimumScaleFactor=.75;d.frame=CGRectMake(72,28,w-116,17);[v addSubview:d];
  if(badge){UILabel *b=L(badge,10,NO,[badge isEqual:@"TrollStore"]?C(0x36B85A):C(0x337CFA));b.backgroundColor=[badge isEqual:@"TrollStore"]?C(0xE7F8EB):C(0xE6F0FF);b.textAlignment=NSTextAlignmentCenter;b.layer.cornerRadius=5;b.clipsToBounds=YES;b.frame=CGRectMake(72,49,[badge isEqual:@"TrollStore"]?68:60,16);[v addSubview:b];}
  UIButton *tap=[UIButton buttonWithType:UIButtonTypeCustom];tap.frame=v.bounds;[tap addTarget:self action:@selector(demo) forControlEvents:UIControlEventTouchUpInside];[v addSubview:tap];
+ v.accessibilityIdentifier=[NSString stringWithFormat:@"%@ %@",name,detail];
+ [self.searchRows addObject:v];
  return y+78;
 }
 - (CGFloat)setting:(NSString*)name icon:(NSString*)icon color:(UIColor*)color y:(CGFloat)y {
@@ -38,6 +43,18 @@ static UILabel *L(NSString *s,CGFloat font,BOOL bold,UIColor *color){UILabel *l=
  UIImageView *iv=[[UIImageView alloc]initWithImage:[UIImage systemImageNamed:icon]];iv.frame=CGRectMake(23,13,24,24);iv.tintColor=color;iv.contentMode=UIViewContentModeScaleAspectFit;[v addSubview:iv];
  UILabel *lab=L(name,16,NO,color);lab.frame=CGRectMake(63,6,w-107,38);lab.adjustsFontSizeToFitWidth=YES;lab.minimumScaleFactor=.7;[v addSubview:lab];
  UIButton *tap=[UIButton buttonWithType:UIButtonTypeCustom];tap.frame=v.bounds;[tap addTarget:self action:@selector(demo) forControlEvents:UIControlEventTouchUpInside];[v addSubview:tap];return y+59;
+}
+- (void)searchBar:(UISearchBar *)searchBar textDidChange:(NSString *)searchText {
+ NSString *needle=[searchText stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+ CGFloat y=self.searchRowsTop;
+ for (UIView *row in self.searchRows) {
+   BOOL match=needle.length==0 || [row.accessibilityIdentifier rangeOfString:needle options:NSCaseInsensitiveSearch].location!=NSNotFound;
+   row.hidden=!match;
+   if (match) { CGRect f=row.frame;f.origin.y=y;row.frame=f;y+=78; }
+ }
+ CGFloat h=MAX(y,self.scroll.bounds.size.height-self.scroll.contentInset.bottom);
+ self.content.frame=CGRectMake(0,0,self.view.bounds.size.width,h);
+ self.scroll.contentSize=CGSizeMake(self.view.bounds.size.width,h);
 }
 - (void)scrollViewDidScroll:(UIScrollView *)scrollView {
  if (!self.compactHeader) return;
@@ -53,6 +70,7 @@ static UILabel *L(NSString *s,CGFloat font,BOOL bold,UIColor *color){UILabel *l=
  CGFloat actionY=headerY;
  self.scroll=[[UIScrollView alloc]initWithFrame:self.view.bounds];self.scroll.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;self.scroll.contentInsetAdjustmentBehavior=UIScrollViewContentInsetAdjustmentNever;self.scroll.delegate=self;self.scroll.contentInset=UIEdgeInsetsMake(0,0,100,0);[self.view addSubview:self.scroll];
  self.content=[[UIView alloc]initWithFrame:CGRectMake(0,0,w,1700)];[self.scroll addSubview:self.content];
+ self.searchRows=[NSMutableArray array];
  CGFloat y=0;
  if(self.tab==3){
  y=[self line:@"设置" y:largeTitleY x:20 color:UIColor.blackColor size:37 bold:YES height:53]+8;
@@ -71,6 +89,18 @@ static UILabel *L(NSString *s,CGFloat font,BOOL bold,UIColor *color){UILabel *l=
  }else{
  NSString *heading=@[@"应用",@"安装包",@"插件"][self.tab];
  y=[self line:heading y:largeTitleY x:20 color:UIColor.blackColor size:37 bold:YES height:53]+8;
+ // Shared search UI; settings deliberately has no search field or reserved space.
+ UISearchBar *search=[[UISearchBar alloc]initWithFrame:CGRectMake(12,y,w-24,52)];
+ search.searchBarStyle=UISearchBarStyleMinimal;
+ search.placeholder=@"搜索";
+ search.delegate=self;
+ search.searchTextField.backgroundColor=C(0xE5E5EA);
+ search.searchTextField.layer.cornerRadius=12;
+ search.searchTextField.clipsToBounds=YES;
+ self.searchBar=search;
+ [self.content addSubview:search];
+ y+=62;
+ self.searchRowsTop=y;
  if(self.tab==0){
  NSArray *items=@[
  @[@"123云盘",@"3.3.2 · com.mfcloudcalculate.123networkdisk",@"cloud.fill",@"App Store"],
@@ -92,7 +122,7 @@ static UILabel *L(NSString *s,CGFloat font,BOOL bold,UIColor *color){UILabel *l=
  y=[self card:@"1" detail:@"文件夹 · 2026-10-11 09:21（演示）" symbol:@"folder.fill" badge:nil y:y];
  y=[self card:@"Random Dice 2.ipa" detail:@"273.6 MB · 2026-10-10 02:35（演示）" symbol:@"doc.fill" badge:nil y:y];
  y=[self card:@"test.ipa" detail:@"960 KB · 2026-10-11 06:42（演示）" symbol:@"doc.fill" badge:nil y:y];
- }else{y=largeTitleY+117;}
+ }else{y=self.searchRowsTop;}
  }
  CGFloat contentHeight=MAX(y,self.scroll.bounds.size.height-self.scroll.contentInset.bottom);
  self.content.frame=CGRectMake(0,0,w,contentHeight);
