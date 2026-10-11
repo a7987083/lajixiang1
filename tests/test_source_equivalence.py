@@ -10,7 +10,7 @@ def expand(source):
         assert source.count(marker)==1,name
         source=source.replace(marker,(root/"ios-ui"/name).read_text())
     return source
-old=expand(base)
+old=base
 new=expand((root/"ios-ui/TrollSkinUI.m").read_text())
 start_old=old.index("- (void)demo ")
 end_old=old.index("\n@end\n@interface SkinDelegate",start_old)
