@@ -174,3 +174,5 @@ __attribute__((constructor)) static void AdCloseOverlayInit(void) {
         if (UIApplication.sharedApplication.applicationState == UIApplicationStateActive) InstallOverlay();
     });
 }
+
+// Floating overlay build trigger.
