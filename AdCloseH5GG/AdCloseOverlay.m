@@ -174,7 +174,7 @@ static void InstallCallbackObserver(void) {
     "<h3>Unity Ads · 测试</h3>"
     "<button onclick=\"send('status')\">检测广告</button>"
     "<button class='red' onclick=\"send('close')\">关闭并测试回调</button>"
-    "<div id='out'>不模拟奖励回调</div>"
+    "<div id='out'>点开始监听，再点广告自己的关闭 ×。不会强制 dismiss。</div>"
     "<script>function send(x){window.webkit.messageHandlers.adclose.postMessage(x)}"
     "function show(x){document.getElementById('out').textContent=x}</script>";
     [web loadHTMLString:html baseURL:nil];
@@ -219,31 +219,24 @@ static void InstallCallbackObserver(void) {
     } else if ([cmd isEqualToString:@"status"]) {
         result = [NSString stringWithFormat:@"FOUND: %@ modal=%@; 上次SDK回调=%@",NSStringFromClass(ad.class),ad.presentingViewController?@"YES":@"NO",gLastAdCallback];
     } else if ([cmd isEqualToString:@"close"]) {
+        // The user must click the real Unity Ads close button. Do not dismiss the VC.
         InstallCallbackObserver();
         NSUInteger baselineSerial = gCallbackSerial;
-        if (!ad.presentingViewController) {
-            result = @"NO_PRESENTER: 无法关闭；尚未测试回调";
-        } else {
-            [ad dismissViewControllerAnimated:YES completion:^{
-                NSLog(@"[AdCloseCallback] dismiss completion; remaining=%@",CurrentAd(w));
-            }];
-            result = @"DISMISS_REQUESTED; 等待 SDK 回调（不伪造结果）";
-            __weak AdCloseRoot *weakSelf = self;
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)),
-                           dispatch_get_main_queue(), ^{
-                AdCloseRoot *strongSelf = weakSelf;
-                if (!strongSelf) return;
-                BOOL callbackObserved = gCallbackSerial != baselineSerial;
-                BOOL remains = CurrentAd(w) != nil;
-                NSString *state = [NSString stringWithFormat:
-                    @"dismiss后广告=%@; SDK回调=%@; %@",
-                    remains ? @"仍存在" : @"未找到",
-                    callbackObserved ? @"捕获" : @"未捕获",
-                    callbackObserved ? gLastAdCallback : @"可能使用Swift/非公开协议，不能视为确定未调用"];
-                NSLog(@"[AdCloseCallback] %@", state);
-                [strongSelf showCallbackResult:state];
-            });
-        }
+        result = @"OBSERVING: 请点击广告自身的 × / Skip；等待 8 秒检查 Skipped 回调";
+        __weak AdCloseRoot *weakSelf = self;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(8.0 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            AdCloseRoot *strongSelf = weakSelf;
+            if (!strongSelf) return;
+            BOOL observed = gCallbackSerial != baselineSerial;
+            NSString *state = [NSString stringWithFormat:
+                @"广告界面=%@; 回调=%@; %@",
+                CurrentAd(strongSelf.view.window) ? @"仍存在" : @"未找到",
+                observed ? @"已捕获" : @"未捕获",
+                observed ? gLastAdCallback : @"仅说明当前 Objective-C 监听未收到匹配事件"];
+            NSLog(@"[AdCloseCallback] early close result: %@", state);
+            [strongSelf showCallbackResult:state];
+        });
     } else { return; }
     NSString *json = [[NSString alloc] initWithData:[NSJSONSerialization dataWithJSONObject:@[result] options:NSJSONWritingFragmentsAllowed error:nil] encoding:NSUTF8StringEncoding];
     // Array JSON avoids unsafe string interpolation into JavaScript.
