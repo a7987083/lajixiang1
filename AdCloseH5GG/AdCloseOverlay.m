@@ -155,24 +155,108 @@ static UIViewController *CurrentAd(UIWindow *exclude) {
 }
 @end
 
+// The overlay is never made key: the host retains keyboard and touch focus.
 static AdCloseWindow *gWindow;
-static void InstallOverlay(void) {
-    if (gWindow || !UIApplication.sharedApplication) return;
-    AdCloseWindow *window = [[AdCloseWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
-    window.windowLevel = UIWindowLevelAlert + 5;
-    window.backgroundColor = UIColor.clearColor;
-    AdCloseRoot *root = [AdCloseRoot new];
-    window.rootViewController = root;
-    window.menu = root;
-    window.hidden = NO;
-    gWindow = window;
-    NSLog(@"[AdCloseOverlay] floating H5 menu installed");
+static __weak UIWindowScene *gBoundScene;
+static BOOL gInstallScheduled;
+
+static UIWindow *FindHostWindow(void) {
+    UIApplication *app = UIApplication.sharedApplication;
+    if (!app) return nil;
+    UIWindow *fallback = nil;
+    if (@available(iOS 13.0, *)) {
+        for (UIScene *candidate in app.connectedScenes) {
+            if (![candidate isKindOfClass:UIWindowScene.class]) continue;
+            if (candidate.activationState != UISceneActivationStateForegroundActive &&
+                candidate.activationState != UISceneActivationStateForegroundInactive) continue;
+            UIWindowScene *scene = (UIWindowScene *)candidate;
+            for (UIWindow *window in scene.windows) {
+                if (window == gWindow || window.hidden || window.alpha <= .01 || !window.rootViewController) continue;
+                if (window.isKeyWindow) return window;
+                if (!fallback && window.windowLevel == UIWindowLevelNormal) fallback = window;
+            }
+        }
+        if (fallback) return fallback;
+    }
+    if (app.keyWindow && app.keyWindow != gWindow && !app.keyWindow.hidden) return app.keyWindow;
+    for (UIWindow *window in app.windows.reverseObjectEnumerator) {
+        if (window != gWindow && !window.hidden && window.rootViewController &&
+            window.windowLevel == UIWindowLevelNormal) return window;
+    }
+    return nil;
 }
-__attribute__((constructor)) static void AdCloseOverlayInit(void) {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) { InstallOverlay(); }];
-        if (UIApplication.sharedApplication.applicationState == UIApplicationStateActive) InstallOverlay();
+
+static void InstallOverlay(void);
+static void ScheduleOverlayRetry(NSUInteger attempts) {
+    if (gInstallScheduled) return;
+    gInstallScheduled = YES;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        gInstallScheduled = NO;
+        InstallOverlay();
+        if (!gWindow && attempts < 20) ScheduleOverlayRetry(attempts + 1);
     });
 }
 
-// Floating overlay build trigger.
+static void InstallOverlay(void) {
+    if (!NSThread.isMainThread) {
+        dispatch_async(dispatch_get_main_queue(), ^{ InstallOverlay(); });
+        return;
+    }
+    UIWindow *host = FindHostWindow();
+    if (!host) {
+        if (!gWindow) ScheduleOverlayRetry(0);
+        return;
+    }
+    if (@available(iOS 13.0, *)) {
+        UIWindowScene *scene = host.windowScene;
+        if (!scene) {
+            if (!gWindow) ScheduleOverlayRetry(0);
+            return;
+        }
+        if (gWindow && gWindow.windowScene != scene) {
+            gWindow.hidden = YES;
+            gWindow = nil; // release the old scene window; create a fresh one
+        }
+        if (!gWindow) {
+            gWindow = [[AdCloseWindow alloc] initWithWindowScene:scene];
+            gBoundScene = scene;
+        }
+    } else if (!gWindow) {
+        gWindow = [[AdCloseWindow alloc] initWithFrame:host.bounds];
+    }
+    if (!gWindow.rootViewController) {
+        AdCloseRoot *root = [AdCloseRoot new];
+        gWindow.rootViewController = root;
+        gWindow.menu = root;
+    }
+    gWindow.frame = host.bounds;
+    gWindow.windowLevel = MAX(UIWindowLevelAlert + 5, host.windowLevel + 1);
+    gWindow.backgroundColor = UIColor.clearColor;
+    gWindow.hidden = NO;
+    // Do not use makeKeyAndVisible: it would steal focus from the game.
+    NSLog(@"[AdCloseOverlay] attached scene=%@ host=%@ frame=%@",
+          gBoundScene, host, NSStringFromCGRect(gWindow.frame));
+}
+
+__attribute__((constructor)) static void AdCloseOverlayInit(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSNotificationCenter *nc = NSNotificationCenter.defaultCenter;
+        [nc addObserverForName:UIApplicationDidBecomeActiveNotification object:nil
+                        queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) {
+            InstallOverlay();
+        }];
+        [nc addObserverForName:UIWindowDidBecomeKeyNotification object:nil
+                        queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) {
+            if (note.object != gWindow) InstallOverlay();
+        }];
+        if (@available(iOS 13.0, *)) {
+            [nc addObserverForName:UISceneDidActivateNotification object:nil
+                            queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) {
+                InstallOverlay();
+            }];
+        }
+        InstallOverlay();
+        if (!gWindow) ScheduleOverlayRetry(0);
+    });
+}
