@@ -1,0 +1,19 @@
+name: Build AdCloseOverlay
+on:
+  push:
+    branches: [feature/h5gg-adclose-test]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          mkdir -p dist
+          xcrun clang -fobjc-arc -arch arm64 -dynamiclib -isysroot "$(xcrun --sdk iphoneos --show-sdk-path)" -miphoneos-version-min=13.0 -framework UIKit -framework WebKit -framework Foundation AdCloseH5GG/AdCloseOverlay.m -o dist/AdCloseOverlay.dylib
+          codesign --force --sign - dist/AdCloseOverlay.dylib
+          xcrun lipo dist/AdCloseOverlay.dylib -verify_arch arm64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AdCloseOverlay
+          path: dist/AdCloseOverlay.dylib
