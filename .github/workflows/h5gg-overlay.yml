@@ -10,7 +10,7 @@ jobs:
       - uses: actions/checkout@v4
       - run: |
           mkdir -p dist
-          xcrun clang -fobjc-arc -arch arm64 -dynamiclib -isysroot "$(xcrun --sdk iphoneos --show-sdk-path)" -miphoneos-version-min=13.0 -framework UIKit -framework WebKit -framework Foundation AdCloseH5GG/AdCloseOverlay.m -o dist/AdCloseOverlay.dylib
+          xcrun clang -fobjc-arc -arch arm64 -dynamiclib -isysroot "$(xcrun --sdk iphoneos --show-sdk-path)" -miphoneos-version-min=13.0 -framework UIKit -framework WebKit -framework Foundation -framework CoreGraphics AdCloseH5GG/AdCloseOverlay.m -o dist/AdCloseOverlay.dylib
           codesign --force --sign - dist/AdCloseOverlay.dylib
           xcrun lipo dist/AdCloseOverlay.dylib -verify_arch arm64
       - uses: actions/upload-artifact@v4
