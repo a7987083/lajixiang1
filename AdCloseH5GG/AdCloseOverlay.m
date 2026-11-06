@@ -173,7 +173,8 @@ static void InstallCallbackObserver(void) {
     "button.red{border-color:#c85b65;background:#70333c}#out{font:12px monospace;color:#adc3cb;margin-top:8px;word-break:break-all}</style>"
     "<h3>Unity Ads · 测试</h3>"
     "<button onclick=\"send('status')\">检测广告</button>"
-    "<button class='red' onclick=\"send('close')\">关闭并测试回调</button>"
+    "<button class='red' onclick=\"send('close')\">开始监听提前关闭</button>"
+    "<button onclick=\"send('simulate')\">模拟 Skipped（仅本地）</button>"
     "<div id='out'>点开始监听，再点广告自己的关闭 ×。不会强制 dismiss。</div>"
     "<script>function send(x){window.webkit.messageHandlers.adclose.postMessage(x)}"
     "function show(x){document.getElementById('out').textContent=x}</script>";
@@ -218,6 +219,10 @@ static void InstallCallbackObserver(void) {
         result = @"NOT_FOUND: 当前窗口没有广告控制器";
     } else if ([cmd isEqualToString:@"status"]) {
         result = [NSString stringWithFormat:@"FOUND: %@ modal=%@; 上次SDK回调=%@",NSStringFromClass(ad.class),ad.presentingViewController?@"YES":@"NO",gLastAdCallback];
+    } else if ([cmd isEqualToString:@"simulate"]) {
+        // Diagnostic-only mock; never modify SDK delegates or the real observer state.
+        result = @"SIMULATED_SKIPPED: 本地模拟提前关闭（未调用 Unity Ads / 未发放奖励）";
+        NSLog(@"[AdCloseCallback][SIMULATION_ONLY] %@", result);
     } else if ([cmd isEqualToString:@"close"]) {
         // The user must click the real Unity Ads close button. Do not dismiss the VC.
         InstallCallbackObserver();
