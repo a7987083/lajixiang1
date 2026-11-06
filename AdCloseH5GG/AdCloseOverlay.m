@@ -29,6 +29,80 @@ static UIViewController *CurrentAd(UIWindow *exclude) {
     return nil;
 }
 
+
+#pragma mark - Observe real UnityAdsShowDelegate callbacks (never synthesize)
+static NSString *gLastAdCallback = @"NOT_OBSERVED";
+static NSUInteger gCallbackSerial = 0;
+static NSMutableSet<NSString *> *gObservedMethods;
+
+static void RecordAdCallback(NSString *name, NSString *placement, NSString *detail) {
+    NSString *entry = [NSString stringWithFormat:@"%@ placement=%@ %@",
+                       name, placement ?: @"(nil)", detail ?: @""];
+    NSLog(@"[AdCloseCallback] %@", entry);
+    dispatch_async(dispatch_get_main_queue(), ^{
+        gLastAdCallback = entry;
+        gCallbackSerial++;
+    });
+}
+static void InstallCallbackObserver(void) {
+    if (!gObservedMethods) gObservedMethods = [NSMutableSet new];
+    SEL complete = NSSelectorFromString(@"unityAdsShowComplete:withFinishState:");
+    SEL failed = NSSelectorFromString(@"unityAdsShowFailed:withError:withMessage:");
+    SEL start = NSSelectorFromString(@"unityAdsShowStart:");
+    SEL click = NSSelectorFromString(@"unityAdsShowClick:");
+    SEL targets[] = {complete, failed, start, click};
+    int total = objc_getClassList(NULL, 0);
+    if (total <= 0 || total > 50000) return;
+    Class __unsafe_unretained *classes = (Class __unsafe_unretained *)calloc((size_t)total, sizeof(Class));
+    if (!classes) return;
+    int count = objc_getClassList(classes, total);
+    NSUInteger installed = 0;
+    for (int i = 0; i < count; i++) {
+        Class cls = classes[i];
+        if (class_isMetaClass(cls)) continue;
+        unsigned int n = 0;
+        Method *methods = class_copyMethodList(cls, &n);
+        for (unsigned int j = 0; j < n; j++) {
+            Method m = methods[j];
+            SEL selector = method_getName(m);
+            int kind = -1;
+            for (int k = 0; k < 4; k++) if (selector == targets[k]) { kind = k; break; }
+            if (kind < 0) continue;
+            NSString *key = [NSString stringWithFormat:@"%s/%s", class_getName(cls), sel_getName(selector)];
+            if ([gObservedMethods containsObject:key]) continue;
+            IMP original = method_getImplementation(m);
+            if (!original) continue;
+            IMP replacement = NULL;
+            if (kind == 0) {
+                replacement = imp_implementationWithBlock(^(id self, NSString *placement, NSInteger state) {
+                    RecordAdCallback(@"unityAdsShowComplete", placement, [NSString stringWithFormat:@"finishState=%ld", (long)state]);
+                    ((void (*)(id,SEL,NSString *,NSInteger))original)(self, selector, placement, state);
+                });
+            } else if (kind == 1) {
+                replacement = imp_implementationWithBlock(^(id self, NSString *placement, NSInteger error, NSString *msg) {
+                    RecordAdCallback(@"unityAdsShowFailed", placement, [NSString stringWithFormat:@"error=%ld message=%@", (long)error, msg]);
+                    ((void (*)(id,SEL,NSString *,NSInteger,NSString *))original)(self, selector, placement, error, msg);
+                });
+            } else {
+                NSString *label = kind == 2 ? @"unityAdsShowStart" : @"unityAdsShowClick";
+                replacement = imp_implementationWithBlock(^(id self, NSString *placement) {
+                    RecordAdCallback(label, placement, @"");
+                    ((void (*)(id,SEL,NSString *))original)(self, selector, placement);
+                });
+            }
+            if (replacement) {
+                method_setImplementation(m, replacement);
+                [gObservedMethods addObject:key];
+                installed++;
+            }
+        }
+        free(methods);
+    }
+    free(classes);
+    NSLog(@"[AdCloseCallback] observer active; new methods=%lu total=%lu",
+          (unsigned long)installed, (unsigned long)gObservedMethods.count);
+}
+
 @interface AdCloseRoot : UIViewController <WKScriptMessageHandler, UIGestureRecognizerDelegate>
 @property(nonatomic,strong) UIButton *bubble;
 @property(nonatomic,strong) WKWebView *web;
@@ -72,7 +146,7 @@ static UIViewController *CurrentAd(UIWindow *exclude) {
     pan.delegate = self;
     [bubble addGestureRecognizer:pan];
 
-    UIView *panel = [[UIView alloc] initWithFrame:CGRectMake(16, 190, 300, 230)];
+    UIView *panel = [[UIView alloc] initWithFrame:CGRectMake(16, 190, 300, 280)];
     panel.backgroundColor = [UIColor colorWithRed:.05 green:.08 blue:.13 alpha:.97];
     panel.layer.cornerRadius = 14;
     panel.layer.borderWidth = 1;
@@ -88,7 +162,7 @@ static UIViewController *CurrentAd(UIWindow *exclude) {
     web.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     web.opaque = NO;
     web.backgroundColor = UIColor.clearColor;
-    web.scrollView.scrollEnabled = NO;
+    web.scrollView.scrollEnabled = YES;
     [panel addSubview:web];
     self.web = web;
     NSString *html =
@@ -98,9 +172,10 @@ static UIViewController *CurrentAd(UIWindow *exclude) {
     "border:1px solid #45bcd1;border-radius:9px;background:#193549;color:white;font-size:15px}"
     "button.red{border-color:#c85b65;background:#70333c}#out{font:12px monospace;color:#adc3cb;margin-top:8px;word-break:break-all}</style>"
     "<h3>Unity Ads · 测试</h3>"
+    "<div id='out' style='background:#182d3a;border-radius:7px;padding:8px;margin-bottom:8px'>未检测</div>"
     "<button onclick=\"send('status')\">检测广告</button>"
-    "<button class='red' onclick=\"send('close')\">测试关闭</button>"
-    "<div id='out'>不模拟奖励回调</div>"
+    "<button class='red' onclick=\"send('close')\">关闭广告并检查回调</button>"
+    "<div style='font-size:11px;color:#93bac4'>关闭页面不代表 SDK 回调成功</div>"
     "<script>function send(x){window.webkit.messageHandlers.adclose.postMessage(x)}"
     "function show(x){document.getElementById('out').textContent=x}</script>";
     [web loadHTMLString:html baseURL:nil];
@@ -113,8 +188,8 @@ static UIViewController *CurrentAd(UIWindow *exclude) {
         CGFloat h = CGRectGetHeight(self.view.bounds);
         CGFloat x = MIN(MAX(8, CGRectGetMinX(self.bubble.frame)), MAX(8, w-308));
         CGFloat y = CGRectGetMaxY(self.bubble.frame)+8;
-        if (y+230 > h-25) y = MAX(45, CGRectGetMinY(self.bubble.frame)-238);
-        self.panel.frame = CGRectMake(x,y,300,230);
+        if (y+280 > h-25) y = MAX(8, CGRectGetMinY(self.bubble.frame)-288);
+        self.panel.frame = CGRectMake(x,y,300,280);
     }
 }
 - (void)drag:(UIPanGestureRecognizer *)pan {
@@ -124,31 +199,52 @@ static UIViewController *CurrentAd(UIWindow *exclude) {
     f.origin.y = MIN(MAX(24,f.origin.y+d.y),MAX(24,self.view.bounds.size.height-f.size.height-16));
     self.bubble.frame = f;
     [pan setTranslation:CGPointZero inView:self.view];
-    if (self.expanded) self.panel.frame = CGRectMake(MIN(MAX(8,f.origin.x),MAX(8,self.view.bounds.size.width-308)),MIN(MAX(45,CGRectGetMaxY(f)+8),MAX(45,self.view.bounds.size.height-248)),300,230);
+    if (self.expanded) self.panel.frame = CGRectMake(MIN(MAX(8,f.origin.x),MAX(8,self.view.bounds.size.width-308)),MIN(MAX(45,CGRectGetMaxY(f)+8),MAX(45,self.view.bounds.size.height-288)),300,280);
 }
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherGestureRecognizer { return NO; }
+- (void)showCallbackResult:(NSString *)result {
+    NSData *data = [NSJSONSerialization dataWithJSONObject:@[result ?: @"UNKNOWN"] options:0 error:nil];
+    NSString *json = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    NSString *js = [NSString stringWithFormat:@"show((%@)[0])",json ?: @"[\"ERROR\"]"];
+    [self.web evaluateJavaScript:js completionHandler:nil];
+}
 - (void)userContentController:(WKUserContentController *)userContentController didReceiveScriptMessage:(WKScriptMessage *)message {
     if (![message.body isKindOfClass:[NSString class]]) return;
     NSString *cmd = message.body;
-    UIWindow *w = self.view.window;
-    UIViewController *ad = CurrentAd(w);
-    NSString *result;
-    if (!ad) {
-        result = @"NOT_FOUND: 当前窗口没有广告控制器";
-    } else if ([cmd isEqualToString:@"status"]) {
-        result = [NSString stringWithFormat:@"FOUND: %@ modal=%@",NSStringFromClass(ad.class),ad.presentingViewController?@"YES":@"NO"];
-    } else if ([cmd isEqualToString:@"close"]) {
-        if (!ad.presentingViewController) {
-            result = @"NO_PRESENTER: 不是 modal 广告控制器";
-        } else {
-            [ad dismissViewControllerAnimated:YES completion:^{NSLog(@"[AdCloseOverlay] dismiss complete, remaining=%@",CurrentAd(w));}];
-            result = @"DISMISS_REQUESTED: 已提交关闭请求";
-        }
-    } else { return; }
-    NSString *json = [[NSString alloc] initWithData:[NSJSONSerialization dataWithJSONObject:@[result] options:NSJSONWritingFragmentsAllowed error:nil] encoding:NSUTF8StringEncoding];
-    // Array JSON avoids unsafe string interpolation into JavaScript.
-    NSString *js = [NSString stringWithFormat:@"show((%@)[0])",json ?: @"['ERROR']"];
-    [self.web evaluateJavaScript:js completionHandler:nil];
+    UIWindow *overlayWindow = self.view.window;
+    UIViewController *ad = CurrentAd(overlayWindow);
+    if ([cmd isEqualToString:@"status"]) {
+        InstallCallbackObserver();
+        NSString *info = ad ? [NSString stringWithFormat:@"AD_FOUND: %@; modal=%@; 已安装回调观察器(%lu)",
+            NSStringFromClass(ad.class), ad.presentingViewController ? @"YES" : @"NO",
+            (unsigned long)gObservedMethods.count] : @"NOT_FOUND: 当前没有 Unity Ads 广告";
+        [self showCallbackResult:info];
+        return;
+    }
+    if (![cmd isEqualToString:@"close"]) return;
+    if (!ad || !ad.presentingViewController) {
+        [self showCallbackResult:@"NO_MODAL_AD: 找不到可关闭的广告"];
+        return;
+    }
+    InstallCallbackObserver();
+    NSUInteger serial = gCallbackSerial;
+    [self showCallbackResult:@"CLOSING: 发起 UIKit dismiss; 等待 2 秒确认 SDK 回调"];
+    __weak AdCloseRoot *weakSelf = self;
+    [ad dismissViewControllerAnimated:YES completion:^{
+        NSLog(@"[AdCloseCallback] UIKit dismissal complete, remaining=%@", CurrentAd(overlayWindow));
+    }];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        AdCloseRoot *strongSelf = weakSelf;
+        if (!strongSelf) return;
+        BOOL observed = gCallbackSerial > serial;
+        NSString *result = [NSString stringWithFormat:@"页面=%@; SDK回调=%@; %@",
+            CurrentAd(overlayWindow) ? @"仍存在" : @"已关闭",
+            observed ? @"捕获" : @"未捕获",
+            observed ? gLastAdCallback : @"UIKit dismiss 不产生 Unity Ads Skipped；此处未伪造回调"];
+        [strongSelf showCallbackResult:result];
+        NSLog(@"[AdCloseCallback] %@",result);
+    });
 }
 - (void)dealloc {
     [self.web.configuration.userContentController removeScriptMessageHandlerForName:@"adclose"];
