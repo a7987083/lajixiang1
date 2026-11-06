@@ -67,6 +67,42 @@ static NSString *TryNativeClose(UIViewController *ad) {
     return @"NATIVE_CLOSE_TAPPED: SDK result pending; no completion callback synthesized";
 }
 
+// The SDK owns the actual close contract. Only inspect/click a visible DOM control.
+static WKWebView *FindAdWebView(UIView *view, NSUInteger depth) {
+    if (!view || depth > 30) return nil;
+    if ([view isKindOfClass:[WKWebView class]]) return (WKWebView *)view;
+    for (UIView *child in view.subviews) {
+        WKWebView *result = FindAdWebView(child, depth + 1);
+        if (result) return result;
+    }
+    return nil;
+}
+
+static NSString * const kVisibleCloseDOMScript =
+@"(function(){"
+"function visible(e){"
+"var r=e.getBoundingClientRect(),s=getComputedStyle(e);"
+"return r.width>6&&r.height>6&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';}"
+"var els=document.querySelectorAll('button,[role=button],a,[aria-label],[title]');"
+"var hits=[];"
+"for(var i=0;i<els.length;i++){var e=els[i];if(!visible(e)||e.disabled)continue;"
+"var t=(e.getAttribute('aria-label')||e.getAttribute('title')||e.innerText||'').trim().toLowerCase();"
+"if(/^(close|dismiss|skip|关闭|关闭广告|跳过|×|✕|x)$/.test(t))hits.push(e);}"
+"return {count:hits.length, labels:hits.map(function(e){return (e.getAttribute('aria-label')||e.getAttribute('title')||e.innerText||'').trim().slice(0,40)})};"
+"})()";
+
+static NSString * const kClickVisibleCloseDOMScript =
+@"(function(){"
+"function visible(e){var r=e.getBoundingClientRect(),s=getComputedStyle(e);"
+"return r.width>6&&r.height>6&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';}"
+"var els=document.querySelectorAll('button,[role=button],a,[aria-label],[title]'),hits=[];"
+"for(var i=0;i<els.length;i++){var e=els[i];if(!visible(e)||e.disabled)continue;"
+"var t=(e.getAttribute('aria-label')||e.getAttribute('title')||e.innerText||'').trim().toLowerCase();"
+"if(/^(close|dismiss|skip|关闭|关闭广告|跳过|×|✕|x)$/.test(t))hits.push(e);}"
+"if(hits.length!==1)return 'DOM_CLOSE_COUNT='+hits.length;"
+"hits[0].click();return 'DOM_CLOSE_CLICK_SENT';"
+"})()";
+
 @interface AdCloseRoot : UIViewController <WKScriptMessageHandler, UIGestureRecognizerDelegate>
 @property(nonatomic,strong) UIButton *bubble;
 @property(nonatomic,strong) WKWebView *web;
@@ -165,23 +201,50 @@ static NSString *TryNativeClose(UIViewController *ad) {
     if (self.expanded) self.panel.frame = CGRectMake(MIN(MAX(8,f.origin.x),MAX(8,self.view.bounds.size.width-308)),MIN(MAX(45,CGRectGetMaxY(f)+8),MAX(45,self.view.bounds.size.height-248)),300,230);
 }
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherGestureRecognizer { return NO; }
+- (void)showDiagnostic:(NSString *)message {
+    NSString *safe = message ?: @"UNKNOWN";
+    NSData *data = [NSJSONSerialization dataWithJSONObject:@[safe] options:0 error:nil];
+    NSString *json = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    NSString *js = [NSString stringWithFormat:@"show((%@)[0])", json ?: @"[\"ERROR\"]"];
+    [self.web evaluateJavaScript:js completionHandler:nil];
+}
 - (void)userContentController:(WKUserContentController *)userContentController didReceiveScriptMessage:(WKScriptMessage *)message {
     if (![message.body isKindOfClass:[NSString class]]) return;
-    NSString *cmd = message.body;
-    UIWindow *w = self.view.window;
-    UIViewController *ad = CurrentAd(w);
-    NSString *result;
-    if (!ad) {
-        result = @"NOT_FOUND: 当前窗口没有广告控制器";
-    } else if ([cmd isEqualToString:@"status"]) {
-        result = [NSString stringWithFormat:@"FOUND: %@ modal=%@",NSStringFromClass(ad.class),ad.presentingViewController?@"YES":@"NO"];
-    } else if ([cmd isEqualToString:@"close"]) {
-        result = TryNativeClose(ad);
-    } else { return; }
-    NSString *json = [[NSString alloc] initWithData:[NSJSONSerialization dataWithJSONObject:@[result] options:NSJSONWritingFragmentsAllowed error:nil] encoding:NSUTF8StringEncoding];
-    // Array JSON avoids unsafe string interpolation into JavaScript.
-    NSString *js = [NSString stringWithFormat:@"show((%@)[0])",json ?: @"['ERROR']"];
-    [self.web evaluateJavaScript:js completionHandler:nil];
+    NSString *cmd = (NSString *)message.body;
+    UIViewController *ad = CurrentAd(self.view.window);
+    if (!ad) { [self showDiagnostic:@"NOT_FOUND: Unity Ads 控制器未找到"]; return; }
+
+    if ([cmd isEqualToString:@"status"]) {
+        WKWebView *adWeb = FindAdWebView(ad.view, 0);
+        if (!adWeb) { [self showDiagnostic:@"FOUND_CONTROLLER / NO_WKWEBVIEW"]; return; }
+        [adWeb evaluateJavaScript:kVisibleCloseDOMScript completionHandler:^(id value, NSError *error) {
+            if (error) {
+                [self showDiagnostic:[NSString stringWithFormat:@"DOM_INSPECT_ERROR: %@", error.localizedDescription]];
+                return;
+            }
+            [self showDiagnostic:[NSString stringWithFormat:@"FOUND_WEBVIEW %@ DOM=%@",
+                                  adWeb.URL.absoluteString ?: @"(local)", value]];
+        }];
+        return;
+    }
+    if ([cmd isEqualToString:@"close"]) {
+        UIButton *native = FindNativeCloseButton(ad.view,0);
+        if (native) {
+            [native sendActionsForControlEvents:UIControlEventTouchUpInside];
+            [self showDiagnostic:@"NATIVE_CLOSE_TAPPED: 等待 SDK 状态"];
+            return;
+        }
+        WKWebView *adWeb = FindAdWebView(ad.view,0);
+        if (!adWeb) { [self showDiagnostic:@"NO_NATIVE_CLOSE / NO_WKWEBVIEW"]; return; }
+        [adWeb evaluateJavaScript:kClickVisibleCloseDOMScript completionHandler:^(id value, NSError *error) {
+            if (error) {
+                [self showDiagnostic:[NSString stringWithFormat:@"DOM_CLICK_ERROR: %@",error.localizedDescription]];
+                return;
+            }
+            [self showDiagnostic:[NSString stringWithFormat:@"%@ (SDK结果未验证)", value ?: @"DOM_EMPTY"]];
+        }];
+        return;
+    }
 }
 - (void)dealloc {
     [self.web.configuration.userContentController removeScriptMessageHandlerForName:@"adclose"];
