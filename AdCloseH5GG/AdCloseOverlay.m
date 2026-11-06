@@ -146,7 +146,7 @@ static void InstallCallbackObserver(void) {
     pan.delegate = self;
     [bubble addGestureRecognizer:pan];
 
-    UIView *panel = [[UIView alloc] initWithFrame:CGRectMake(16, 190, 300, 230)];
+    UIView *panel = [[UIView alloc] initWithFrame:CGRectMake(16, 190, 300, 300)];
     panel.backgroundColor = [UIColor colorWithRed:.05 green:.08 blue:.13 alpha:.97];
     panel.layer.cornerRadius = 14;
     panel.layer.borderWidth = 1;
@@ -162,20 +162,21 @@ static void InstallCallbackObserver(void) {
     web.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     web.opaque = NO;
     web.backgroundColor = UIColor.clearColor;
-    web.scrollView.scrollEnabled = NO;
+    web.scrollView.scrollEnabled = YES;
     [panel addSubview:web];
     self.web = web;
     NSString *html =
     @"<!doctype html><meta name='viewport' content='width=device-width,initial-scale=1,user-scalable=no'>"
     "<style>body{background:#0e1523;color:#e8faff;font:15px -apple-system;margin:0;padding:16px}"
-    "h3{margin:0 0 12px;color:#6be9ff}button{width:100%;padding:12px;margin:5px 0;"
+    "h3{margin:0 0 10px;color:#6be9ff}button{width:100%;padding:10px;margin:4px 0;"
     "border:1px solid #45bcd1;border-radius:9px;background:#193549;color:white;font-size:15px}"
-    "button.red{border-color:#c85b65;background:#70333c}#out{font:12px monospace;color:#adc3cb;margin-top:8px;word-break:break-all}</style>"
+    "button.red{border-color:#c85b65;background:#70333c}#out{font:13px monospace;color:#e5faff;background:#182a3a;border:1px solid #347c88;border-radius:7px;padding:9px;margin:8px 0 12px;min-height:38px;white-space:pre-wrap;overflow-wrap:anywhere}</style>"
     "<h3>Unity Ads · 测试</h3>"
+    "<div id='out'>状态输出显示在这里</div>"
     "<button onclick=\"send('status')\">检测广告</button>"
     "<button class='red' onclick=\"send('close')\">开始监听提前关闭</button>"
     "<button onclick=\"send('simulate')\">模拟 Skipped（仅本地）</button>"
-    "<div id='out'>点开始监听，再点广告自己的关闭 ×。不会强制 dismiss。</div>"
+    "<div style='font-size:11px;color:#809eac;margin-top:9px'>仅观察真实回调；模拟事件不调用 SDK</div>"
     "<script>function send(x){window.webkit.messageHandlers.adclose.postMessage(x)}"
     "function show(x){document.getElementById('out').textContent=x}</script>";
     [web loadHTMLString:html baseURL:nil];
@@ -188,8 +189,9 @@ static void InstallCallbackObserver(void) {
         CGFloat h = CGRectGetHeight(self.view.bounds);
         CGFloat x = MIN(MAX(8, CGRectGetMinX(self.bubble.frame)), MAX(8, w-308));
         CGFloat y = CGRectGetMaxY(self.bubble.frame)+8;
-        if (y+230 > h-25) y = MAX(45, CGRectGetMinY(self.bubble.frame)-238);
-        self.panel.frame = CGRectMake(x,y,300,230);
+        if (y+300 > h-25) y = MAX(8, CGRectGetMinY(self.bubble.frame)-308);
+        y = MIN(MAX(8, y), MAX(8, h-308));
+        self.panel.frame = CGRectMake(x,y,300,MIN(300,MAX(180,h-16)));
     }
 }
 - (void)drag:(UIPanGestureRecognizer *)pan {
@@ -199,7 +201,7 @@ static void InstallCallbackObserver(void) {
     f.origin.y = MIN(MAX(24,f.origin.y+d.y),MAX(24,self.view.bounds.size.height-f.size.height-16));
     self.bubble.frame = f;
     [pan setTranslation:CGPointZero inView:self.view];
-    if (self.expanded) self.panel.frame = CGRectMake(MIN(MAX(8,f.origin.x),MAX(8,self.view.bounds.size.width-308)),MIN(MAX(45,CGRectGetMaxY(f)+8),MAX(45,self.view.bounds.size.height-248)),300,230);
+    if (self.expanded) self.panel.frame = CGRectMake(MIN(MAX(8,f.origin.x),MAX(8,self.view.bounds.size.width-308)),MIN(MAX(45,CGRectGetMaxY(f)+8),MAX(45,self.view.bounds.size.height-308)),300,MIN(300,MAX(180,self.view.bounds.size.height-16)));
 }
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherGestureRecognizer { return NO; }
 - (void)showCallbackResult:(NSString *)result {
