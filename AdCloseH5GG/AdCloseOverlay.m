@@ -53,7 +53,7 @@ static void InstallCallbackObserver(void) {
     SEL targets[] = {complete, failed, start, click};
     int total = objc_getClassList(NULL, 0);
     if (total <= 0 || total > 50000) return;
-    Class *classes = calloc((size_t)total, sizeof(Class));
+    Class __unsafe_unretained *classes = (Class __unsafe_unretained *)calloc((size_t)total, sizeof(Class));
     if (!classes) return;
     int count = objc_getClassList(classes, total);
     NSUInteger installed = 0;
