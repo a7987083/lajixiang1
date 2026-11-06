@@ -1,7 +1,7 @@
 name: Build AdCloseOverlay
 on:
   push:
-    branches: [feature/h5gg-adclose-test, test/509ea57d-close-callback]
+    branches: [feature/h5gg-adclose-test, test/509ea57d-close-callback, test/509ea57d-early-close]
   workflow_dispatch:
 jobs:
   build:
