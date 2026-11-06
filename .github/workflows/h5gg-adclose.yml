@@ -1,0 +1,39 @@
+name: Build H5GG AdClose diagnostics
+on:
+  push:
+    branches: [ 'feature/h5gg-adclose-test' ]
+    paths:
+      - 'AdCloseH5GG/**'
+      - '.github/workflows/h5gg-adclose.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build arm64 dylib
+        shell: bash
+        run: |
+          set -euxo pipefail
+          SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
+          mkdir -p dist
+          xcrun clang -fobjc-arc -arch arm64 -dynamiclib \
+            -isysroot "$SDK" -miphoneos-version-min=13.0 \
+            -framework UIKit -framework Foundation -framework JavaScriptCore \
+            -Wl,-install_name,@rpath/AdCloseBridge.dylib \
+            AdCloseH5GG/AdCloseBridge.m -o dist/AdCloseBridge.dylib
+          codesign --force --sign - --timestamp=none dist/AdCloseBridge.dylib
+          file dist/AdCloseBridge.dylib
+          xcrun otool -L dist/AdCloseBridge.dylib
+          shasum -a 256 dist/AdCloseBridge.dylib | tee dist/SHA256SUMS.txt
+          cp AdCloseH5GG/H5Menu.html AdCloseH5GG/README.md dist/
+          cd dist && zip -9 AdCloseH5GG.zip AdCloseBridge.dylib H5Menu.html README.md SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AdCloseH5GG-arm64
+          path: |
+            dist/AdCloseBridge.dylib
+            dist/AdCloseH5GG.zip
+            dist/H5Menu.html
+            dist/SHA256SUMS.txt
