@@ -25,7 +25,7 @@ jobs:
             AdCloseH5GG/AdCloseBridge.m -o dist/AdCloseBridge.dylib
           codesign --force --sign - --timestamp=none dist/AdCloseBridge.dylib
           test -s dist/AdCloseBridge.dylib
-          xcrun lipo -verify_arch arm64 dist/AdCloseBridge.dylib
+          xcrun lipo dist/AdCloseBridge.dylib -verify_arch arm64
           file dist/AdCloseBridge.dylib
           xcrun otool -L dist/AdCloseBridge.dylib
           shasum -a 256 dist/AdCloseBridge.dylib | tee dist/SHA256SUMS.txt
