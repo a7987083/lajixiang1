@@ -29,6 +29,44 @@ static UIViewController *CurrentAd(UIWindow *exclude) {
     return nil;
 }
 
+// Only activate a real, discoverable close control. Never synthesize SDK completion.
+static BOOL IsCloseLabel(NSString *value) {
+    if (!value.length) return NO;
+    NSString *n = [value lowercaseString];
+    return [n isEqualToString:@"close"] ||
+           [n isEqualToString:@"dismiss"] ||
+           [n isEqualToString:@"关闭"] ||
+           [n isEqualToString:@"关闭广告"] ||
+           [n isEqualToString:@"×"] ||
+           [n isEqualToString:@"✕"] ||
+           [n isEqualToString:@"x"];
+}
+static UIButton *FindNativeCloseButton(UIView *view, NSUInteger depth) {
+    if (!view || depth > 24 || view.hidden || view.alpha < 0.02) return nil;
+    // HTML-rendered controls are not UIKit buttons; never guess JavaScript bridge names.
+    if ([view isKindOfClass:[WKWebView class]]) return nil;
+    if ([view isKindOfClass:[UIButton class]]) {
+        UIButton *button = (UIButton *)view;
+        NSString *label = button.accessibilityLabel;
+        NSString *title = [button titleForState:UIControlStateNormal];
+        if (button.enabled && button.userInteractionEnabled &&
+            (IsCloseLabel(label) || IsCloseLabel(title))) return button;
+    }
+    for (UIView *child in [view.subviews reverseObjectEnumerator]) {
+        UIButton *result = FindNativeCloseButton(child, depth+1);
+        if (result) return result;
+    }
+    return nil;
+}
+static NSString *TryNativeClose(UIViewController *ad) {
+    if (!ad) return @"NOT_FOUND: no active Unity Ads controller";
+    UIButton *button = FindNativeCloseButton(ad.view, 0);
+    if (!button) return @"NO_NATIVE_CLOSE: SDK WebView bridge requires target-version analysis";
+    [button sendActionsForControlEvents:UIControlEventTouchUpInside];
+    NSLog(@"[AdCloseOverlay] activated native close control: %@",button);
+    return @"NATIVE_CLOSE_TAPPED: SDK result pending; no completion callback synthesized";
+}
+
 @interface AdCloseRoot : UIViewController <WKScriptMessageHandler, UIGestureRecognizerDelegate>
 @property(nonatomic,strong) UIButton *bubble;
 @property(nonatomic,strong) WKWebView *web;
@@ -99,8 +137,8 @@ static UIViewController *CurrentAd(UIWindow *exclude) {
     "button.red{border-color:#c85b65;background:#70333c}#out{font:12px monospace;color:#adc3cb;margin-top:8px;word-break:break-all}</style>"
     "<h3>Unity Ads · 测试</h3>"
     "<button onclick=\"send('status')\">检测广告</button>"
-    "<button class='red' onclick=\"send('close')\">测试关闭</button>"
-    "<div id='out'>不模拟奖励回调</div>"
+    "<button class='red' onclick=\"send('close')\">正常关闭测试</button>"
+    "<div id='out'>只触发真实原生关闭按钮；不模拟奖励回调</div>"
     "<script>function send(x){window.webkit.messageHandlers.adclose.postMessage(x)}"
     "function show(x){document.getElementById('out').textContent=x}</script>";
     [web loadHTMLString:html baseURL:nil];
@@ -138,12 +176,7 @@ static UIViewController *CurrentAd(UIWindow *exclude) {
     } else if ([cmd isEqualToString:@"status"]) {
         result = [NSString stringWithFormat:@"FOUND: %@ modal=%@",NSStringFromClass(ad.class),ad.presentingViewController?@"YES":@"NO"];
     } else if ([cmd isEqualToString:@"close"]) {
-        if (!ad.presentingViewController) {
-            result = @"NO_PRESENTER: 不是 modal 广告控制器";
-        } else {
-            [ad dismissViewControllerAnimated:YES completion:^{NSLog(@"[AdCloseOverlay] dismiss complete, remaining=%@",CurrentAd(w));}];
-            result = @"DISMISS_REQUESTED: 已提交关闭请求";
-        }
+        result = TryNativeClose(ad);
     } else { return; }
     NSString *json = [[NSString alloc] initWithData:[NSJSONSerialization dataWithJSONObject:@[result] options:NSJSONWritingFragmentsAllowed error:nil] encoding:NSUTF8StringEncoding];
     // Array JSON avoids unsafe string interpolation into JavaScript.
