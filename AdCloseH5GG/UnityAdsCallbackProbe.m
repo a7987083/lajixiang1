@@ -21,6 +21,7 @@ typedef struct {
 static UACPEntry gEntries[512];
 static size_t gEntryCount = 0;
 static NSObject *gGuard;
+static dispatch_source_t gScanTimer;
 
 static IMP UACPOriginal(id obj, SEL selector) {
     IMP result = NULL;
@@ -146,13 +147,11 @@ static void UACPInit(void) {
     NSLog(@"[UACP] callback monitor loaded; rewards and states remain untouched");
     dispatch_async(dispatch_get_main_queue(), ^{
         UACPScan();
-        dispatch_source_t timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0,
+        gScanTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0,
                                                         dispatch_get_main_queue());
-        dispatch_source_set_timer(timer, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC),
+        dispatch_source_set_timer(gScanTimer, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC),
                                   5 * NSEC_PER_SEC, NSEC_PER_SEC);
-        dispatch_source_set_event_handler(timer, ^{ UACPScan(); });
-        dispatch_resume(timer);
-        // Dispatch sources are retained by their event-handling infrastructure.
-        (void)timer;
+        dispatch_source_set_event_handler(gScanTimer, ^{ UACPScan(); });
+        dispatch_resume(gScanTimer);
     });
 }
