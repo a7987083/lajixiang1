@@ -1,8 +1,9 @@
 #import <Foundation/Foundation.h>
 #import <WebKit/WebKit.h>
 #import <objc/runtime.h>
+#import <dispatch/dispatch.h>
 
-// Best-effort process-level Foundation/WebKit boundary rewriting.\n// Case-insensitive replacements; not a universal hook for CFString/C++/WebKit subprocess.
+// V3: best-effort process-level Foundation/WebKit boundary rewriting with local HTML interception.\n// Case-insensitive replacements; not a universal hook for CFString/C++/WebKit subprocess.
 // WARNING: An NSString is a class cluster; this intentionally does NOT hook
 // objc_msgSend / every NSString constructor. No edits to existing string objects.
 
@@ -84,12 +85,70 @@ static BOOL Swap(Class cls, SEL original, SEL replacement, BOOL classMethod) {
 }
 @end
 
+@interface NSURLRequest (GlobalAdViewerRewrite)
++ (instancetype)gav_requestWithURL:(NSURL *)URL;
+@end
+
+@implementation NSURLRequest (GlobalAdViewerRewrite)
++ (instancetype)gav_requestWithURL:(NSURL *)URL {
+    NSString *original = URL.absoluteString;
+    NSString *changed = Rewrite(original);
+    if (original && ![original isEqualToString:changed]) {
+        NSURL *newURL = [NSURL URLWithString:changed];
+        if (newURL) URL = newURL;
+    }
+    return [self gav_requestWithURL:URL];
+}
+@end
+
 @interface WKWebView (GlobalAdViewerRewrite)
+- (WKNavigation *)gav_loadFileURL:(NSURL *)URL allowingReadAccessToURL:(NSURL *)readAccessURL;
+- (WKNavigation *)gav_loadData:(NSData *)data MIMEType:(NSString *)MIMEType
+      characterEncodingName:(NSString *)characterEncodingName baseURL:(NSURL *)baseURL;
 - (WKNavigation *)gav_loadHTMLString:(NSString *)string baseURL:(NSURL *)baseURL;
 - (WKNavigation *)gav_loadRequest:(NSURLRequest *)request;
 @end
 
 @implementation WKWebView (GlobalAdViewerRewrite)
+- (WKNavigation *)gav_loadFileURL:(NSURL *)URL allowingReadAccessToURL:(NSURL *)readAccessURL {
+    // For local HTML launchers, rewrite actual HTML contents before the WebView parses them.
+    // Do not alter the application's source files. Keep the original loader as fallback.
+    if (URL.isFileURL && [[URL.path.pathExtension lowercaseString] isEqualToString:@"html"]) {
+        NSError *error = nil;
+        NSDictionary *attrs = [[NSFileManager defaultManager] attributesOfItemAtPath:URL.path error:&error];
+        unsigned long long size = [attrs fileSize];
+        if (!error && size > 0 && size <= (4ULL * 1024 * 1024)) {
+            NSString *html = [NSString stringWithContentsOfURL:URL encoding:NSUTF8StringEncoding error:&error];
+            if (html && !error) {
+                NSString *modified = Rewrite(html);
+                if (![html isEqualToString:modified]) {
+                    NSLog(@"[GlobalAdViewerRewrite] local HTML intercepted: %@", URL.path);
+                    return [self gav_loadHTMLString:modified baseURL:[URL URLByDeletingLastPathComponent]];
+                }
+            }
+        }
+    }
+    return [self gav_loadFileURL:URL allowingReadAccessToURL:readAccessURL];
+}
+- (WKNavigation *)gav_loadData:(NSData *)data MIMEType:(NSString *)MIMEType
+         characterEncodingName:(NSString *)characterEncodingName baseURL:(NSURL *)baseURL {
+    if ([[MIMEType lowercaseString] containsString:@"html"] && data.length > 0 && data.length <= 4*1024*1024) {
+        NSStringEncoding encoding = NSUTF8StringEncoding;
+        if ([[characterEncodingName lowercaseString] isEqualToString:@"utf-16"]) encoding = NSUTF16StringEncoding;
+        NSString *html = [[NSString alloc] initWithData:data encoding:encoding];
+        if (html) {
+            NSString *modified = Rewrite(html);
+            if (![html isEqualToString:modified]) {
+                NSData *newData = [modified dataUsingEncoding:encoding];
+                if (newData) {
+                    NSLog(@"[GlobalAdViewerRewrite] loadData HTML rewritten baseURL=%@", baseURL);
+                    return [self gav_loadData:newData MIMEType:MIMEType characterEncodingName:characterEncodingName baseURL:baseURL];
+                }
+            }
+        }
+    }
+    return [self gav_loadData:data MIMEType:MIMEType characterEncodingName:characterEncodingName baseURL:baseURL];
+}
 - (WKNavigation *)gav_loadHTMLString:(NSString *)string baseURL:(NSURL *)baseURL {
     return [self gav_loadHTMLString:Rewrite(string) baseURL:baseURL];
 }
@@ -116,6 +175,11 @@ static void GlobalAdViewerRewriteInit(void) {
         Swap(NSURL.class, @selector(URLWithString:), @selector(gav_URLWithString:), YES);
         Swap(NSURL.class, @selector(URLWithString:relativeToURL:),
              @selector(gav_URLWithString:relativeToURL:), YES);
+        Swap(NSURLRequest.class, @selector(requestWithURL:), @selector(gav_requestWithURL:), YES);
+        Swap(WKWebView.class, @selector(loadFileURL:allowingReadAccessToURL:),
+             @selector(gav_loadFileURL:allowingReadAccessToURL:), NO);
+        Swap(WKWebView.class, @selector(loadData:MIMEType:characterEncodingName:baseURL:),
+             @selector(gav_loadData:MIMEType:characterEncodingName:baseURL:), NO);
         Swap(WKWebView.class, @selector(loadHTMLString:baseURL:),
              @selector(gav_loadHTMLString:baseURL:), NO);
         Swap(WKWebView.class, @selector(loadRequest:),
