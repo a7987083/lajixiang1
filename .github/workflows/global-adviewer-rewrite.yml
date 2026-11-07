@@ -1,7 +1,7 @@
 name: Build GlobalAdViewerRewrite dylib
 on:
   push:
-    branches: [feature/global-adviewer-strings-509ea57d]
+    branches: [feature/global-adviewer-rewrite-v3]
     paths:
       - 'GlobalAdViewerRewrite/**'
       - '.github/workflows/global-adviewer-rewrite.yml'
