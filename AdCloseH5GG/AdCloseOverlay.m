@@ -271,17 +271,20 @@ static NSString *SimulateCompleted(void) {
         [self showCallbackResult:@"NEED_DETECT: 请先检测当前广告"];
         return;
     }
-    if (!gShowDelegate || !gShowPlacement.length) {
-        [self showCallbackResult:@"NO_DELEGATE: 未捕获 showDelegate，不关闭以免丢失广告状态"];
-        return;
-    }
+    // UIKit dismiss must never depend on capturing the SDK showDelegate.
+    // A missing delegate is reported independently; do not claim SDK completion.
+    BOOL canSimulate = (gShowDelegate != nil && gShowPlacement.length > 0);
     __weak AdCloseRoot *weakSelf=self;
-    [self showCallbackResult:@"关闭页面中，完成后模拟 Completed 回调..."];
+    [self showCallbackResult:canSimulate ?
+        @"正在关闭广告；随后测试模拟回调..." :
+        @"正在关闭广告；NO_DELEGATE：回调不可模拟，仅测试关闭"];
     [ad dismissViewControllerAnimated:YES completion:^{
         AdCloseRoot *strongSelf=weakSelf;
         if (!strongSelf) return;
-        NSString *result=SimulateCompleted();
+        NSString *result = canSimulate ? SimulateCompleted() :
+            @"NO_DELEGATE: 广告已执行 UIKit 关闭，未模拟 SDK 回调";
         [strongSelf showCallbackResult:result];
+        NSLog(@"[AdClose] UIKit dismiss completed; callback=%@", result);
     }];
 }
 - (void)dealloc {
