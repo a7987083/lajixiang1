@@ -2,22 +2,38 @@
 #import <WebKit/WebKit.h>
 #import <objc/runtime.h>
 
-// Global, best-effort Foundation/WebKit boundary rewriting.
+// Best-effort process-level Foundation/WebKit boundary rewriting.\n// Case-insensitive replacements; not a universal hook for CFString/C++/WebKit subprocess.
 // WARNING: An NSString is a class cluster; this intentionally does NOT hook
 // objc_msgSend / every NSString constructor. No edits to existing string objects.
 
 static NSString *Rewrite(NSString *s) {
-    if (![s isKindOfClass:NSString.class] || !s.length) return s;
+    if (![s isKindOfClass:NSString.class] || s.length == 0) return s;
+
+    // Case-insensitive, idempotent matching. Do not turn "Adviewer1" into "Adviewer11".
+    static NSRegularExpression *plainPattern;
+    static NSRegularExpression *hyphenPattern;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        NSError *error = nil;
+        plainPattern = [NSRegularExpression regularExpressionWithPattern:@"adviewer(?!1)"
+                    options:NSRegularExpressionCaseInsensitive error:&error];
+        if (error) NSLog(@"[GlobalAdViewerRewrite] plain regex error: %@", error);
+        error = nil;
+        hyphenPattern = [NSRegularExpression regularExpressionWithPattern:@"ad-viewer(?!1)"
+                     options:NSRegularExpressionCaseInsensitive error:&error];
+        if (error) NSLog(@"[GlobalAdViewerRewrite] hyphen regex error: %@", error);
+    });
+
     NSString *result = s;
-    if ([result rangeOfString:@"AdViewer" options:NSLiteralSearch].location != NSNotFound) {
-        result = [result stringByReplacingOccurrencesOfString:@"AdViewer"
-                                                   withString:@"Adviewer1"];
+    if (hyphenPattern) {
+        result = [hyphenPattern stringByReplacingMatchesInString:result options:0
+                     range:NSMakeRange(0, result.length) withTemplate:@"ad-viewer1"];
     }
-    if ([result rangeOfString:@"ad-viewer" options:NSLiteralSearch].location != NSNotFound) {
-        result = [result stringByReplacingOccurrencesOfString:@"ad-viewer"
-                                                   withString:@"ad-viewer1"];
+    if (plainPattern) {
+        result = [plainPattern stringByReplacingMatchesInString:result options:0
+                     range:NSMakeRange(0, result.length) withTemplate:@"Adviewer1"];
     }
-    if (result != s && ![result isEqualToString:s]) {
+    if (![result isEqualToString:s]) {
         NSLog(@"[GlobalAdViewerRewrite] %@ -> %@", s, result);
     }
     return result;
@@ -104,6 +120,6 @@ static void GlobalAdViewerRewriteInit(void) {
              @selector(gav_loadHTMLString:baseURL:), NO);
         Swap(WKWebView.class, @selector(loadRequest:),
              @selector(gav_loadRequest:), NO);
-        NSLog(@"[GlobalAdViewerRewrite] loaded; replacements: AdViewer=>Adviewer1, ad-viewer=>ad-viewer1");
+        NSLog(@"[GlobalAdViewerRewrite] loaded; replacements: (?i)adviewer=>Adviewer1, (?i)ad-viewer=>ad-viewer1");
     }
 }
