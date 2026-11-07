@@ -1,0 +1,36 @@
+name: Build GlobalAdViewerRewrite dylib
+on:
+  push:
+    branches: [feature/global-adviewer-strings-509ea57d]
+    paths:
+      - 'GlobalAdViewerRewrite/**'
+      - '.github/workflows/global-adviewer-rewrite.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile iOS arm64 dylib
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p dist
+          SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
+          xcrun clang -fobjc-arc -arch arm64 -dynamiclib \
+            -isysroot "$SDK" -miphoneos-version-min=13.0 \
+            -framework Foundation -framework WebKit \
+            -Wl,-install_name,@rpath/GlobalAdViewerRewrite.dylib \
+            GlobalAdViewerRewrite/GlobalAdViewerRewrite.m \
+            -o dist/GlobalAdViewerRewrite.dylib
+          codesign --force --sign - --timestamp=none dist/GlobalAdViewerRewrite.dylib
+          xcrun lipo dist/GlobalAdViewerRewrite.dylib -verify_arch arm64
+          file dist/GlobalAdViewerRewrite.dylib
+          shasum -a 256 dist/GlobalAdViewerRewrite.dylib | tee dist/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GlobalAdViewerRewrite-arm64
+          path: |
+            dist/GlobalAdViewerRewrite.dylib
+            dist/SHA256SUMS.txt
