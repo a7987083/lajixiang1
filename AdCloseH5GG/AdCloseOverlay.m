@@ -1,6 +1,7 @@
 #import <UIKit/UIKit.h>
 #import <WebKit/WebKit.h>
 #import <objc/runtime.h>
+#import <objc/message.h>
 
 static BOOL IsUnityAd(UIViewController *vc) {
     NSString *n = NSStringFromClass([vc class]);
@@ -34,6 +35,11 @@ static UIViewController *CurrentAd(UIWindow *exclude) {
 static NSString *gLastAdCallback = @"NOT_OBSERVED";
 static NSUInteger gCallbackSerial = 0;
 static NSMutableSet<NSString *> *gObservedMethods;
+static id gShowDelegate;
+static NSString *gShowPlacement;
+static BOOL gHookedShow = NO;
+static __weak UIViewController *gDetectedAd;
+static BOOL gSimulated = NO;
 
 static void RecordAdCallback(NSString *name, NSString *placement, NSString *detail) {
     NSString *entry = [NSString stringWithFormat:@"%@ placement=%@ %@",
@@ -103,6 +109,43 @@ static void InstallCallbackObserver(void) {
           (unsigned long)installed, (unsigned long)gObservedMethods.count);
 }
 
+static void CaptureUnityShowDelegate(void) {
+    if (gHookedShow) return;
+    Class cls = NSClassFromString(@"UnityAds");
+    if (!cls) return;
+    SEL sels[] = {NSSelectorFromString(@"show:placementId:showDelegate:"),
+                  NSSelectorFromString(@"show:adUnitId:showDelegate:")};
+    for (int i=0;i<2;i++) {
+        SEL sel = sels[i];
+        Method m = class_getClassMethod(cls, sel);
+        if (!m || method_getNumberOfArguments(m)!=5) continue;
+        IMP orig=method_getImplementation(m);
+        IMP hook=imp_implementationWithBlock(^(id receiver, UIViewController *vc, NSString *placement, id delegate) {
+            if ([delegate respondsToSelector:NSSelectorFromString(@"unityAdsShowComplete:withFinishState:")]) {
+                gShowDelegate=delegate;
+                gShowPlacement=[placement copy];
+                gSimulated=NO;
+                NSLog(@"[AdClose] captured showDelegate=%@ placement=%@",delegate,placement);
+            }
+            ((void(*)(id,SEL,UIViewController*,NSString*,id))orig)(receiver,sel,vc,placement,delegate);
+        });
+        method_setImplementation(m,hook);
+        gHookedShow=YES;
+    }
+}
+static NSString *SimulateCompleted(void) {
+    SEL sel=NSSelectorFromString(@"unityAdsShowComplete:withFinishState:");
+    if (!gShowDelegate || !gShowPlacement.length || ![gShowDelegate respondsToSelector:sel])
+        return @"NO_DELEGATE: 没捕获到 SDK showDelegate，未模拟回调";
+    if (gSimulated) return @"ALREADY_SENT: 本次广告已经模拟过回调";
+    NSMethodSignature *sig=[gShowDelegate methodSignatureForSelector:sel];
+    if (!sig || sig.numberOfArguments!=4 || strcmp(sig.methodReturnType,@encode(void))!=0)
+        return @"BAD_SIGNATURE: 已取消模拟";
+    gSimulated=YES;
+    NSLog(@"[AdClose][SIMULATED] completed placement=%@",gShowPlacement);
+    ((void(*)(id,SEL,NSString*,NSInteger))objc_msgSend)(gShowDelegate,sel,gShowPlacement,(NSInteger)1);
+    return @"SIMULATED_COMPLETED_SENT: 回调已发送，游戏奖励是否到账仍需实机确认";
+}
 @interface AdCloseRoot : UIViewController <WKScriptMessageHandler, UIGestureRecognizerDelegate>
 @property(nonatomic,strong) UIButton *bubble;
 @property(nonatomic,strong) WKWebView *web;
@@ -174,7 +217,7 @@ static void InstallCallbackObserver(void) {
     "<h3>Unity Ads · 测试</h3>"
     "<div id='out' style='background:#182d3a;border-radius:7px;padding:8px;margin-bottom:8px'>未检测</div>"
     "<button onclick=\"send('status')\">检测广告</button>"
-    "<button class='red' onclick=\"send('close')\">关闭广告并检查回调</button>"
+    "<button class='red' onclick=\"send('close')\">关闭广告并模拟回调</button>"
     "<div style='font-size:11px;color:#93bac4'>关闭页面不代表 SDK 回调成功</div>"
     "<script>function send(x){window.webkit.messageHandlers.adclose.postMessage(x)}"
     "function show(x){document.getElementById('out').textContent=x}</script>";
@@ -210,41 +253,36 @@ static void InstallCallbackObserver(void) {
 }
 - (void)userContentController:(WKUserContentController *)userContentController didReceiveScriptMessage:(WKScriptMessage *)message {
     if (![message.body isKindOfClass:[NSString class]]) return;
-    NSString *cmd = message.body;
-    UIWindow *overlayWindow = self.view.window;
-    UIViewController *ad = CurrentAd(overlayWindow);
+    NSString *cmd=message.body;
+    CaptureUnityShowDelegate();
+    UIWindow *w=self.view.window;
+    UIViewController *ad=CurrentAd(w);
     if ([cmd isEqualToString:@"status"]) {
         InstallCallbackObserver();
-        NSString *info = ad ? [NSString stringWithFormat:@"AD_FOUND: %@; modal=%@; 已安装回调观察器(%lu)",
-            NSStringFromClass(ad.class), ad.presentingViewController ? @"YES" : @"NO",
-            (unsigned long)gObservedMethods.count] : @"NOT_FOUND: 当前没有 Unity Ads 广告";
-        [self showCallbackResult:info];
+        if (ad!=gDetectedAd) { gDetectedAd=ad; gSimulated=NO; }
+        NSString *result=ad ? [NSString stringWithFormat:@"FOUND: %@; delegate=%@ placement=%@",
+            NSStringFromClass(ad.class), gShowDelegate?NSStringFromClass([gShowDelegate class]):@"NOT_CAPTURED",
+            gShowPlacement?:@"unknown"] : @"NOT_FOUND: 无广告";
+        [self showCallbackResult:result];
         return;
     }
     if (![cmd isEqualToString:@"close"]) return;
-    if (!ad || !ad.presentingViewController) {
-        [self showCallbackResult:@"NO_MODAL_AD: 找不到可关闭的广告"];
+    if (!ad || !ad.presentingViewController || gDetectedAd!=ad) {
+        [self showCallbackResult:@"NEED_DETECT: 请先检测当前广告"];
         return;
     }
-    InstallCallbackObserver();
-    NSUInteger serial = gCallbackSerial;
-    [self showCallbackResult:@"CLOSING: 发起 UIKit dismiss; 等待 2 秒确认 SDK 回调"];
-    __weak AdCloseRoot *weakSelf = self;
+    if (!gShowDelegate || !gShowPlacement.length) {
+        [self showCallbackResult:@"NO_DELEGATE: 未捕获 showDelegate，不关闭以免丢失广告状态"];
+        return;
+    }
+    __weak AdCloseRoot *weakSelf=self;
+    [self showCallbackResult:@"关闭页面中，完成后模拟 Completed 回调..."];
     [ad dismissViewControllerAnimated:YES completion:^{
-        NSLog(@"[AdCloseCallback] UIKit dismissal complete, remaining=%@", CurrentAd(overlayWindow));
-    }];
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{
-        AdCloseRoot *strongSelf = weakSelf;
+        AdCloseRoot *strongSelf=weakSelf;
         if (!strongSelf) return;
-        BOOL observed = gCallbackSerial > serial;
-        NSString *result = [NSString stringWithFormat:@"页面=%@; SDK回调=%@; %@",
-            CurrentAd(overlayWindow) ? @"仍存在" : @"已关闭",
-            observed ? @"捕获" : @"未捕获",
-            observed ? gLastAdCallback : @"UIKit dismiss 不产生 Unity Ads Skipped；此处未伪造回调"];
+        NSString *result=SimulateCompleted();
         [strongSelf showCallbackResult:result];
-        NSLog(@"[AdCloseCallback] %@",result);
-    });
+    }];
 }
 - (void)dealloc {
     [self.web.configuration.userContentController removeScriptMessageHandlerForName:@"adclose"];
@@ -352,6 +390,7 @@ __attribute__((constructor)) static void AdCloseOverlayInit(void) {
                 InstallOverlay();
             }];
         }
+        CaptureUnityShowDelegate();
         InstallOverlay();
         if (!gWindow) ScheduleOverlayRetry(0);
     });
