@@ -1,7 +1,8 @@
 #import <UIKit/UIKit.h>
 #import <StoreKit/StoreKit.h>
 #import <dispatch/dispatch.h>
-#import <stdio.h>\n#import <math.h>
+#import <stdio.h>
+#import <math.h>
 
 // Local QA simulator: synthetic states NEVER enter StoreKit or grant entitlements.
 static void QALog(NSString *event) {
