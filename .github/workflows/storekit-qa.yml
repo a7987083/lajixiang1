@@ -18,7 +18,7 @@ jobs:
             -isysroot "$SDK" -miphoneos-version-min=13.0 \
             -framework UIKit -framework Foundation -framework StoreKit -framework CoreGraphics \
             -Wl,-install_name,@rpath/StoreKitQA.dylib \
-            src/StoreKitQA.mm -o dist/StoreKitQA.dylib
+            src/StoreKitQA.mm src/StoreKitQABridge.mm -o dist/StoreKitQA.dylib
           codesign --force --sign - --timestamp=none dist/StoreKitQA.dylib
           xcrun otool -L dist/StoreKitQA.dylib
           shasum -a 256 dist/StoreKitQA.dylib > dist/SHA256SUMS.txt
