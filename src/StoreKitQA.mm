@@ -205,8 +205,21 @@ static void QALog(NSString *event) {
     if (index<0 || index>=states.count || !self.products.count) return;
     NSDictionary *product=self.products[self.selectedIndex];
     NSString *state=states[index];
-    BOOL delivered=[state isEqualToString:@"success"] ? [self deliverMockProduct:product] : NO;
-    self.status.text=[NSString stringWithFormat:@"QA %@ · ID %@ %@",state,product[@"Id"], delivered?@"recorded":@""];
+    BOOL delivered=NO;
+    if ([state isEqualToString:@"success"] && StoreKitQAIsLocalMode()) {
+        if (!StoreKitQAHasDeliveryHandler()) {
+            self.status.text=@"No game QA delivery adapter";
+            return;
+        }
+        NSData *payload=[NSJSONSerialization dataWithJSONObject:product options:0 error:nil];
+        NSString *json=[[NSString alloc] initWithData:payload encoding:NSUTF8StringEncoding];
+        NSString *sku=[product[@"Id"] description] ?: @"";
+        delivered=json && StoreKitQADeliverSelectedProduct(sku.UTF8String,json.UTF8String);
+        self.status.text=delivered?@"Game QA delivery accepted":@"Game QA delivery failed";
+    } else {
+        delivered=[state isEqualToString:@"success"] ? [self deliverMockProduct:product] : NO;
+        self.status.text=[NSString stringWithFormat:@"QA %@ · ID %@ %@",state,product[@"Id"], delivered?@"isolated":@""];
+    }
     NSDictionary *event=@{@"time":@([[NSDate date] timeIntervalSince1970]),
       @"kind":@"local_qa", @"outcome":state, @"mockDeliveryRecorded":@(delivered), @"internalProductId":product[@"Id"],
       @"type":product[@"Type"]?:@0,@"medal":product[@"Medal"]?:@0,
