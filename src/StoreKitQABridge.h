@@ -8,6 +8,7 @@ typedef bool (*StoreKitQADeliveryHandler)(const char *productId, const char *rew
 void StoreKitQARegisterDeliveryHandler(StoreKitQADeliveryHandler handler);
 void StoreKitQASetLocalMode(bool enabled);
 bool StoreKitQAIsLocalMode(void);
+bool StoreKitQAHasDeliveryHandler(void);
 #ifdef __cplusplus
 }
 #endif
