@@ -16,6 +16,7 @@ extern "C" void StoreKitQASetLocalMode(bool enabled) {
     NSLog(@"[StoreKitQA] P4 local QA mode enabled=%d, adapter=%d",enabled,s_deliver.load()!=nullptr);
 }
 extern "C" bool StoreKitQAIsLocalMode(void) { return s_localMode.load(); }
+extern "C" bool StoreKitQAHasDeliveryHandler(void) { return s_deliver.load()!=nullptr; }
 
 @interface SKPaymentQueue (StoreKitQAP4)
 - (void)qa_p4_addPayment:(SKPayment *)payment;
@@ -23,6 +24,7 @@ extern "C" bool StoreKitQAIsLocalMode(void) { return s_localMode.load(); }
 @implementation SKPaymentQueue (StoreKitQAP4)
 - (void)qa_p4_addPayment:(SKPayment *)payment {
     StoreKitQADeliveryHandler handler=s_deliver.load();
+    NSLog(@"[StoreKitQA] P4 request product=%@ quantity=%ld localMode=%d handler=%d",payment.productIdentifier,(long)payment.quantity,s_localMode.load(),handler!=nullptr);
     if (s_localMode.load() && handler && payment.productIdentifier.length) {
         // Only a registered, explicitly authorized adapter can fulfill a QA delivery.
         // Never fake SKPaymentTransaction, receipts or completed/failed transaction callbacks.
