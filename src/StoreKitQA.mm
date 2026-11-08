@@ -65,7 +65,8 @@ static void QALog(NSString *event) {
 }
 - (void)positionMenu {
     if (!self.window || !self.bubble || !self.menu) return;
-    CGRect bounds=self.window.bounds, safe=self.window.safeAreaInsets;
+    CGRect bounds=self.window.bounds;
+    UIEdgeInsets safe=self.window.safeAreaInsets;
     CGFloat width=MIN(254, MAX(190, bounds.size.width-24));
     CGFloat height=244;
     CGFloat x=CGRectGetMidX(self.bubble.frame)-width/2;
