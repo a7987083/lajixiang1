@@ -4,6 +4,7 @@
 #import <dispatch/dispatch.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <unistd.h>
 
 typedef struct I_Domain I_Domain;
 typedef struct I_Assembly I_Assembly;
