@@ -174,6 +174,7 @@ static void GMLifecycleLog(NSString *event) {
 - (void)start:(id)sender {
     if (self.busy || !ExactImage()) return;
     GMLifecycleLog(@"Guest button pressed");
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"GMGuestStarted" object:nil];
     DomainGetFn domainGet=RESOLVE(domain_get,DomainGetFn);
     AssembliesFn assemblies=RESOLVE(domain_get_assemblies,AssembliesFn);
     ImageFn imageGet=RESOLVE(assembly_get_image,ImageFn);
