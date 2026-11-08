@@ -16,6 +16,16 @@ static void QALog(NSString *event) {
     @finally { [handle closeFile]; }
 }
 
+@interface StoreKitQAPassThroughWindow : UIWindow
+@end
+@implementation StoreKitQAPassThroughWindow
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
+    UIView *hit=[super hitTest:point withEvent:event];
+    if (!hit || hit==self || hit==self.rootViewController.view) return nil;
+    return hit;
+}
+@end
+
 @interface StoreKitQAObserver : NSObject <SKPaymentTransactionObserver>
 @end
 @implementation StoreKitQAObserver
@@ -48,7 +58,7 @@ static void QALog(NSString *event) {
 - (void)start {
     if (self.window) return;
     CGRect frame=[UIScreen mainScreen].bounds;
-    UIWindow *w=[[UIWindow alloc] initWithFrame:frame];
+    UIWindow *w=[[StoreKitQAPassThroughWindow alloc] initWithFrame:frame];
     w.windowLevel=UIWindowLevelAlert+12;
     w.backgroundColor=[UIColor clearColor];
     w.rootViewController=[UIViewController new];
