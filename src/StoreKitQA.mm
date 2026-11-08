@@ -56,6 +56,7 @@ static void QALog(NSString *event) {
 @property(nonatomic,assign) NSInteger selectedIndex;
 @property(nonatomic,strong) UILabel *detail;
 @property(nonatomic,strong) UIScrollView *productList;
+@property(nonatomic,strong) UILabel *inventoryLabel;
 @property(nonatomic,assign) CGPoint panStart;
 @property(nonatomic,assign) CGPoint bubbleStart;
 @property(nonatomic,assign) BOOL dragged;
@@ -106,15 +107,89 @@ static void QALog(NSString *event) {
     [self updateSelection];
     QALog([NSString stringWithFormat:@"QA selected internal product Id=%@",self.products[self.selectedIndex][@"Id"]]);
 }
+// This ledger is isolated from host-game saves, StoreKit, receipts and entitlements.
+- (NSString *)inventoryPath {
+    NSString *dir=NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask,YES).firstObject;
+    return [dir stringByAppendingPathComponent:@"storekit-qa-inventory.json"];
+}
+- (NSMutableDictionary *)inventorySnapshot {
+    NSData *data=[NSData dataWithContentsOfFile:[self inventoryPath]];
+    id value=data ? [NSJSONSerialization JSONObjectWithData:data options:NSJSONReadingMutableContainers error:nil] : nil;
+    if (![value isKindOfClass:NSDictionary.class] || ![value[@"qaOnly"] isEqual:@YES])
+        return [@{@"qaOnly":@YES,@"medals":@0,@"generals":[NSMutableArray new],
+                  @"extraArmy":[NSMutableArray new],@"items":[NSMutableDictionary new],
+                  @"deliveries":@0} mutableCopy];
+    return [value mutableCopy];
+}
+- (void)updateInventoryLabel {
+    NSDictionary *inv=[self inventorySnapshot];
+    self.inventoryLabel.text=[NSString stringWithFormat:@"QA Inventory: medals=%@  generals=%lu  orders=%@",
+        inv[@"medals"]?:@0,(unsigned long)[inv[@"generals"] count],inv[@"deliveries"]?:@0];
+}
+- (void)showInventory:(id)sender {
+    NSDictionary *inv=[self inventorySnapshot];
+    NSString *message=[NSString stringWithFormat:@"QA medals: %@\nGenerals: %@\nExtra army: %@\nItems: %@\nSimulated orders: %@\n\nNot added to the real game.",
+       inv[@"medals"],inv[@"generals"],inv[@"extraArmy"],inv[@"items"],inv[@"deliveries"]];
+    UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"QA Inventory (isolated)"
+      message:message preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+    [self.window.rootViewController presentViewController:alert animated:YES completion:nil];
+}
+- (void)resetInventory:(id)sender {
+    UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"Clear QA inventory?"
+      message:@"This clears only the isolated QA test ledger. Game data is not modified."
+      preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Clear" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
+        BOOL ok=[[NSFileManager defaultManager] removeItemAtPath:[self inventoryPath] error:nil];
+        self.status.text=@"QA inventory reset";
+        QALog([NSString stringWithFormat:@"QA inventory reset existed=%d",ok]);
+        [self updateInventoryLabel];
+    }]];
+    [self.window.rootViewController presentViewController:alert animated:YES completion:nil];
+}
+- (BOOL)deliverMockProduct:(NSDictionary *)product {
+    NSMutableDictionary *inv=[self inventorySnapshot];
+    long long medal=[product[@"Medal"] respondsToSelector:@selector(longLongValue)] ? [product[@"Medal"] longLongValue] : 0;
+    if (medal>0 && medal<=100000000)
+        inv[@"medals"]=@([inv[@"medals"] longLongValue]+medal);
+    NSMutableSet *generals=[NSMutableSet setWithArray:[inv[@"generals"] isKindOfClass:NSArray.class]?inv[@"generals"]:@[]];
+    for (NSString *field in @[@"GeneralId",@"GeneralId2"]) {
+        id g=product[field];
+        if ([g respondsToSelector:@selector(integerValue)] && [g integerValue]>0) [generals addObject:g];
+    }
+    inv[@"generals"]=[[generals allObjects] sortedArrayUsingSelector:@selector(compare:)];
+    NSMutableSet *extra=[NSMutableSet setWithArray:[inv[@"extraArmy"] isKindOfClass:NSArray.class]?inv[@"extraArmy"]:@[]];
+    if ([product[@"ExArmyId"] isKindOfClass:NSArray.class])
+        for (id v in product[@"ExArmyId"]) if ([v respondsToSelector:@selector(integerValue)] && [v integerValue]>0) [extra addObject:v];
+    inv[@"extraArmy"]=[[extra allObjects] sortedArrayUsingSelector:@selector(compare:)];
+    NSMutableDictionary *items=[([inv[@"items"] isKindOfClass:NSDictionary.class]?inv[@"items"]:@{}) mutableCopy];
+    NSArray *pairs=[product[@"ItemIds"] isKindOfClass:NSArray.class] ? product[@"ItemIds"] : @[];
+    for (NSUInteger i=0;i+1<pairs.count;i+=2) {
+        NSInteger code=[pairs[i] integerValue], count=[pairs[i+1] integerValue];
+        if (code<=0 || count<=0 || count>10000000) continue;
+        NSString *key=[NSString stringWithFormat:@"%ld",(long)code];
+        items[key]=@([items[key] longLongValue]+count);
+    }
+    inv[@"items"]=items;
+    inv[@"deliveries"]=@([inv[@"deliveries"] integerValue]+1);
+    NSData *json=[NSJSONSerialization dataWithJSONObject:inv options:NSJSONWritingPrettyPrinted error:nil];
+    NSError *error=nil;
+    BOOL ok=json && [json writeToFile:[self inventoryPath] options:NSDataWritingAtomic error:&error];
+    QALog([NSString stringWithFormat:@"QA mock delivery id=%@ recorded=%d error=%@ (isolated only)",product[@"Id"],ok,error]);
+    [self updateInventoryLabel];
+    return ok;
+}
 - (void)simulate:(UIButton *)sender {
     NSArray *states=@[@"success",@"cancelled",@"failed",@"restored"];
     NSInteger index=sender.tag;
     if (index<0 || index>=states.count || !self.products.count) return;
     NSDictionary *product=self.products[self.selectedIndex];
     NSString *state=states[index];
-    self.status.text=[NSString stringWithFormat:@"QA %@ · ID %@",state,product[@"Id"]];
+    BOOL delivered=[state isEqualToString:@"success"] ? [self deliverMockProduct:product] : NO;
+    self.status.text=[NSString stringWithFormat:@"QA %@ · ID %@ %@",state,product[@"Id"], delivered?@"recorded":@""];
     NSDictionary *event=@{@"time":@([[NSDate date] timeIntervalSince1970]),
-      @"kind":@"local_qa", @"outcome":state, @"internalProductId":product[@"Id"],
+      @"kind":@"local_qa", @"outcome":state, @"mockDeliveryRecorded":@(delivered), @"internalProductId":product[@"Id"],
       @"type":product[@"Type"]?:@0,@"medal":product[@"Medal"]?:@0,
       @"generalId":product[@"GeneralId"]?:@0,@"items":product[@"ItemIds"]?:@[]};
     NSData *json=[NSJSONSerialization dataWithJSONObject:event options:NSJSONWritingFragmentsAllowed error:nil];
@@ -129,14 +204,14 @@ static void QALog(NSString *event) {
     } else {
         [record writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil];
     }
-    QALog([NSString stringWithFormat:@"SYNTHETIC state=%@ internalSKU=%@ no StoreKit, receipt, payment or reward",state,product[@"Id"]]);
+    QALog([NSString stringWithFormat:@"SYNTHETIC state=%@ internalSKU=%@ no StoreKit, receipt, payment or game reward",state,product[@"Id"]]);
 }
 - (void)positionMenu {
     if (!self.window || !self.bubble || !self.menu) return;
     CGRect bounds=self.window.bounds;
     UIEdgeInsets safe=self.window.safeAreaInsets;
     CGFloat width=MIN(254, MAX(190, bounds.size.width-24));
-    CGFloat height=MIN(408, MAX(290, bounds.size.height-safe.top-safe.bottom-16));
+    CGFloat height=MIN(490, MAX(350, bounds.size.height-safe.top-safe.bottom-16));
     CGFloat x=CGRectGetMidX(self.bubble.frame)-width/2;
     x=MAX(12,MIN(x,bounds.size.width-width-12));
     CGFloat y=CGRectGetMaxY(self.bubble.frame)+8;
@@ -144,10 +219,12 @@ static void QALog(NSString *event) {
         y=CGRectGetMinY(self.bubble.frame)-height-8;
     y=MAX(safe.top+8,MIN(y,MAX(safe.top+8,bounds.size.height-safe.bottom-height-8)));
     self.menu.frame=CGRectMake(x,y,width,height);
-    self.productList.frame=CGRectMake(12,92,width-24,MAX(48,height-265));
+    self.productList.frame=CGRectMake(12,92,width-24,MAX(48,height-315));
     self.detail.frame=CGRectMake(12,66,width-24,23);
+    self.inventoryLabel.frame=CGRectMake(12,height-49,width-24,18);
+    for (UIView *v in self.menu.subviews) if ([v isKindOfClass:UIButton.class]) { UIButton *b=(UIButton *)v; if (b.tag>=100) b.frame=CGRectMake(b.tag==100?12:width/2+2,height-27,width/2-14,24); }
     for (UIView *v in self.menu.subviews) {
-        if ([v isKindOfClass:UIButton.class]) { UIButton *b=(UIButton *)v; b.frame=CGRectMake(12,height-159+b.tag*38,width-24,32); }
+        if ([v isKindOfClass:UIButton.class] && v.tag<100) { UIButton *b=(UIButton *)v; b.frame=CGRectMake(12,height-189+b.tag*35,width-24,30); }
     }
 }
 - (void)toggle:(id)sender {
@@ -232,7 +309,7 @@ static void QALog(NSString *event) {
     self.bubble=bubble;
 
     [self loadQAProducts];
-    UIView *menu=[[UIView alloc] initWithFrame:CGRectMake(12,170,254,408)];
+    UIView *menu=[[UIView alloc] initWithFrame:CGRectMake(12,170,254,490)];
     menu.hidden=YES;
     menu.layer.cornerRadius=12;
     menu.layer.borderWidth=1;
@@ -278,7 +355,23 @@ static void QALog(NSString *event) {
        [button addTarget:self action:@selector(simulate:) forControlEvents:UIControlEventTouchUpInside];
        [menu addSubview:button];
     }
+    UILabel *inventoryLabel=[[UILabel alloc] initWithFrame:CGRectMake(12,445,230,18)];
+    inventoryLabel.font=[UIFont systemFontOfSize:10];
+    inventoryLabel.textColor=UIColor.lightGrayColor;
+    [menu addSubview:inventoryLabel]; self.inventoryLabel=inventoryLabel;
+    for (NSInteger i=0;i<2;i++) {
+       UIButton *button=[UIButton buttonWithType:UIButtonTypeSystem];
+       button.frame=CGRectMake(i==0?12:131,462,111,25);
+       button.tag=100+i;
+       button.layer.cornerRadius=5;
+       button.backgroundColor=[UIColor colorWithWhite:0.22 alpha:1];
+       [button setTitle:i==0?@"QA Inventory":@"Clear QA" forState:UIControlStateNormal];
+       [button setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+       [button addTarget:self action:i==0?@selector(showInventory:):@selector(resetInventory:) forControlEvents:UIControlEventTouchUpInside];
+       [menu addSubview:button];
+    }
     [self updateSelection];
+    [self updateInventoryLabel];
     [self positionMenu];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(layoutChanged:) name:UIDeviceOrientationDidChangeNotification object:nil];
 
