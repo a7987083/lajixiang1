@@ -57,6 +57,10 @@ static void QALog(NSString *event) {
 @property(nonatomic,strong) UILabel *detail;
 @property(nonatomic,strong) UIScrollView *productList;
 @property(nonatomic,strong) UILabel *inventoryLabel;
+@property(nonatomic,strong) UIView *inventoryOverlay;
+@property(nonatomic,strong) UILabel *inventoryDetail;
+@property(nonatomic,strong) UIButton *clearButton;
+@property(nonatomic,assign) BOOL clearArmed;
 @property(nonatomic,assign) CGPoint panStart;
 @property(nonatomic,assign) CGPoint bubbleStart;
 @property(nonatomic,assign) BOOL dragged;
@@ -126,27 +130,40 @@ static void QALog(NSString *event) {
     self.inventoryLabel.text=[NSString stringWithFormat:@"QA Inventory: medals=%@  generals=%lu  orders=%@",
         inv[@"medals"]?:@0,(unsigned long)[inv[@"generals"] count],inv[@"deliveries"]?:@0];
 }
+// Do not present UIAlertController from an auxiliary non-key UIWindow:
+// system alert buttons may not receive touch events in embedded-game scenes.
+- (void)closeInventory:(id)sender {
+    self.inventoryOverlay.hidden=YES;
+    self.clearArmed=NO;
+    [self.clearButton setTitle:@"Clear QA" forState:UIControlStateNormal];
+    QALog(@"QA inventory panel closed");
+}
 - (void)showInventory:(id)sender {
     NSDictionary *inv=[self inventorySnapshot];
-    NSString *message=[NSString stringWithFormat:@"QA medals: %@\nGenerals: %@\nExtra army: %@\nItems: %@\nSimulated orders: %@\n\nNot added to the real game.",
-       inv[@"medals"],inv[@"generals"],inv[@"extraArmy"],inv[@"items"],inv[@"deliveries"]];
-    UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"QA Inventory (isolated)"
-      message:message preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
-    [self.window.rootViewController presentViewController:alert animated:YES completion:nil];
+    self.inventoryDetail.text=[NSString stringWithFormat:
+        @"QA medals: %@\nGenerals: %@\nExtra army: %@\nItems: %@\nSimulated orders: %@\n\nNot added to the real game.",
+        inv[@"medals"],inv[@"generals"],inv[@"extraArmy"],inv[@"items"],inv[@"deliveries"]];
+    self.inventoryOverlay.hidden=NO;
+    self.clearArmed=NO;
+    [self.clearButton setTitle:@"Clear QA" forState:UIControlStateNormal];
+    QALog(@"QA inventory opened (in-window overlay)");
 }
-- (void)resetInventory:(id)sender {
-    UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"Clear QA inventory?"
-      message:@"This clears only the isolated QA test ledger. Game data is not modified."
-      preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"Clear" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
-        BOOL ok=[[NSFileManager defaultManager] removeItemAtPath:[self inventoryPath] error:nil];
-        self.status.text=@"QA inventory reset";
-        QALog([NSString stringWithFormat:@"QA inventory reset existed=%d",ok]);
-        [self updateInventoryLabel];
-    }]];
-    [self.window.rootViewController presentViewController:alert animated:YES completion:nil];
+- (void)resetInventory:(UIButton *)sender {
+    if (!self.clearArmed) {
+        self.clearArmed=YES;
+        [self.clearButton setTitle:@"Confirm Clear" forState:UIControlStateNormal];
+        self.status.text=@"Tap Confirm Clear to reset QA only";
+        return;
+    }
+    NSError *error=nil;
+    BOOL exists=[[NSFileManager defaultManager] fileExistsAtPath:[self inventoryPath]];
+    BOOL ok=!exists || [[NSFileManager defaultManager] removeItemAtPath:[self inventoryPath] error:&error];
+    self.clearArmed=NO;
+    [self.clearButton setTitle:@"Clear QA" forState:UIControlStateNormal];
+    self.status.text=ok?@"QA inventory reset":@"QA reset failed";
+    QALog([NSString stringWithFormat:@"QA inventory reset success=%d error=%@",ok,error]);
+    [self updateInventoryLabel];
+    if (!self.inventoryOverlay.hidden) [self showInventory:nil];
 }
 - (BOOL)deliverMockProduct:(NSDictionary *)product {
     NSMutableDictionary *inv=[self inventorySnapshot];
@@ -222,6 +239,8 @@ static void QALog(NSString *event) {
     self.productList.frame=CGRectMake(12,92,width-24,MAX(48,height-315));
     self.detail.frame=CGRectMake(12,66,width-24,23);
     self.inventoryLabel.frame=CGRectMake(12,height-49,width-24,18);
+    self.inventoryOverlay.frame=self.menu.bounds;
+    self.inventoryDetail.frame=CGRectMake(12,52,width-24,MAX(80,height-120));
     for (UIView *v in self.menu.subviews) if ([v isKindOfClass:UIButton.class]) { UIButton *b=(UIButton *)v; if (b.tag>=100) b.frame=CGRectMake(b.tag==100?12:width/2+2,height-27,width/2-14,24); }
     for (UIView *v in self.menu.subviews) {
         if ([v isKindOfClass:UIButton.class] && v.tag<100) { UIButton *b=(UIButton *)v; b.frame=CGRectMake(12,height-189+b.tag*35,width-24,30); }
@@ -229,7 +248,8 @@ static void QALog(NSString *event) {
 }
 - (void)toggle:(id)sender {
     self.menu.hidden=!self.menu.hidden;
-    if (!self.menu.hidden) [self positionMenu];
+    if (self.menu.hidden) [self closeInventory:nil];
+    else [self positionMenu];
 }
 - (void)dragBubble:(UIPanGestureRecognizer *)pan {
     CGPoint p=[pan translationInView:self.window];
@@ -370,6 +390,36 @@ static void QALog(NSString *event) {
        [button addTarget:self action:i==0?@selector(showInventory:):@selector(resetInventory:) forControlEvents:UIControlEventTouchUpInside];
        [menu addSubview:button];
     }
+    // Native in-window inventory overlay; stays inside the existing touch-pass-through menu.
+    UIView *overlay=[[UIView alloc] initWithFrame:menu.bounds];
+    overlay.backgroundColor=[UIColor colorWithRed:0.08 green:0.12 blue:0.18 alpha:1.0];
+    overlay.layer.cornerRadius=12;
+    overlay.clipsToBounds=YES;
+    overlay.hidden=YES;
+    [menu addSubview:overlay];
+    self.inventoryOverlay=overlay;
+    UILabel *overlayTitle=[[UILabel alloc] initWithFrame:CGRectMake(12,12,230,28)];
+    overlayTitle.text=@"QA Inventory (isolated)";
+    overlayTitle.textColor=UIColor.whiteColor;
+    overlayTitle.font=[UIFont boldSystemFontOfSize:16];
+    [overlay addSubview:overlayTitle];
+    UILabel *inventoryDetail=[[UILabel alloc] initWithFrame:CGRectMake(12,52,230,280)];
+    inventoryDetail.font=[UIFont systemFontOfSize:13];
+    inventoryDetail.textColor=UIColor.whiteColor;
+    inventoryDetail.numberOfLines=0;
+    inventoryDetail.lineBreakMode=NSLineBreakByTruncatingTail;
+    [overlay addSubview:inventoryDetail];
+    self.inventoryDetail=inventoryDetail;
+    UIButton *close=[UIButton buttonWithType:UIButtonTypeSystem];
+    close.frame=CGRectMake(12,menu.bounds.size.height-51,230,38);
+    close.autoresizingMask=UIViewAutoresizingFlexibleTopMargin|UIViewAutoresizingFlexibleWidth;
+    close.backgroundColor=[UIColor colorWithRed:0.10 green:0.38 blue:0.45 alpha:1];
+    close.layer.cornerRadius=8;
+    [close setTitle:@"Close Inventory" forState:UIControlStateNormal];
+    [close setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+    [close addTarget:self action:@selector(closeInventory:) forControlEvents:UIControlEventTouchUpInside];
+    [overlay addSubview:close];
+    self.clearButton=(UIButton *)[menu viewWithTag:101];
     [self updateSelection];
     [self updateInventoryLabel];
     [self positionMenu];
