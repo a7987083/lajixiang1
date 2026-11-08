@@ -9,6 +9,8 @@ void StoreKitQARegisterDeliveryHandler(StoreKitQADeliveryHandler handler);
 void StoreKitQASetLocalMode(bool enabled);
 bool StoreKitQAIsLocalMode(void);
 bool StoreKitQAHasDeliveryHandler(void);
+// Explicit QA-only dispatch; bypasses no StoreKit method and requires game test-build adapter.
+bool StoreKitQADeliverSelectedProduct(const char *productId, const char *rewardJSON);
 #ifdef __cplusplus
 }
 #endif
