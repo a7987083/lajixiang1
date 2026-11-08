@@ -1,7 +1,7 @@
 name: Build GuestMode probe dylib
 on:
   push:
-    branches: [ feature/guest-mode-il2cpp ]
+    branches: [ feature/guest-v5-three-finger ]
     paths:
       - 'guest-mode/**'
       - '.github/workflows/guest-mode.yml'
@@ -29,5 +29,5 @@ jobs:
           shasum -a 256 dist/GuestMode.dylib > dist/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: GuestMode-probe-arm64
+          name: GuestMode-v5-three-finger-arm64
           path: dist/
