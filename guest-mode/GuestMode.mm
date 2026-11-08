@@ -53,6 +53,28 @@ static const struct mach_header *ExactImage(void) {
     return NULL;
 }
 
+
+static void GMLifecycleLog(NSString *event) {
+    NSString *line=[NSString stringWithFormat:@"%.3f %@\n",[[NSDate date] timeIntervalSince1970],event];
+    NSLog(@"[GuestMode:lifecycle] %@",event);
+    NSString *doc=NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask,YES).firstObject;
+    if (!doc) return;
+    NSString *path=[doc stringByAppendingPathComponent:@"GuestModeLifecycle.log"];
+    NSFileHandle *handle=[NSFileHandle fileHandleForWritingAtPath:path];
+    if (!handle) {
+        [line writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        return;
+    }
+    @try {
+        [handle seekToEndOfFile];
+        [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
+    } @catch (NSException *exception) {
+        NSLog(@"[GuestMode:lifecycle] log write exception=%@",exception.name);
+    } @finally {
+        [handle closeFile];
+    }
+}
+
 #define RESOLVE(name, type) ((type)dlsym(RTLD_DEFAULT, "il2cpp_" #name))
 @interface GMGuestSession : NSObject
 @property(nonatomic,strong) UIButton *button;
@@ -98,6 +120,7 @@ static const struct mach_header *ExactImage(void) {
     Il2CppString *token=NULL;
     fieldValue(self.controller,self.tokenField,&token);
     if (token && strLength(token)>0) {
+        GMLifecycleLog(@"Anonymous token field populated (content not recorded)");
         NSLog(@"[GuestMode:v4] anonymous token populated; length=%d (content redacted)",strLength(token));
         // One tap: once the game's existing asynchronous anonymous request has
         // supplied a token, ask the original Controller to proceed. This is
@@ -135,6 +158,7 @@ static const struct mach_header *ExactImage(void) {
             return;
         }
         NSLog(@"[GuestMode:v4] ProceedToGame returned; scene survival / entitlement NOT verified");
+        GMLifecycleLog(@"ProceedToGame returned; game scene not yet verified");
         [self.button setTitle:@"GUEST · RETRY" forState:UIControlStateNormal];
         return;
     }
@@ -149,6 +173,7 @@ static const struct mach_header *ExactImage(void) {
 }
 - (void)start:(id)sender {
     if (self.busy || !ExactImage()) return;
+    GMLifecycleLog(@"Guest button pressed");
     DomainGetFn domainGet=RESOLVE(domain_get,DomainGetFn);
     AssembliesFn assemblies=RESOLVE(domain_get_assemblies,AssembliesFn);
     ImageFn imageGet=RESOLVE(assembly_get_image,ImageFn);
@@ -211,6 +236,7 @@ static const struct mach_header *ExactImage(void) {
         [self notify:@"Guest Mode" message:exc ? @"Controller lookup raised an IL2CPP exception. See logs." : @"No Controller MonoBehaviour is loaded in this scene. Request was not started."];
         return;
     }
+    GMLifecycleLog(@"Controller resolved; anonymous request beginning");
     self.controller=instance;
     self.tokenField=tokenField;
     self.busy=YES;
@@ -257,11 +283,24 @@ static const struct mach_header *ExactImage(void) {
 
 __attribute__((constructor)) static void GuestModeInit(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
+        GMLifecycleLog(@"Dylib constructor / initial install");
         [[GMGuestSession shared] install];
-        [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidBecomeActiveNotification
-                                                          object:nil
-                                                           queue:[NSOperationQueue mainQueue]
-                                                      usingBlock:^(NSNotification *note) {
+        NSNotificationCenter *center=[NSNotificationCenter defaultCenter];
+        [center addObserverForName:UIApplicationWillResignActiveNotification object:nil
+                            queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
+            GMLifecycleLog(@"UIApplicationWillResignActive");
+        }];
+        [center addObserverForName:UIApplicationDidEnterBackgroundNotification object:nil
+                            queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
+            GMLifecycleLog(@"UIApplicationDidEnterBackground");
+        }];
+        [center addObserverForName:UIApplicationWillEnterForegroundNotification object:nil
+                            queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
+            GMLifecycleLog(@"UIApplicationWillEnterForeground");
+        }];
+        [center addObserverForName:UIApplicationDidBecomeActiveNotification object:nil
+                            queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
+            GMLifecycleLog(@"UIApplicationDidBecomeActive; no automatic scene transition");
             [[GMGuestSession shared] install];
         }];
     });
