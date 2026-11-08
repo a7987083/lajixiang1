@@ -1,0 +1,32 @@
+name: Build StoreKit QA dylib
+on:
+  push:
+    branches: [ feature/storekit-qa-local ]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and sign arm64 QA dylib
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
+          mkdir -p dist
+          xcrun clang++ -x objective-c++ -std=c++17 -fobjc-arc -arch arm64 -dynamiclib \
+            -isysroot "$SDK" -miphoneos-version-min=13.0 \
+            -framework UIKit -framework Foundation -framework StoreKit \
+            -Wl,-install_name,@rpath/StoreKitQA.dylib \
+            src/StoreKitQA.mm -o dist/StoreKitQA.dylib
+          codesign --force --sign - --timestamp=none dist/StoreKitQA.dylib
+          xcrun otool -L dist/StoreKitQA.dylib
+          shasum -a 256 dist/StoreKitQA.dylib > dist/SHA256SUMS.txt
+          (cd dist && zip -9 StoreKitQA.zip StoreKitQA.dylib SHA256SUMS.txt)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: StoreKitQA
+          path: |
+            dist/StoreKitQA.dylib
+            dist/StoreKitQA.zip
+            dist/SHA256SUMS.txt
