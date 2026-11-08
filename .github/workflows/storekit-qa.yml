@@ -16,7 +16,7 @@ jobs:
           mkdir -p dist
           xcrun clang++ -x objective-c++ -std=c++17 -fobjc-arc -arch arm64 -dynamiclib \
             -isysroot "$SDK" -miphoneos-version-min=13.0 \
-            -framework UIKit -framework Foundation -framework StoreKit \
+            -framework UIKit -framework Foundation -framework StoreKit -framework CoreGraphics \
             -Wl,-install_name,@rpath/StoreKitQA.dylib \
             src/StoreKitQA.mm -o dist/StoreKitQA.dylib
           codesign --force --sign - --timestamp=none dist/StoreKitQA.dylib
