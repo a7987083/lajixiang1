@@ -1,0 +1,33 @@
+name: Build GuestMode probe dylib
+on:
+  push:
+    branches: [ feature/guest-mode-il2cpp ]
+    paths:
+      - 'guest-mode/**'
+      - '.github/workflows/guest-mode.yml'
+  workflow_dispatch:
+
+jobs:
+  guest-probe:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile arm64 iOS GuestMode probe
+        shell: bash
+        run: |
+          set -euxo pipefail
+          SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
+          mkdir -p dist
+          xcrun clang++ -std=c++17 -fobjc-arc -arch arm64 -dynamiclib \
+            -isysroot "$SDK" -miphoneos-version-min=13.0 \
+            -framework UIKit -framework Foundation \
+            -Wl,-install_name,@rpath/GuestMode.dylib \
+            guest-mode/GuestMode.mm -o dist/GuestMode.dylib
+          codesign --force --sign - --timestamp=none dist/GuestMode.dylib
+          file dist/GuestMode.dylib
+          xcrun otool -L dist/GuestMode.dylib
+          shasum -a 256 dist/GuestMode.dylib > dist/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GuestMode-probe-arm64
+          path: dist/
