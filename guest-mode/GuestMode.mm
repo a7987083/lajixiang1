@@ -210,7 +210,6 @@ static const struct mach_header *ExactImage(void) {
         [self notify:@"Guest Mode" message:exc ? @"Controller lookup raised an IL2CPP exception. See logs." : @"No Controller MonoBehaviour is loaded in this scene. Request was not started."];
         return;
     }
-    GMLifecycleLog(@"Controller resolved; anonymous request beginning");
     self.controller=instance;
     self.tokenField=tokenField;
     self.busy=YES;
