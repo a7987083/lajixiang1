@@ -76,7 +76,7 @@ static const struct mach_header *ExactImage(void) {
 - (void)notify:(NSString*)title message:(NSString*)message {
     UIViewController *vc=self.window.rootViewController;
     while (vc.presentedViewController) vc=vc.presentedViewController;
-    if (!vc) { NSLog(@"[GuestMode:v3] %@: %@",title,message); return; }
+    if (!vc) { NSLog(@"[GuestMode:v4] %@: %@",title,message); return; }
     UIAlertController *alert=[UIAlertController alertControllerWithTitle:title message:message preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
     [vc presentViewController:alert animated:YES completion:nil];
@@ -84,7 +84,7 @@ static const struct mach_header *ExactImage(void) {
 - (void)finish:(NSString*)message {
     self.busy=NO;
     self.button.enabled=YES;
-    [self.button setTitle:@"GUEST · TEST" forState:UIControlStateNormal];
+    [self.button setTitle:@"PLAY AS GUEST" forState:UIControlStateNormal];
     [self notify:@"Guest Session" message:message];
 }
 - (void)poll:(NSUInteger)remaining generation:(NSUInteger)gen {
@@ -98,12 +98,48 @@ static const struct mach_header *ExactImage(void) {
     Il2CppString *token=NULL;
     fieldValue(self.controller,self.tokenField,&token);
     if (token && strLength(token)>0) {
-        NSLog(@"[GuestMode:v3] anonymous token populated; length=%d (content redacted)",strLength(token));
-        [self finish:@"Anonymous session token is populated. No membership entitlement has been assumed; game scene transition remains disabled pending lifecycle verification."];
+        NSLog(@"[GuestMode:v4] anonymous token populated; length=%d (content redacted)",strLength(token));
+        // One tap: once the game's existing asynchronous anonymous request has
+        // supplied a token, ask the original Controller to proceed. This is
+        // NOT a fabricated subscription grant and may still be rejected by
+        // the game's entitlement or scene-initialization logic.
+        ClassFn classGet=RESOLVE(class_from_name,ClassFn);
+        MethodFn methodGet=RESOLVE(class_get_method_from_name,MethodFn);
+        DomainGetFn domainGet=RESOLVE(domain_get,DomainGetFn);
+        AssembliesFn assemblies=RESOLVE(domain_get_assemblies,AssembliesFn);
+        ImageFn imageGet=RESOLVE(assembly_get_image,ImageFn);
+        InvokeFn invoke=RESOLVE(runtime_invoke,InvokeFn);
+        const MethodInfo *proceed=NULL;
+        if (classGet && methodGet && domainGet && assemblies && imageGet && invoke) {
+            size_t count=0;
+            Il2CppDomain *domain=domainGet();
+            const Il2CppAssembly **items=domain ? assemblies(domain,&count) : NULL;
+            for (size_t i=0; items && i<count; i++) {
+                Il2CppClass *cls=classGet(imageGet(items[i]),"CRArcadeDemo","Controller");
+                if (cls) { proceed=methodGet(cls,"ProceedToGame",0); break; }
+            }
+        }
+        if (!proceed || !self.controller || !ExactImage()) {
+            [self finish:@"Guest token ready, but game entry method is unavailable."];
+            return;
+        }
+        [self.button setTitle:@"GUEST · LOADING" forState:UIControlStateNormal];
+        NSLog(@"[GuestMode:v4] invoking Controller.ProceedToGame on resolved instance=%p",self.controller);
+        Il2CppObject *exc=NULL;
+        invoke(proceed,self.controller,NULL,&exc);
+        self.busy=NO;
+        self.button.enabled=YES;
+        if (exc) {
+            NSLog(@"[GuestMode:v4] ProceedToGame managed exception=%p",exc);
+            [self finish:@"Game entry raised a managed exception; see device logs."];
+            return;
+        }
+        NSLog(@"[GuestMode:v4] ProceedToGame returned; scene survival / entitlement NOT verified");
+        [self.button setTitle:@"GUEST · RETRY" forState:UIControlStateNormal];
         return;
     }
     if (remaining==0) {
-        NSLog(@"[GuestMode:v3] anonymous token timeout; not entering game");
+        NSLog(@"[GuestMode:v4] anonymous token timeout; not entering game");
         [self finish:@"Anonymous token was not populated within 12 seconds. Check app logs / network response. No game transition was attempted."];
         return;
     }
@@ -162,16 +198,16 @@ static const struct mach_header *ExactImage(void) {
     // argument values. For a managed reference, that is its object pointer;
     // passing &reflectionType adds an invalid extra level of indirection.
     Il2CppObject *instance=invoke(find,NULL,args,&exc);
-    NSLog(@"[GuestMode:v3] active search instance=%p exception=%p",instance,exc);
+    NSLog(@"[GuestMode:v4] active search instance=%p exception=%p",instance,exc);
     if ((!instance || exc) && findInactive) {
         uint8_t includeInactive=1;
         void *inactiveArgs[]={reflectionType,&includeInactive};
         exc=NULL;
         instance=invoke(findInactive,NULL,inactiveArgs,&exc);
-        NSLog(@"[GuestMode:v3] inactive-inclusive search instance=%p exception=%p",instance,exc);
+        NSLog(@"[GuestMode:v4] inactive-inclusive search instance=%p exception=%p",instance,exc);
     }
     if (exc || !instance) {
-        NSLog(@"[GuestMode:v3] Controller resolution failed exception=%p object=%p",exc,instance);
+        NSLog(@"[GuestMode:v4] Controller resolution failed exception=%p object=%p",exc,instance);
         [self notify:@"Guest Mode" message:exc ? @"Controller lookup raised an IL2CPP exception. See logs." : @"No Controller MonoBehaviour is loaded in this scene. Request was not started."];
         return;
     }
@@ -180,12 +216,12 @@ static const struct mach_header *ExactImage(void) {
     self.busy=YES;
     self.generation++;
     self.button.enabled=NO;
-    [self.button setTitle:@"GUEST · CHECKING" forState:UIControlStateNormal];
-    NSLog(@"[GuestMode:v3] Controller=%p; invoking anonymous request; no scene override",instance);
+    [self.button setTitle:@"GUEST · CONNECTING" forState:UIControlStateNormal];
+    NSLog(@"[GuestMode:v4] Controller=%p; invoking anonymous request; no scene override",instance);
     exc=NULL;
     invoke(fetch,instance,NULL,&exc);
     if (exc) {
-        NSLog(@"[GuestMode:v3] FetchAnonymousToken exception=%p",exc);
+        NSLog(@"[GuestMode:v4] FetchAnonymousToken exception=%p",exc);
         [self finish:@"FetchAnonymousToken raised a managed exception; game entry not attempted."];
         return;
     }
@@ -208,14 +244,14 @@ static const struct mach_header *ExactImage(void) {
     button.layer.cornerRadius=9;
     button.layer.borderWidth=1;
     button.layer.borderColor=[UIColor colorWithRed:0.96 green:0.59 blue:0.22 alpha:1].CGColor;
-    [button setTitle:@"GUEST · TEST" forState:UIControlStateNormal];
+    [button setTitle:@"PLAY AS GUEST" forState:UIControlStateNormal];
     [button setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
     button.titleLabel.font=[UIFont boldSystemFontOfSize:13];
     [button addTarget:self action:@selector(start:) forControlEvents:UIControlEventTouchUpInside];
     [window addSubview:button];
     self.button=button;
     self.window=window;
-    NSLog(@"[GuestMode:v3] exact target verified, button installed");
+    NSLog(@"[GuestMode:v4] exact target verified, button installed");
 }
 @end
 
