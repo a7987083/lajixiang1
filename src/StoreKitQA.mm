@@ -230,7 +230,7 @@ static void QALog(NSString *event) {
     StoreKitQASetLocalMode(next);
     [sender setTitle:next?@"Local QA: ON":@"Local QA: OFF" forState:UIControlStateNormal];
     sender.backgroundColor=next ? [UIColor colorWithRed:0.10 green:0.44 blue:0.32 alpha:1] : [UIColor colorWithWhite:0.22 alpha:1];
-    self.status.text=next?@"QA on: requires game delivery adapter":@"QA off: original StoreKit";
+    self.status.text=next?(StoreKitQAHasDeliveryHandler()?@"QA on: adapter available":@"QA on: adapter NOT connected"):@"QA off: original StoreKit";
     QALog([NSString stringWithFormat:@"P4 local mode=%d; no rewards without authorized game adapter",next]);
 }
 - (void)positionMenu {
