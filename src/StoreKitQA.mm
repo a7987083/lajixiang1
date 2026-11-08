@@ -3,6 +3,7 @@
 #import <dispatch/dispatch.h>
 #import <stdio.h>
 #import <math.h>
+#include "QAProducts.h"
 
 // Local QA simulator: synthetic states NEVER enter StoreKit or grant entitlements.
 static void QALog(NSString *event) {
@@ -51,25 +52,91 @@ static void QALog(NSString *event) {
 @property(nonatomic,strong) UIView *menu;
 @property(nonatomic,strong) UILabel *status;
 @property(nonatomic,strong) StoreKitQAObserver *observer;
+@property(nonatomic,strong) NSArray<NSDictionary *> *products;
+@property(nonatomic,assign) NSInteger selectedIndex;
+@property(nonatomic,strong) UILabel *detail;
+@property(nonatomic,strong) UIScrollView *productList;
 @property(nonatomic,assign) CGPoint panStart;
 @property(nonatomic,assign) CGPoint bubbleStart;
 @property(nonatomic,assign) BOOL dragged;
 @property(nonatomic,assign) NSInteger retries;
 @end
 @implementation StoreKitQAPanel
+- (void)loadQAProducts {
+    NSString *path=[NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask,YES).firstObject stringByAppendingPathComponent:@"PaySettings.qa.json"];
+    NSData *data=[NSData dataWithContentsOfFile:path];
+    BOOL overridden=data!=nil;
+    if (!data) data=[[NSString stringWithUTF8String:kQAProductsJSON] dataUsingEncoding:NSUTF8StringEncoding];
+    NSError *error=nil;
+    id parsed=[NSJSONSerialization JSONObjectWithData:data options:0 error:&error];
+    if (![parsed isKindOfClass:NSArray.class]) {
+        QALog([NSString stringWithFormat:@"QA catalog invalid %@, falling back to bundled snapshot",error]);
+        parsed=[NSJSONSerialization JSONObjectWithData:[[NSString stringWithUTF8String:kQAProductsJSON] dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil];
+        overridden=NO;
+    }
+    NSMutableArray *valid=[NSMutableArray new];
+    NSMutableSet *ids=[NSMutableSet new];
+    for (id item in (NSArray *)parsed) {
+        if (![item isKindOfClass:NSDictionary.class] || ![item[@"Id"] isKindOfClass:NSNumber.class]) continue;
+        NSNumber *sku=item[@"Id"];
+        if ([ids containsObject:sku]) continue;
+        [ids addObject:sku];
+        [valid addObject:item];
+    }
+    self.products=[valid copy];
+    self.selectedIndex=0;
+    QALog([NSString stringWithFormat:@"QA catalog loaded count=%lu source=%@",(unsigned long)valid.count,overridden?@"Documents/PaySettings.qa.json":@"bundled PaySettings 2.json"]);
+}
+- (void)updateSelection {
+    if (!self.products.count) { self.detail.text=@"No QA products"; return; }
+    NSDictionary *p=self.products[self.selectedIndex];
+    self.detail.text=[NSString stringWithFormat:@"ID %@ · Type %@ · Medal %@ · General %@",
+      p[@"Id"],p[@"Type"]?:@0,p[@"Medal"]?:@0,p[@"GeneralId"]?:@0];
+    for (UIView *v in self.productList.subviews) {
+        if (![v isKindOfClass:UIButton.class]) continue;
+        UIButton *b=(UIButton *)v;
+        b.backgroundColor=(b.tag==self.selectedIndex)
+          ? [UIColor colorWithRed:0.08 green:0.42 blue:0.53 alpha:1]
+          : [UIColor colorWithWhite:0.20 alpha:1];
+    }
+}
+- (void)selectProduct:(UIButton *)sender {
+    if (sender.tag<0 || sender.tag>=self.products.count) return;
+    self.selectedIndex=sender.tag;
+    [self updateSelection];
+    QALog([NSString stringWithFormat:@"QA selected internal product Id=%@",self.products[self.selectedIndex][@"Id"]]);
+}
 - (void)simulate:(UIButton *)sender {
-    NSArray *states=@[@"SUCCESS (mock)",@"CANCELLED (mock)",@"FAILED (mock)",@"RESTORED (mock)"];
+    NSArray *states=@[@"success",@"cancelled",@"failed",@"restored"];
     NSInteger index=sender.tag;
-    if (index<0 || index>=states.count) return;
-    self.status.text=[NSString stringWithFormat:@"QA: %@",states[index]];
-    QALog([NSString stringWithFormat:@"SYNTHETIC %@; no transaction, no rewards, no receipt",states[index]]);
+    if (index<0 || index>=states.count || !self.products.count) return;
+    NSDictionary *product=self.products[self.selectedIndex];
+    NSString *state=states[index];
+    self.status.text=[NSString stringWithFormat:@"QA %@ · ID %@",state,product[@"Id"]];
+    NSDictionary *event=@{@"time":@([[NSDate date] timeIntervalSince1970]),
+      @"kind":@"local_qa", @"outcome":state, @"internalProductId":product[@"Id"],
+      @"type":product[@"Type"]?:@0,@"medal":product[@"Medal"]?:@0,
+      @"generalId":product[@"GeneralId"]?:@0,@"items":product[@"ItemIds"]?:@[]};
+    NSData *json=[NSJSONSerialization dataWithJSONObject:event options:NSJSONWritingFragmentsAllowed error:nil];
+    NSString *line=[[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding];
+    NSString *dir=NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask,YES).firstObject;
+    NSString *path=[dir stringByAppendingPathComponent:@"storekit-qa-events.jsonl"];
+    NSFileHandle *handle=[NSFileHandle fileHandleForWritingAtPath:path];
+    NSString *record=[line stringByAppendingString:@"\n"];
+    if (handle) {
+        @try { [handle seekToEndOfFile]; [handle writeData:[record dataUsingEncoding:NSUTF8StringEncoding]]; }
+        @finally { [handle closeFile]; }
+    } else {
+        [record writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    }
+    QALog([NSString stringWithFormat:@"SYNTHETIC state=%@ internalSKU=%@ no StoreKit, receipt, payment or reward",state,product[@"Id"]]);
 }
 - (void)positionMenu {
     if (!self.window || !self.bubble || !self.menu) return;
     CGRect bounds=self.window.bounds;
     UIEdgeInsets safe=self.window.safeAreaInsets;
     CGFloat width=MIN(254, MAX(190, bounds.size.width-24));
-    CGFloat height=244;
+    CGFloat height=MIN(408, MAX(290, bounds.size.height-safe.top-safe.bottom-16));
     CGFloat x=CGRectGetMidX(self.bubble.frame)-width/2;
     x=MAX(12,MIN(x,bounds.size.width-width-12));
     CGFloat y=CGRectGetMaxY(self.bubble.frame)+8;
@@ -77,6 +144,11 @@ static void QALog(NSString *event) {
         y=CGRectGetMinY(self.bubble.frame)-height-8;
     y=MAX(safe.top+8,MIN(y,MAX(safe.top+8,bounds.size.height-safe.bottom-height-8)));
     self.menu.frame=CGRectMake(x,y,width,height);
+    self.productList.frame=CGRectMake(12,92,width-24,MAX(48,height-265));
+    self.detail.frame=CGRectMake(12,66,width-24,23);
+    for (UIView *v in self.menu.subviews) {
+        if ([v isKindOfClass:UIButton.class]) { UIButton *b=(UIButton *)v; b.frame=CGRectMake(12,height-159+b.tag*38,width-24,32); }
+    }
 }
 - (void)toggle:(id)sender {
     self.menu.hidden=!self.menu.hidden;
@@ -159,7 +231,8 @@ static void QALog(NSString *event) {
     [root.view addSubview:bubble];
     self.bubble=bubble;
 
-    UIView *menu=[[UIView alloc] initWithFrame:CGRectMake(12,170,254,244)];
+    [self loadQAProducts];
+    UIView *menu=[[UIView alloc] initWithFrame:CGRectMake(12,170,254,408)];
     menu.hidden=YES;
     menu.layer.cornerRadius=12;
     menu.layer.borderWidth=1;
@@ -176,11 +249,28 @@ static void QALog(NSString *event) {
     self.status.font=[UIFont systemFontOfSize:12];
     self.status.textColor=UIColor.lightGrayColor;
     [menu addSubview:self.status];
+    UILabel *detail=[[UILabel alloc] initWithFrame:CGRectMake(12,66,230,23)];
+    detail.textColor=UIColor.whiteColor; detail.font=[UIFont systemFontOfSize:11];
+    [menu addSubview:detail]; self.detail=detail;
+    UIScrollView *list=[[UIScrollView alloc] initWithFrame:CGRectMake(12,92,230,145)];
+    list.backgroundColor=[UIColor colorWithWhite:0.10 alpha:1];
+    list.layer.cornerRadius=6;
+    [menu addSubview:list]; self.productList=list;
+    for (NSInteger i=0;i<self.products.count;i++) {
+        NSDictionary *p=self.products[i];
+        UIButton *button=[UIButton buttonWithType:UIButtonTypeSystem];
+        button.tag=i; button.frame=CGRectMake(2,i*32+2,226,29);
+        button.titleLabel.font=[UIFont systemFontOfSize:12];
+        [button setTitle:[NSString stringWithFormat:@"ID %@ | Type %@ | Medal %@ | General %@",p[@"Id"],p[@"Type"]?:@0,p[@"Medal"]?:@0,p[@"GeneralId"]?:@0] forState:UIControlStateNormal];
+        [button setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+        [button addTarget:self action:@selector(selectProduct:) forControlEvents:UIControlEventTouchUpInside];
+        [list addSubview:button];
+    }
+    list.contentSize=CGSizeMake(230,self.products.count*32+4);
     NSArray *names=@[@"Mock success",@"Mock cancel",@"Mock fail",@"Mock restore"];
     for (NSInteger i=0;i<names.count;i++) {
        UIButton *button=[UIButton buttonWithType:UIButtonTypeSystem];
-       button.tag=i;
-       button.frame=CGRectMake(12,72+i*40,230,34);
+       button.tag=i; button.frame=CGRectMake(12,245+i*38,230,32);
        button.layer.cornerRadius=6;
        button.backgroundColor=[UIColor colorWithWhite:0.2 alpha:1];
        [button setTitle:names[i] forState:UIControlStateNormal];
@@ -188,6 +278,7 @@ static void QALog(NSString *event) {
        [button addTarget:self action:@selector(simulate:) forControlEvents:UIControlEventTouchUpInside];
        [menu addSubview:button];
     }
+    [self updateSelection];
     [self positionMenu];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(layoutChanged:) name:UIDeviceOrientationDidChangeNotification object:nil];
 
