@@ -22,7 +22,7 @@ jobs:
             -isysroot "$SDK" -miphoneos-version-min=13.0 \
             -framework UIKit -framework Foundation \
             -Wl,-install_name,@rpath/GuestMode.dylib \
-            guest-mode/GuestMode.mm -o dist/GuestMode.dylib
+            guest-mode/GuestMode.mm guest-mode/ComparisonTrace.mm -o dist/GuestMode.dylib
           codesign --force --sign - --timestamp=none dist/GuestMode.dylib
           file dist/GuestMode.dylib
           xcrun otool -L dist/GuestMode.dylib
