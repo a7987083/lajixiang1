@@ -54,27 +54,6 @@ static const struct mach_header *ExactImage(void) {
 }
 
 
-static void GMLifecycleLog(NSString *event) {
-    NSString *line=[NSString stringWithFormat:@"%.3f %@\n",[[NSDate date] timeIntervalSince1970],event];
-    NSLog(@"[GuestMode:lifecycle] %@",event);
-    NSString *doc=NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask,YES).firstObject;
-    if (!doc) return;
-    NSString *path=[doc stringByAppendingPathComponent:@"GuestModeLifecycle.log"];
-    NSFileHandle *handle=[NSFileHandle fileHandleForWritingAtPath:path];
-    if (!handle) {
-        [line writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil];
-        return;
-    }
-    @try {
-        [handle seekToEndOfFile];
-        [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
-    } @catch (NSException *exception) {
-        NSLog(@"[GuestMode:lifecycle] log write exception=%@",exception.name);
-    } @finally {
-        [handle closeFile];
-    }
-}
-
 #define RESOLVE(name, type) ((type)dlsym(RTLD_DEFAULT, "il2cpp_" #name))
 @interface GMGuestSession : NSObject
 @property(nonatomic,strong) UIButton *button;
@@ -98,7 +77,7 @@ static void GMLifecycleLog(NSString *event) {
 - (void)notify:(NSString*)title message:(NSString*)message {
     UIViewController *vc=self.window.rootViewController;
     while (vc.presentedViewController) vc=vc.presentedViewController;
-    if (!vc) { NSLog(@"[GuestMode:v4] %@: %@",title,message); return; }
+    if (!vc) { NSLog(@"[GuestMode:v7] %@: %@",title,message); return; }
     UIAlertController *alert=[UIAlertController alertControllerWithTitle:title message:message preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
     [vc presentViewController:alert animated:YES completion:nil];
@@ -120,50 +99,46 @@ static void GMLifecycleLog(NSString *event) {
     Il2CppString *token=NULL;
     fieldValue(self.controller,self.tokenField,&token);
     if (token && strLength(token)>0) {
-        GMLifecycleLog(@"Anonymous token field populated (content not recorded)");
-        NSLog(@"[GuestMode:v4] anonymous token populated; length=%d (content redacted)",strLength(token));
-        // One tap: once the game's existing asynchronous anonymous request has
-        // supplied a token, ask the original Controller to proceed. This is
-        // NOT a fabricated subscription grant and may still be rejected by
-        // the game's entitlement or scene-initialization logic.
+        NSLog(@"[GuestMode:v7] anonymous token populated; length=%d (content redacted)",strLength(token));
+        // Follow the game's native tier-routing path; unlike ProceedToGame,
+        // this retains the game's subscription and login-state decisions.
         ClassFn classGet=RESOLVE(class_from_name,ClassFn);
         MethodFn methodGet=RESOLVE(class_get_method_from_name,MethodFn);
         DomainGetFn domainGet=RESOLVE(domain_get,DomainGetFn);
         AssembliesFn assemblies=RESOLVE(domain_get_assemblies,AssembliesFn);
         ImageFn imageGet=RESOLVE(assembly_get_image,ImageFn);
         InvokeFn invoke=RESOLVE(runtime_invoke,InvokeFn);
-        const MethodInfo *proceed=NULL;
+        const MethodInfo *route=NULL;
         if (classGet && methodGet && domainGet && assemblies && imageGet && invoke) {
             size_t count=0;
             Il2CppDomain *domain=domainGet();
             const Il2CppAssembly **items=domain ? assemblies(domain,&count) : NULL;
             for (size_t i=0; items && i<count; i++) {
-                Il2CppClass *cls=classGet(imageGet(items[i]),"CRArcadeDemo","Controller");
-                if (cls) { proceed=methodGet(cls,"ProceedToGame",0); break; }
+                const Il2CppImage *image=imageGet(items[i]);
+                if (!image) continue;
+                Il2CppClass *cls=classGet(image,"CRArcadeDemo","Controller");
+                if (cls) { route=methodGet(cls,"RedirectUserBasedOnTier",0); break; }
             }
         }
-        if (!proceed || !self.controller || !ExactImage()) {
-            [self finish:@"Guest token ready, but game entry method is unavailable."];
+        if (!route || !self.controller || !ExactImage()) {
+            [self finish:@"Guest token ready, but normal account routing is unavailable."];
             return;
         }
         [self.button setTitle:@"GUEST · LOADING" forState:UIControlStateNormal];
-        NSLog(@"[GuestMode:v4] invoking Controller.ProceedToGame on resolved instance=%p",self.controller);
         Il2CppObject *exc=NULL;
-        invoke(proceed,self.controller,NULL,&exc);
+        invoke(route,self.controller,NULL,&exc);
         self.busy=NO;
         self.button.enabled=YES;
         if (exc) {
-            NSLog(@"[GuestMode:v4] ProceedToGame managed exception=%p",exc);
-            [self finish:@"Game entry raised a managed exception; see device logs."];
+            [self finish:@"Normal account routing raised a managed exception."];
             return;
         }
-        NSLog(@"[GuestMode:v4] ProceedToGame returned; scene survival / entitlement NOT verified");
-        GMLifecycleLog(@"ProceedToGame returned; game scene not yet verified");
-        [self.button setTitle:@"GUEST · RETRY" forState:UIControlStateNormal];
+        // The original flow owns all decisions, including refusing entry.
+        [self.button setTitle:@"PLAY AS GUEST" forState:UIControlStateNormal];
         return;
     }
     if (remaining==0) {
-        NSLog(@"[GuestMode:v4] anonymous token timeout; not entering game");
+        NSLog(@"[GuestMode:v7] anonymous token timeout; not entering game");
         [self finish:@"Anonymous token was not populated within 12 seconds. Check app logs / network response. No game transition was attempted."];
         return;
     }
@@ -173,8 +148,6 @@ static void GMLifecycleLog(NSString *event) {
 }
 - (void)start:(id)sender {
     if (self.busy || !ExactImage()) return;
-    GMLifecycleLog(@"Guest button pressed");
-    [[NSNotificationCenter defaultCenter] postNotificationName:@"GMGuestStarted" object:nil];
     DomainGetFn domainGet=RESOLVE(domain_get,DomainGetFn);
     AssembliesFn assemblies=RESOLVE(domain_get_assemblies,AssembliesFn);
     ImageFn imageGet=RESOLVE(assembly_get_image,ImageFn);
@@ -224,16 +197,16 @@ static void GMLifecycleLog(NSString *event) {
     // argument values. For a managed reference, that is its object pointer;
     // passing &reflectionType adds an invalid extra level of indirection.
     Il2CppObject *instance=invoke(find,NULL,args,&exc);
-    NSLog(@"[GuestMode:v4] active search instance=%p exception=%p",instance,exc);
+    NSLog(@"[GuestMode:v7] active search instance=%p exception=%p",instance,exc);
     if ((!instance || exc) && findInactive) {
         uint8_t includeInactive=1;
         void *inactiveArgs[]={reflectionType,&includeInactive};
         exc=NULL;
         instance=invoke(findInactive,NULL,inactiveArgs,&exc);
-        NSLog(@"[GuestMode:v4] inactive-inclusive search instance=%p exception=%p",instance,exc);
+        NSLog(@"[GuestMode:v7] inactive-inclusive search instance=%p exception=%p",instance,exc);
     }
     if (exc || !instance) {
-        NSLog(@"[GuestMode:v4] Controller resolution failed exception=%p object=%p",exc,instance);
+        NSLog(@"[GuestMode:v7] Controller resolution failed exception=%p object=%p",exc,instance);
         [self notify:@"Guest Mode" message:exc ? @"Controller lookup raised an IL2CPP exception. See logs." : @"No Controller MonoBehaviour is loaded in this scene. Request was not started."];
         return;
     }
@@ -244,11 +217,11 @@ static void GMLifecycleLog(NSString *event) {
     self.generation++;
     self.button.enabled=NO;
     [self.button setTitle:@"GUEST · CONNECTING" forState:UIControlStateNormal];
-    NSLog(@"[GuestMode:v4] Controller=%p; invoking anonymous request; no scene override",instance);
+    NSLog(@"[GuestMode:v7] Controller=%p; invoking anonymous request; no scene override",instance);
     exc=NULL;
     invoke(fetch,instance,NULL,&exc);
     if (exc) {
-        NSLog(@"[GuestMode:v4] FetchAnonymousToken exception=%p",exc);
+        NSLog(@"[GuestMode:v7] FetchAnonymousToken exception=%p",exc);
         [self finish:@"FetchAnonymousToken raised a managed exception; game entry not attempted."];
         return;
     }
@@ -278,30 +251,18 @@ static void GMLifecycleLog(NSString *event) {
     [window addSubview:button];
     self.button=button;
     self.window=window;
-    NSLog(@"[GuestMode:v4] exact target verified, button installed");
+    NSLog(@"[GuestMode:v7] exact target verified, button installed");
 }
 @end
 
 __attribute__((constructor)) static void GuestModeInit(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
-        GMLifecycleLog(@"Dylib constructor / initial install");
         [[GMGuestSession shared] install];
-        NSNotificationCenter *center=[NSNotificationCenter defaultCenter];
-        [center addObserverForName:UIApplicationWillResignActiveNotification object:nil
-                            queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
-            GMLifecycleLog(@"UIApplicationWillResignActive");
-        }];
-        [center addObserverForName:UIApplicationDidEnterBackgroundNotification object:nil
-                            queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
-            GMLifecycleLog(@"UIApplicationDidEnterBackground");
-        }];
-        [center addObserverForName:UIApplicationWillEnterForegroundNotification object:nil
-                            queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
-            GMLifecycleLog(@"UIApplicationWillEnterForeground");
-        }];
-        [center addObserverForName:UIApplicationDidBecomeActiveNotification object:nil
-                            queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
-            GMLifecycleLog(@"UIApplicationDidBecomeActive; no automatic scene transition");
+        [[NSNotificationCenter defaultCenter]
+            addObserverForName:UIApplicationDidBecomeActiveNotification
+                        object:nil
+                         queue:[NSOperationQueue mainQueue]
+                    usingBlock:^(NSNotification *note) {
             [[GMGuestSession shared] install];
         }];
     });
