@@ -4,6 +4,7 @@
 #import <stdio.h>
 #import <math.h>
 #include "QAProducts.h"
+#include "StoreKitQABridge.h"
 
 // Local QA simulator: synthetic states NEVER enter StoreKit or grant entitlements.
 static void QALog(NSString *event) {
@@ -60,6 +61,7 @@ static void QALog(NSString *event) {
 @property(nonatomic,strong) UIView *inventoryOverlay;
 @property(nonatomic,strong) UILabel *inventoryDetail;
 @property(nonatomic,strong) UIButton *clearButton;
+@property(nonatomic,strong) UIButton *qaModeButton;
 @property(nonatomic,assign) BOOL clearArmed;
 @property(nonatomic,assign) CGPoint panStart;
 @property(nonatomic,assign) CGPoint bubbleStart;
@@ -223,12 +225,20 @@ static void QALog(NSString *event) {
     }
     QALog([NSString stringWithFormat:@"SYNTHETIC state=%@ internalSKU=%@ no StoreKit, receipt, payment or game reward",state,product[@"Id"]]);
 }
+- (void)toggleLocalMode:(UIButton *)sender {
+    BOOL next=!StoreKitQAIsLocalMode();
+    StoreKitQASetLocalMode(next);
+    [sender setTitle:next?@"Local QA: ON":@"Local QA: OFF" forState:UIControlStateNormal];
+    sender.backgroundColor=next ? [UIColor colorWithRed:0.10 green:0.44 blue:0.32 alpha:1] : [UIColor colorWithWhite:0.22 alpha:1];
+    self.status.text=next?@"QA on: requires game delivery adapter":@"QA off: original StoreKit";
+    QALog([NSString stringWithFormat:@"P4 local mode=%d; no rewards without authorized game adapter",next]);
+}
 - (void)positionMenu {
     if (!self.window || !self.bubble || !self.menu) return;
     CGRect bounds=self.window.bounds;
     UIEdgeInsets safe=self.window.safeAreaInsets;
     CGFloat width=MIN(254, MAX(190, bounds.size.width-24));
-    CGFloat height=MIN(490, MAX(350, bounds.size.height-safe.top-safe.bottom-16));
+    CGFloat height=MIN(520, MAX(350, bounds.size.height-safe.top-safe.bottom-16));
     CGFloat x=CGRectGetMidX(self.bubble.frame)-width/2;
     x=MAX(12,MIN(x,bounds.size.width-width-12));
     CGFloat y=CGRectGetMaxY(self.bubble.frame)+8;
@@ -236,14 +246,15 @@ static void QALog(NSString *event) {
         y=CGRectGetMinY(self.bubble.frame)-height-8;
     y=MAX(safe.top+8,MIN(y,MAX(safe.top+8,bounds.size.height-safe.bottom-height-8)));
     self.menu.frame=CGRectMake(x,y,width,height);
-    self.productList.frame=CGRectMake(12,92,width-24,MAX(48,height-315));
+    self.productList.frame=CGRectMake(12,92,width-24,MAX(48,height-345));
     self.detail.frame=CGRectMake(12,66,width-24,23);
     self.inventoryLabel.frame=CGRectMake(12,height-49,width-24,18);
+    self.qaModeButton.frame=CGRectMake(12,height-73,width-24,27);
     self.inventoryOverlay.frame=self.menu.bounds;
     self.inventoryDetail.frame=CGRectMake(12,52,width-24,MAX(80,height-120));
     for (UIView *v in self.menu.subviews) if ([v isKindOfClass:UIButton.class]) { UIButton *b=(UIButton *)v; if (b.tag>=100) b.frame=CGRectMake(b.tag==100?12:width/2+2,height-27,width/2-14,24); }
     for (UIView *v in self.menu.subviews) {
-        if ([v isKindOfClass:UIButton.class] && v.tag<100) { UIButton *b=(UIButton *)v; b.frame=CGRectMake(12,height-189+b.tag*35,width-24,30); }
+        if ([v isKindOfClass:UIButton.class] && v.tag<100) { UIButton *b=(UIButton *)v; b.frame=CGRectMake(12,height-216+b.tag*35,width-24,30); }
     }
 }
 - (void)toggle:(id)sender {
@@ -329,7 +340,7 @@ static void QALog(NSString *event) {
     self.bubble=bubble;
 
     [self loadQAProducts];
-    UIView *menu=[[UIView alloc] initWithFrame:CGRectMake(12,170,254,490)];
+    UIView *menu=[[UIView alloc] initWithFrame:CGRectMake(12,170,254,520)];
     menu.hidden=YES;
     menu.layer.cornerRadius=12;
     menu.layer.borderWidth=1;
@@ -375,6 +386,15 @@ static void QALog(NSString *event) {
        [button addTarget:self action:@selector(simulate:) forControlEvents:UIControlEventTouchUpInside];
        [menu addSubview:button];
     }
+    UIButton *mode=[UIButton buttonWithType:UIButtonTypeSystem];
+    mode.frame=CGRectMake(12,417,230,27);
+    mode.layer.cornerRadius=6;
+    mode.backgroundColor=[UIColor colorWithWhite:0.22 alpha:1];
+    [mode setTitle:@"Local QA: OFF" forState:UIControlStateNormal];
+    [mode setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+    [mode addTarget:self action:@selector(toggleLocalMode:) forControlEvents:UIControlEventTouchUpInside];
+    [menu addSubview:mode];
+    self.qaModeButton=mode;
     UILabel *inventoryLabel=[[UILabel alloc] initWithFrame:CGRectMake(12,445,230,18)];
     inventoryLabel.font=[UIFont systemFontOfSize:10];
     inventoryLabel.textColor=UIColor.lightGrayColor;
