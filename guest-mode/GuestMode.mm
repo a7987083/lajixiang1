@@ -76,9 +76,10 @@ static void GMLifecycleLog(NSString *event) {
 }
 
 #define RESOLVE(name, type) ((type)dlsym(RTLD_DEFAULT, "il2cpp_" #name))
-@interface GMGuestSession : NSObject
+@interface GMGuestSession : NSObject <UIGestureRecognizerDelegate>
 @property(nonatomic,strong) UIButton *button;
 @property(nonatomic,strong) UIWindow *window;
+@property(nonatomic,strong) UIPanGestureRecognizer *threeFingerPan;
 @property(nonatomic,assign) Il2CppObject *controller;
 @property(nonatomic,assign) FieldInfo *tokenField;
 @property(nonatomic,assign) BOOL busy;
@@ -94,6 +95,22 @@ static void GMLifecycleLog(NSString *event) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{ s=[GMGuestSession new]; });
     return s;
+}
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer
+shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherGestureRecognizer {
+    return YES;
+}
+- (void)onThreeFingerPan:(UIPanGestureRecognizer *)gesture {
+    if (gesture.state != UIGestureRecognizerStateEnded) return;
+    if (gesture.numberOfTouches > 3) return;
+    CGPoint delta=[gesture translationInView:gesture.view];
+    CGPoint velocity=[gesture velocityInView:gesture.view];
+    if (fabs(delta.y)<75 || fabs(delta.y)<fabs(delta.x)*1.3) return;
+    if (fabs(velocity.y)<100 && fabs(delta.y)<115) return;
+    if (!self.button || !self.button.superview) return;
+    self.button.hidden = !self.button.hidden;
+    GMLifecycleLog(self.button.hidden ? @"Three-finger vertical swipe: TEST hidden" :
+                                      @"Three-finger vertical swipe: TEST visible");
 }
 - (void)notify:(NSString*)title message:(NSString*)message {
     UIViewController *vc=self.window.rootViewController;
@@ -275,6 +292,25 @@ static void GMLifecycleLog(NSString *event) {
     button.titleLabel.font=[UIFont boldSystemFontOfSize:13];
     [button addTarget:self action:@selector(start:) forControlEvents:UIControlEventTouchUpInside];
     [window addSubview:button];
+    // Attach recognition to the game window itself. Do not add a full-screen
+    // overlay, which would steal Unity/game control touches.
+    if (self.threeFingerPan && self.threeFingerPan.view != window) {
+        [self.threeFingerPan.view removeGestureRecognizer:self.threeFingerPan];
+        self.threeFingerPan=nil;
+    }
+    if (!self.threeFingerPan) {
+        UIPanGestureRecognizer *pan=[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(onThreeFingerPan:)];
+        pan.minimumNumberOfTouches=3;
+        pan.maximumNumberOfTouches=3;
+        pan.cancelsTouchesInView=NO;
+        pan.delaysTouchesBegan=NO;
+        pan.delaysTouchesEnded=NO;
+        pan.delegate=self;
+        [window addGestureRecognizer:pan];
+        self.threeFingerPan=pan;
+    }
+    // Default to invisible; three-finger swipe up/down toggles the TEST button.
+    button.hidden=YES;
     self.button=button;
     self.window=window;
     NSLog(@"[GuestMode:v4] exact target verified, button installed");
