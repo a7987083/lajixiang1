@@ -4,8 +4,6 @@
 #import <Foundation/Foundation.h>
 #import <dispatch/dispatch.h>
 
-extern int LuaHookV3_IsInstalled(void);
-extern int LuaHookV3_ModStatus(void);
 extern int LuaHookV3_RequestGold(void);
 extern int LuaHookV3_RequestGem(void);
 extern int LuaHookV3_RequestEnergy(int enabled);
@@ -25,7 +23,6 @@ extern int LuaHookV3_RequestEnergy(int enabled);
 @interface LuaV3OverlayController : UIViewController
 @property(nonatomic, strong) UIButton *bubble;
 @property(nonatomic, strong) UIView *panel;
-@property(nonatomic, strong) UILabel *status;
 @property(nonatomic, assign) CGPoint panOrigin;
 @end
 
@@ -69,7 +66,7 @@ extern int LuaHookV3_RequestEnergy(int enabled);
     [self.view addSubview:bubble];
     self.bubble=bubble;
 
-    UIView *panel=[[UIView alloc] initWithFrame:CGRectMake(78,108,252,298)];
+    UIView *panel=[[UIView alloc] initWithFrame:CGRectMake(78,108,252,240)];
     panel.backgroundColor=[UIColor colorWithRed:0.055 green:0.075 blue:0.12 alpha:0.96];
     panel.layer.cornerRadius=15;
     panel.layer.borderWidth=1;
@@ -83,24 +80,12 @@ extern int LuaHookV3_RequestEnergy(int enabled);
     title.textColor=UIColor.whiteColor;
     title.font=[UIFont boldSystemFontOfSize:16];
     [panel addSubview:title];
-    UILabel *hint=[[UILabel alloc] initWithFrame:CGRectMake(16,38,220,18)];
-    hint.text=@"手动测试 · 不自动修改资源";
-    hint.font=[UIFont systemFontOfSize:11];
-    hint.textColor=[UIColor lightGrayColor];
-    [panel addSubview:hint];
 
-    [panel addSubview:[self makeButton:@"金币 +10" tag:1 y:65]];
-    [panel addSubview:[self makeButton:@"钻石 +10" tag:2 y:112]];
-    [panel addSubview:[self makeButton:@"无限能量：开启" tag:3 y:159]];
-    [panel addSubview:[self makeButton:@"无限能量：关闭" tag:4 y:206]];
+    [panel addSubview:[self makeButton:@"金币 +10" tag:1 y:43]];
+    [panel addSubview:[self makeButton:@"钻石 +10" tag:2 y:90]];
+    [panel addSubview:[self makeButton:@"无限能量：开启" tag:3 y:137]];
+    [panel addSubview:[self makeButton:@"无限能量：关闭" tag:4 y:184]];
 
-    UILabel *status=[[UILabel alloc] initWithFrame:CGRectMake(16,252,220,34)];
-    status.textColor=[UIColor colorWithRed:0.67 green:0.84 blue:1 alpha:1];
-    status.font=[UIFont systemFontOfSize:12];
-    status.numberOfLines=2;
-    status.text=@"等待 Lua Hook…";
-    [panel addSubview:status];
-    self.status=status;
     panel.hidden=YES;
     [self.view addSubview:panel];
     self.panel=panel;
@@ -119,15 +104,11 @@ extern int LuaHookV3_RequestEnergy(int enabled);
     CGFloat left=center.x+34;
     if(left+w>CGRectGetWidth(bounds)) left=center.x-w-34;
     left=MAX(4,MIN(left,MAX(4,CGRectGetWidth(bounds)-w-4)));
-    CGFloat top=MAX(8,MIN(center.y-40,MAX(8,CGRectGetHeight(bounds)-298-8)));
-    self.panel.frame=CGRectMake(left,top,w,298);
+    CGFloat top=MAX(8,MIN(center.y-40,MAX(8,CGRectGetHeight(bounds)-240-8)));
+    self.panel.frame=CGRectMake(left,top,w,240);
 }
 - (void)togglePanel {
     self.panel.hidden=!self.panel.hidden;
-    if (!LuaHookV3_IsInstalled()) self.status.text=@"Hook 尚未安装 · 请稍后";
-    else if(LuaHookV3_ModStatus()==1) self.status.text=@"_MOD 不可用 · 原菜单接口未找到";
-    else if(LuaHookV3_ModStatus()==2) self.status.text=@"_MOD 已发现 · 可以测试";
-    else self.status.text=@"Hook 已安装 · 等待 Lua 预检查";
 }
 - (void)moveBubble:(UIPanGestureRecognizer *)recognizer {
     CGPoint change=[recognizer translationInView:self.view];
@@ -145,10 +126,7 @@ extern int LuaHookV3_RequestEnergy(int enabled);
         case 3:rc=LuaHookV3_RequestEnergy(1);break;
         case 4:rc=LuaHookV3_RequestEnergy(0);break;
     }
-    if(rc) self.status.text=@"请求已入队 · 等待 Lua 线程执行";
-    else if (!LuaHookV3_IsInstalled()) self.status.text=@"Hook 未安装";
-    else if(LuaHookV3_ModStatus()==1) self.status.text=@"_MOD 不存在 · 不能执行资源命令";
-    else self.status.text=@"请求未入队 · 队列忙或 Lua 尚未就绪";
+    (void)rc; // Queue outcomes remain available in Documents/LuaHookV3.log.
 }
 @end
 
