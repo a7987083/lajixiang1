@@ -5,6 +5,7 @@
 #import <dispatch/dispatch.h>
 
 extern int LuaHookV3_IsInstalled(void);
+extern int LuaHookV3_ModStatus(void);
 extern int LuaHookV3_RequestGold(void);
 extern int LuaHookV3_RequestGem(void);
 extern int LuaHookV3_RequestEnergy(int enabled);
@@ -123,7 +124,10 @@ extern int LuaHookV3_RequestEnergy(int enabled);
 }
 - (void)togglePanel {
     self.panel.hidden=!self.panel.hidden;
-    self.status.text=LuaHookV3_IsInstalled()?@"Hook 已安装 · 请选择操作":@"Hook 尚未安装 · 请稍后";
+    if (!LuaHookV3_IsInstalled()) self.status.text=@"Hook 尚未安装 · 请稍后";
+    else if(LuaHookV3_ModStatus()==1) self.status.text=@"_MOD 不可用 · 原菜单接口未找到";
+    else if(LuaHookV3_ModStatus()==2) self.status.text=@"_MOD 已发现 · 可以测试";
+    else self.status.text=@"Hook 已安装 · 等待 Lua 预检查";
 }
 - (void)moveBubble:(UIPanGestureRecognizer *)recognizer {
     CGPoint change=[recognizer translationInView:self.view];
@@ -141,7 +145,10 @@ extern int LuaHookV3_RequestEnergy(int enabled);
         case 3:rc=LuaHookV3_RequestEnergy(1);break;
         case 4:rc=LuaHookV3_RequestEnergy(0);break;
     }
-    self.status.text=rc?@"请求已入队 · 等待 Lua 线程执行":@"请求未入队 · 请先完成上次操作";
+    if(rc) self.status.text=@"请求已入队 · 等待 Lua 线程执行";
+    else if (!LuaHookV3_IsInstalled()) self.status.text=@"Hook 未安装";
+    else if(LuaHookV3_ModStatus()==1) self.status.text=@"_MOD 不存在 · 不能执行资源命令";
+    else self.status.text=@"请求未入队 · 队列忙或 Lua 尚未就绪";
 }
 @end
 
