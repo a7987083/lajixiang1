@@ -11,6 +11,7 @@
 #include <limits.h>
 #include <time.h>
 #include <mach-o/dyld.h>
+#include "LuaBootstrapV3.h"
 
 typedef struct lua_State lua_State;
 typedef int (*pcall_t)(lua_State*,int,int,int);
@@ -68,6 +69,8 @@ static pthread_mutex_t action_lock=PTHREAD_MUTEX_INITIALIZER;
 static unsigned long long next_poll_ns=0;
 static unsigned long long next_preflight_ns=0;
 static int last_mod_state=-1;
+static lua_State *bound_mod_state=NULL;
+static unsigned long long next_mod_tick_ns=0;
 // 0 unknown, 1 _MOD absent, 2 _MOD available; atomic status shared with UIKit.
 static int mod_status=0;
 static __thread int in_probe=0;
@@ -152,6 +155,8 @@ static void probe(lua_State *L) {
     if (!L || in_probe || !original_pcall || !lua_loadbuffer || !lua_gettop || !lua_settop || !lua_tolstring) return;
     in_probe=1;
     unsigned long long now=monotonic_ns();
+    lua_State *bound=__atomic_load_n(&bound_mod_state,__ATOMIC_ACQUIRE);
+    if (bound && bound!=L) { in_probe=0; return; }
     poll_command_file(now);
     int action=0;
     pthread_mutex_lock(&action_lock);
@@ -164,9 +169,38 @@ static void probe(lua_State *L) {
         char status[256]={0};
         int rc=run_lua(L,"local m=_MOD\nif type(m)~=\"table\" then return \"ABSENT _MOD type=\"..type(m) end\nreturn \"READY addItem=\"..type(m.addItem)..\" tick=\"..type(m.tick)..\" infEnergy=\"..type(m.infEnergy)","=LuaHookV3Check",status,sizeof(status));
         int ready=(rc==0 && strncmp(status,"READY ",6)==0);
+        if(!ready && !bound) {
+            // Only initialize in a Lua VM that already exposes the game's xyd table.
+            // Execute once per Lua state; never inject into an unrelated Lua VM.
+            char context[128]={0};
+            int context_rc=run_lua(L,"return type(xyd)", "=LuaHookV3Context",context,sizeof(context));
+            if(context_rc==0 && strcmp(context,"table")==0) {
+                char boot_result[512]={0};
+                int boot_rc=run_lua(L,kLuaBootstrap,"=LuaHookV3Bootstrap",boot_result,sizeof(boot_result));
+                lua_hook_log("bootstrap rc=%d result=%s",boot_rc,boot_result);
+                if(boot_rc==0) {
+                    char newstatus[256]={0};
+                    int check_rc=run_lua(L,"local m=_MOD; if type(m)~='table' then return 'ABSENT' end; return 'READY addItem='..type(m.addItem)..' tick='..type(m.tick)..' infEnergy='..type(m.infEnergy)", "=LuaHookV3Recheck",newstatus,sizeof(newstatus));
+                    if(check_rc==0 && strstr(newstatus,"addItem=function") && strstr(newstatus,"tick=function")) {
+                        __atomic_store_n(&bound_mod_state,L,__ATOMIC_RELEASE);
+                        ready=1;
+                        snprintf(status,sizeof(status),"%s",newstatus);
+                        lua_hook_log("bootstrap ready; bound Lua state=%p", (void*)L);
+                    } else lua_hook_log("bootstrap did not expose required functions: rc=%d %s",check_rc,newstatus);
+                }
+            }
+        }
+        if(ready && __atomic_load_n(&bound_mod_state,__ATOMIC_ACQUIRE)==NULL)
+            __atomic_store_n(&bound_mod_state,L,__ATOMIC_RELEASE);
         if(rc || last_mod_state!=(ready?1:0)) lua_hook_log("preflight rc=%d %s",rc,status);
         last_mod_state=ready?1:0;
         __atomic_store_n(&mod_status,ready?2:1,__ATOMIC_RELEASE);
+        if(ready && (!next_mod_tick_ns || now>=next_mod_tick_ns)) {
+            next_mod_tick_ns=now+10000000000ULL; // 10 seconds, on the Lua call thread
+            char tick_result[256]={0};
+            int tick_rc=run_lua(L,"if type(_MOD)=='table' and type(_MOD.tick)=='function' then _MOD.tick(); return 'OK' end return 'NOT_READY'", "=LuaHookV3Tick",tick_result,sizeof(tick_result));
+            if(tick_rc) lua_hook_log("periodic tick failed: rc=%d %s",tick_rc,tick_result);
+        }
         if(action) {
             int can_run=ready && ((action<=2 && strstr(status,"addItem=function")) || (action>=3 && strstr(status,"tick=function")));
             if (!can_run) {
