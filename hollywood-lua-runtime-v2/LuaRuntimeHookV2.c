@@ -62,15 +62,18 @@ static gettop_t lua_gettop;
 static settop_t lua_settop;
 static tolstring_t lua_tolstring;
 static pthread_mutex_t install_lock=PTHREAD_MUTEX_INITIALIZER;
-static int installed=0, pending=1;
+static int installed=0;
+static int scan_phase=0;
+static unsigned long long first_scan_ns=0;
+static const unsigned scan_delays_seconds[4]={0,5,15,30};
 static __thread int in_probe=0;
 
-static void probe(lua_State *L) {
+static void probe(lua_State *L, int phase) {
     if (!L || in_probe || !original_pcall || !lua_loadbuffer || !lua_gettop || !lua_settop || !lua_tolstring) return;
-    if (__sync_lock_test_and_set(&pending,0)==0) return;
+    lua_hook_log("begin inventory snapshot=%d delay=%us",phase+1,scan_delays_seconds[phase]);
     in_probe=1;
     int top=lua_gettop(L);
-    const char script[]="local out, count, limit = {}, 0, 100\nlocal function emit(s)\n  if count >= limit then return end\n  count = count + 1\n  out[#out + 1] = s\nend\nlocal function match(s)\n  s = string.lower(s)\n  return string.find(s, \"gold\", 1, true) or string.find(s, \"gem\", 1, true) or\n    string.find(s, \"diamond\", 1, true) or string.find(s, \"energy\", 1, true) or\n    string.find(s, \"player\", 1, true) or string.find(s, \"reward\", 1, true) or\n    string.find(s, \"award\", 1, true) or string.find(s, \"currency\", 1, true) or\n    string.find(s, \"userdata\", 1, true)\nend\nlocal function inspect_table(scope, t)\n  if type(t) ~= \"table\" then return end\n  local key, value = next(t)\n  local seen = 0\n  while key ~= nil and seen < 10000 and count < limit do\n    seen = seen + 1\n    if type(key) == \"string\" then\n      local label = string.sub(key, 1, 100)\n      if match(label) then\n        emit(scope .. \".\" .. label .. \" [\" .. type(value) .. \"]\")\n        if type(value) == \"table\" then\n          local k, v = next(value)\n          local n = 0\n          while k ~= nil and n < 200 and count < limit do\n            n = n + 1\n            if type(k) == \"string\" and match(k) then\n              emit(scope .. \".\" .. label .. \".\" .. string.sub(k,1,100) .. \" [\" .. type(v) .. \"]\")\n            end\n            k, v = next(value, k)\n          end\n        end\n      end\n    end\n    key, value = next(t, key)\n  end\nend\nlocal pkg = rawget(_G, \"package\")\ninspect_table(\"package.loaded\", type(pkg) == \"table\" and rawget(pkg, \"loaded\"))\ninspect_table(\"_G\", _G)\nreturn \"scan_count=\" .. count .. \"\\n\" .. table.concat(out, \"\\n\")";
+    const char script[]="local out, matches, limit = {}, 0, 100\nlocal package_name, package_count, global_count, preload_count = \"absent\", 0, 0, 0\nlocal function relevant(s)\n  s = string.lower(s)\n  local words = {\"gold\",\"gem\",\"diamond\",\"energy\",\"player\",\"reward\",\"award\",\"currency\",\"userdata\",\"coin\",\"stamina\",\"power\"}\n  for i = 1, #words do\n    if string.find(s, words[i], 1, true) then return true end\n  end\n  return false\nend\nlocal function scan(scope, t)\n  if type(t) ~= \"table\" then return 0 end\n  local seen, k = 0, next(t)\n  while k ~= nil and seen < 10000 do\n    seen = seen + 1\n    local v = rawget(t,k)\n    if type(k) == \"string\" and matches < limit and relevant(k) then\n      matches = matches + 1\n      local key = string.sub(k,1,100)\n      out[#out+1] = scope .. \".\" .. key .. \" [\" .. type(v) .. \"]\"\n      if type(v) == \"table\" then\n        local n, subkey = 0, next(v)\n        while subkey ~= nil and n < 200 and matches < limit do\n          n = n + 1\n          local subvalue = rawget(v,subkey)\n          if type(subkey) == \"string\" and relevant(subkey) then\n            matches = matches + 1\n            out[#out+1] = scope .. \".\" .. key .. \".\" .. string.sub(subkey,1,100) .. \" [\" .. type(subvalue) .. \"]\"\n          end\n          subkey = next(v,subkey)\n        end\n      end\n    end\n    k = next(t,k)\n  end\n  return seen\nend\nlocal pkg = rawget(_G,\"package\")\nif type(pkg) == \"table\" then\n  package_name = \"table\"\n  package_count = scan(\"package.loaded\",rawget(pkg,\"loaded\"))\n  preload_count = scan(\"package.preload\",rawget(pkg,\"preload\"))\nelse\n  package_name = type(pkg)\nend\nglobal_count = scan(\"_G\",_G)\nreturn \"scan_count=\"..matches..\" package_type=\"..package_name..\n  \" package_loaded_keys=\"..package_count..\" package_preload_keys=\"..preload_count..\n  \" global_keys=\"..global_count..\"\\n\"..table.concat(out,\"\\n\")";
     int rc=lua_loadbuffer(L,script,sizeof(script)-1,"=LuaHookV2");
     if (rc==0) rc=original_pcall(L,0,1,0);
     if (rc) {
@@ -91,7 +94,7 @@ static void probe(lua_State *L) {
                 begin=end<length && inventory[end]=='\n' ? end+1 : end;
             }
         }
-        lua_hook_log("read-only Lua module inventory completed");
+        lua_hook_log("read-only Lua module inventory completed snapshot=%d",phase+1);
     }
     lua_settop(L,top);
     in_probe=0;
@@ -101,7 +104,24 @@ static int hooked_pcall(lua_State *L,int nargs,int nresults,int errfunc) {
     pcall_t fn=original_pcall;
     if (!fn) return 1;
     int result=fn(L,nargs,nresults,errfunc);
-    if (!in_probe) probe(L);
+    if (!in_probe) {
+        struct timespec now;
+        if (clock_gettime(CLOCK_MONOTONIC, &now)==0) {
+            unsigned long long t=(unsigned long long)now.tv_sec*1000000000ULL+(unsigned long long)now.tv_nsec;
+            unsigned long long start=__atomic_load_n(&first_scan_ns,__ATOMIC_ACQUIRE);
+            if (start==0) {
+                unsigned long long zero=0;
+                (void)__atomic_compare_exchange_n(&first_scan_ns,&zero,t,0,__ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE);
+                start=__atomic_load_n(&first_scan_ns,__ATOMIC_ACQUIRE);
+            }
+            int phase=__atomic_load_n(&scan_phase,__ATOMIC_ACQUIRE);
+            if (phase<4 && t>=start && (t-start)/1000000000ULL>=scan_delays_seconds[phase]) {
+                int expected=phase;
+                if (__atomic_compare_exchange_n(&scan_phase,&expected,phase+1,0,__ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE))
+                    probe(L,phase);
+            }
+        }
+    }
     return result;
 }
 
