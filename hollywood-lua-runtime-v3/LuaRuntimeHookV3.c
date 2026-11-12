@@ -66,6 +66,7 @@ static pthread_mutex_t install_lock=PTHREAD_MUTEX_INITIALIZER;
 static int installed=0;
 static int pending_action=0; // 0 none, 1 gold, 2 gem, 3 energy on, 4 energy off
 static pthread_mutex_t action_lock=PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t probe_lock=PTHREAD_MUTEX_INITIALIZER;
 static unsigned long long next_poll_ns=0;
 static unsigned long long next_preflight_ns=0;
 static int last_mod_state=-1;
@@ -154,9 +155,10 @@ static int run_lua(lua_State *L,const char *script,const char *tag,char *result,
 static void probe(lua_State *L) {
     if (!L || in_probe || !original_pcall || !lua_loadbuffer || !lua_gettop || !lua_settop || !lua_tolstring) return;
     in_probe=1;
+    pthread_mutex_lock(&probe_lock);
     unsigned long long now=monotonic_ns();
     lua_State *bound=__atomic_load_n(&bound_mod_state,__ATOMIC_ACQUIRE);
-    if (bound && bound!=L) { in_probe=0; return; }
+    if (bound && bound!=L) { pthread_mutex_unlock(&probe_lock); in_probe=0; return; }
     poll_command_file(now);
     int action=0;
     pthread_mutex_lock(&action_lock);
@@ -230,6 +232,7 @@ static void probe(lua_State *L) {
             }
         }
     }
+    pthread_mutex_unlock(&probe_lock);
     in_probe=0;
 }
 
