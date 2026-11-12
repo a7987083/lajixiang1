@@ -4,6 +4,16 @@
 Uses the previously device-verified V1.1 hook path. V3 has **no automatic resource modifications**.
 The four Lua commands were provided as previously recovered static plaintext; their gameplay effects have NOT been device verified.
 
+## Floating menu (UIKit, inspired by H5GG's floating-button concept)
+
+The V3 dylib includes its own lightweight UIKit overlay. No H5GG binaries, HTML, JavaScript bridge, or network calls are bundled. The implementation references H5GG's publicly documented window/button concept but copies no upstream source.
+
+- Draggable **H** bubble; tap to expand/collapse the panel
+- Buttons: **金币 +10**, **钻石 +10**, **无限能量：开启**, **无限能量：关闭**
+- The menu only calls the exported queue request APIs. The game Lua action remains on the hooked Lua thread.
+- The separate UIWindow is deliberately not made key; hit testing outside the bubble/panel passes through to the game.
+- UI runtime behavior, touch passthrough and game-scene compatibility require device verification.
+
 ## Usage
 Inject **only** LuaRuntimeHookV3.dylib (remove V1 and V2 dylibs).
 
