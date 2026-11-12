@@ -1,0 +1,30 @@
+name: Build Hollywood LuaRuntimeHook V1
+on:
+  push:
+    branches: [feature/hollywood-lua-runtime-v1]
+    paths:
+      - 'hollywood-lua-runtime-v1/**'
+      - '.github/workflows/build-hollywood-lua-v1.yml'
+  workflow_dispatch:
+jobs:
+  build-lua-hook:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and inspect iOS arm64 dylib
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd hollywood-lua-runtime-v1
+          sh build_macos.sh
+          mkdir -p ../dist/hollywood-lua
+          cp LuaRuntimeHookV1.dylib ../dist/hollywood-lua/
+          codesign --force --sign - --timestamp=none ../dist/hollywood-lua/LuaRuntimeHookV1.dylib
+          file ../dist/hollywood-lua/LuaRuntimeHookV1.dylib
+          xcrun otool -hv ../dist/hollywood-lua/LuaRuntimeHookV1.dylib
+          shasum -a 256 ../dist/hollywood-lua/LuaRuntimeHookV1.dylib | tee ../dist/hollywood-lua/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Hollywood-LuaRuntimeHook-V1
+          path: dist/hollywood-lua/
+          if-no-files-found: error
