@@ -163,6 +163,7 @@ static void LuaV3StartOverlay(unsigned attempts) {
         window.backgroundColor=UIColor.clearColor;
         LuaV3OverlayController *controller=[LuaV3OverlayController new];
         window.rootViewController=controller;
+        (void)controller.view; // Force viewDidLoad before connecting pass-through targets.
         window.hidden=NO; // Do not make key, so the game retains input and keyboard ownership.
         window.bubble=controller.bubble;
         window.panel=controller.panel;
