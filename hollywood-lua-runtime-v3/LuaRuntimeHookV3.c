@@ -68,6 +68,8 @@ static pthread_mutex_t action_lock=PTHREAD_MUTEX_INITIALIZER;
 static unsigned long long next_poll_ns=0;
 static unsigned long long next_preflight_ns=0;
 static int last_mod_state=-1;
+// 0 unknown, 1 _MOD absent, 2 _MOD available; atomic status shared with UIKit.
+static int mod_status=0;
 static __thread int in_probe=0;
 
 
@@ -81,6 +83,9 @@ static const char *action_name(int action) {
 }
 static int queue_action(int action) {
     if (action<1 || action>4) return 0;
+    if (!__atomic_load_n(&installed,__ATOMIC_ACQUIRE)) { lua_hook_log("rejected action=%s: hook not installed",action_name(action)); return 0; }
+    int mod=__atomic_load_n(&mod_status,__ATOMIC_ACQUIRE);
+    if(mod==1) { lua_hook_log("rejected action=%s: _MOD not available in observed Lua state",action_name(action)); return 0; }
     pthread_mutex_lock(&action_lock);
     int ok=0;
     if (pending_action==0) { pending_action=action; ok=1; }
@@ -89,6 +94,8 @@ static int queue_action(int action) {
     else lua_hook_log("rejected action=%s; pending action already exists",action_name(action));
     return ok;
 }
+// Exported status for the UI: 0 unknown, 1 absent, 2 ready.
+__attribute__((visibility("default"))) int LuaHookV3_ModStatus(void) { return __atomic_load_n(&mod_status,__ATOMIC_ACQUIRE); }
 // Exported explicit triggers; callable from an external debugging UI or dlsym.
 __attribute__((visibility("default"))) int LuaHookV3_RequestGold(void) { return queue_action(1); }
 __attribute__((visibility("default"))) int LuaHookV3_RequestGem(void) { return queue_action(2); }
@@ -159,8 +166,15 @@ static void probe(lua_State *L) {
         int ready=(rc==0 && strncmp(status,"READY ",6)==0);
         if(rc || last_mod_state!=(ready?1:0)) lua_hook_log("preflight rc=%d %s",rc,status);
         last_mod_state=ready?1:0;
+        __atomic_store_n(&mod_status,ready?2:1,__ATOMIC_RELEASE);
         if(action) {
             int can_run=ready && ((action<=2 && strstr(status,"addItem=function")) || (action>=3 && strstr(status,"tick=function")));
+            if (!can_run) {
+                pthread_mutex_lock(&action_lock);
+                if (pending_action==action) pending_action=0;
+                pthread_mutex_unlock(&action_lock);
+                lua_hook_log("action=%s cancelled: required _MOD function unavailable (%s)",action_name(action),status);
+            }
             if(can_run) {
                 // Take the queued command atomically. No execution before explicit request.
                 pthread_mutex_lock(&action_lock);
