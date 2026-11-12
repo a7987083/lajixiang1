@@ -3,6 +3,13 @@
 #include <pthread.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <stdarg.h>
+#include <stdlib.h>
+#include <string.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <limits.h>
+#include <time.h>
 
 typedef struct lua_State lua_State;
 typedef int (*pcall_t)(lua_State*,int,int,int);
@@ -12,6 +19,41 @@ typedef void (*settop_t)(lua_State*,int);
 typedef const char* (*tolstring_t)(lua_State*,int,size_t*);
 typedef void (*substrate_t)(void*,void*,void**);
 typedef int (*dobby_t)(void*,void*,void**);
+
+// Append one complete line to the app sandbox; no absolute container path is hardcoded.
+// Expected location: <AppDataContainer>/Documents/LuaHookV1.log
+static void lua_hook_log(const char *fmt, ...) {
+    char message[1024];
+    va_list args;
+    va_start(args, fmt);
+    int n = vsnprintf(message, sizeof(message), fmt, args);
+    va_end(args);
+    if (n < 0) return;
+    const char *home = getenv("HOME");
+    if (home && home[0] == '/') {
+        char path[PATH_MAX];
+        int len = snprintf(path, sizeof(path), "%s/Documents/LuaHookV1.log", home);
+        if (len > 0 && (size_t)len < sizeof(path)) {
+            int fd = open(path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC | O_NOFOLLOW, 0600);
+            if (fd >= 0) {
+                char record[1200];
+                time_t now = time(NULL);
+                struct tm tm_value;
+                char stamp[32] = "";
+                if (localtime_r(&now, &tm_value)) {
+                    strftime(stamp, sizeof(stamp), "%Y-%m-%d %H:%M:%S", &tm_value);
+                }
+                int total = snprintf(record, sizeof(record), "[%s] [LuaHookV1] %s\n", stamp, message);
+                if (total > 0) {
+                    size_t bytes = (size_t)total < sizeof(record) ? (size_t)total : sizeof(record) - 1;
+                    (void)write(fd, record, bytes);
+                }
+                close(fd);
+            }
+        }
+    }
+    fprintf(stderr, "[LuaHookV1] %s\n", message);
+}
 
 static pcall_t original_pcall;
 static load_t lua_loadbuffer;
@@ -32,8 +74,8 @@ static void probe(lua_State *L) {
     if (rc==0) rc=original_pcall(L,0,1,0);
     if (rc) {
         const char *error=lua_tolstring ? lua_tolstring(L,-1,NULL) : NULL;
-        fprintf(stderr,"[LuaHookV1] probe failed: %d %s\n",rc,error?error:"(none)");
-    } else fprintf(stderr,"[LuaHookV1] read-only probe executed\n");
+        lua_hook_log("probe failed: %d %s",rc,error?error:"(none)");
+    } else lua_hook_log("read-only probe executed");
     lua_settop(L,top);
     in_probe=0;
 }
@@ -61,24 +103,24 @@ __attribute__((visibility("default"))) int LuaHookV1_RetryInstall(void) {
     lua_settop=(settop_t)get_symbol(unity,"lua_settop");
     lua_tolstring=(tolstring_t)get_symbol(unity,"lua_tolstring");
     if(!target||!lua_loadbuffer||!lua_gettop||!lua_settop) {
-        fprintf(stderr,"[LuaHookV1] Lua API unavailable\n");
+        lua_hook_log("Lua API unavailable");
         pthread_mutex_unlock(&install_lock); return 0;
     }
     substrate_t substrate=(substrate_t)dlsym(RTLD_DEFAULT,"MSHookFunction");
     dobby_t dobby=(dobby_t)dlsym(RTLD_DEFAULT,"DobbyHook");
     if(!substrate&&!dobby) {
-        fprintf(stderr,"[LuaHookV1] no supported inline hook runtime\n");
+        lua_hook_log("no supported inline hook runtime");
         pthread_mutex_unlock(&install_lock); return 0;
     }
     int result=0;
     if(substrate) substrate(target,(void*)hooked_pcall,(void**)&original_pcall);
     else result=dobby(target,(void*)hooked_pcall,(void**)&original_pcall);
     if(result!=0 || !original_pcall) {
-        fprintf(stderr,"[LuaHookV1] install failed\n");
+        lua_hook_log("install failed");
         pthread_mutex_unlock(&install_lock); return 0;
     }
     installed=1;
-    fprintf(stderr,"[LuaHookV1] installed pcall=%p original=%p\n",target,(void*)original_pcall);
+    lua_hook_log("installed pcall=%p original=%p",target,(void*)original_pcall);
     pthread_mutex_unlock(&install_lock); return 1;
 }
 
@@ -86,6 +128,6 @@ __attribute__((visibility("default"))) int LuaHookV1_IsInstalled(void) {
     return __atomic_load_n(&installed,__ATOMIC_RELAXED);
 }
 __attribute__((constructor)) static void init(void) {
-    fprintf(stderr,"[LuaHookV1] loaded, diagnostic only\n");
+    lua_hook_log("loaded, diagnostic only");
     (void)LuaHookV1_RetryInstall();
 }
