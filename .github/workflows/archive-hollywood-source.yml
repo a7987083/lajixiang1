@@ -1,0 +1,38 @@
+name: Archive Hollywood Lua Runtime Source Snapshots
+on:
+  push:
+    branches: [feature/hollywood-lua-runtime-v1]
+    paths:
+      - '.github/workflows/archive-hollywood-source.yml'
+  workflow_dispatch:
+jobs:
+  archive-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Export verified and UI snapshots
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/source_snapshots/V3.2-functional dist/source_snapshots/V3.3-compact-ui
+          git archive a69aa5fe46b416cd862fa168d1d45f790f917ae4 \
+            hollywood-lua-runtime-v1 hollywood-lua-runtime-v2 hollywood-lua-runtime-v3 .github/workflows \
+            | tar -xf - -C dist/source_snapshots/V3.2-functional
+          git archive 2e69cffc7d63b4769378809e10d35864fb5da090 \
+            hollywood-lua-runtime-v1 hollywood-lua-runtime-v2 hollywood-lua-runtime-v3 .github/workflows \
+            | tar -xf - -C dist/source_snapshots/V3.3-compact-ui
+          printf '%s\n' \
+            'V3.2-functional=a69aa5fe46b416cd862fa168d1d45f790f917ae4' \
+            'V3.3-compact-ui=2e69cffc7d63b4769378809e10d35864fb5da090' \
+            > dist/source_snapshots/SOURCE_COMMITS.txt
+          ( cd dist && zip -qr Hollywood-SourceSnapshots.zip source_snapshots )
+          ( cd dist && sha256sum Hollywood-SourceSnapshots.zip > SHA256SUMS.txt )
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Hollywood-LuaRuntime-SourceSnapshots
+          path: |
+            dist/Hollywood-SourceSnapshots.zip
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
