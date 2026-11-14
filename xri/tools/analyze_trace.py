@@ -37,6 +37,7 @@ def analyze(trace, snapshot=None, observations=None):
     sample_summary = []
     last_control = None
     callback_scores = Counter()
+    normalized_comparison_count = 0
     for probe in samples:
         current = {x.get("callback"): integer(x.get("count")) for x in probe.get("callbackCounts", [])
                    if x.get("callback")}
@@ -55,12 +56,24 @@ def analyze(trace, snapshot=None, observations=None):
             last_control = current
         elif last_control is not None:
             # Counts are observational; compare with a manually marked control.
-            for key in sorted(set(current) | set(last_control)):
-                delta = current.get(key, 0) - last_control.get(key, 0)
-                if delta > 0:
-                    entry["callbackPositiveDeltas"].append({"callback": key, "delta": delta})
-                    callback_scores[key] += delta
-            entry["callbackPositiveDeltas"].sort(key=lambda x: -x["delta"])
+            control_total = sum(last_control.values())
+            target_total = sum(current.values())
+            entry["comparisonReady"] = bool(control_total and target_total and
+                                            not entry["callbackAggregationOverflow"])
+            if entry["comparisonReady"]:
+                normalized_comparison_count += 1
+                for key in sorted(set(current) | set(last_control)):
+                    control_rate = 1000.0 * last_control.get(key, 0) / control_total
+                    target_rate = 1000.0 * current.get(key, 0) / target_total
+                    delta_rate = round(target_rate - control_rate, 5)
+                    if delta_rate > 0:
+                        entry["callbackPositiveDeltas"].append({
+                            "callback": key, "deltaRatePer1kReturns": delta_rate,
+                            "controlCount": last_control.get(key, 0),
+                            "targetCount": current.get(key, 0),
+                        })
+                        callback_scores[key] += delta_rate
+            entry["callbackPositiveDeltas"].sort(key=lambda x: -x["deltaRatePer1kReturns"])
         sample_summary.append(entry)
 
     candidates = []
@@ -69,7 +82,7 @@ def analyze(trace, snapshot=None, observations=None):
         observed = next((x for x in reversed(executions) if x.get("callback") == cb), {})
         candidates.append({
             "callback": cb,
-            "positiveWindowCountDelta": score,
+            "positiveRateDeltaPer1kReturns": round(score, 5),
             "registeredInRetainedBuffer": bool(registration),
             "ownerImage": observed.get("ownerImage", registration.get("ownerImage", "")),
             "ownerImageOffset": observed.get("ownerImageOffset", registration.get("ownerImageOffset", "")),
@@ -107,6 +120,7 @@ def analyze(trace, snapshot=None, observations=None):
         "nativeCallbacksReturnedTotal": integer(trace.get("cFunctionExecutionStats", {}).get("total")),
         "nativeCallbackEventsRetained": len(executions),
         "resourceWindows": sample_summary,
+        "normalizedComparisonCount": normalized_comparison_count,
         "candidates": candidates,
         "userObservations": user_observations,
         "readOnly": True,
