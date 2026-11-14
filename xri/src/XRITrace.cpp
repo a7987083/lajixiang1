@@ -95,12 +95,10 @@ void recordState(LuaState *state, const char *action) {
     if (g_states.size() >= kMaxStates) g_states.erase(g_states.begin());
     g_states.push_back({reinterpret_cast<uintptr_t>(state), action, ++g_seq});
 }
-void recordChunk(LuaState *state, const char *bytes, size_t size,
+void recordChunk(LuaState *state, size_t size, uint64_t digest,
                  const char *name, int status, const char *api) {
     if (!g_active.load(std::memory_order_relaxed) || !state) return;
-    // Never retain a Lua buffer pointer or access it after the function returns.
-    // Only hash a bounded prefix of data provided by the observed API.
-    uint64_t digest = bytes && size ? hashPrefix(bytes, size) : 0;
+    // Bytes are hashed before invoking the original Lua loader; no buffer is retained.
     std::string chunkName = name ? std::string(name, strnlen(name, 512)) : "(unnamed)";
     std::lock_guard<std::mutex> lock(g_mu);
     if (g_chunks.size() >= kMaxChunks) g_chunks.erase(g_chunks.begin());
@@ -121,17 +119,19 @@ void closeHook(LuaState *L) {
 }
 int xluaLoadHook(LuaState *L, const char *b, int sz, const char *n) {
     ++g_loadingDepth;
+    const uint64_t digest = g_loadingDepth == 1 && b && sz > 0 ? hashPrefix(b, static_cast<size_t>(sz)) : 0;
     int result = origXLuaLoad ? origXLuaLoad(L, b, sz, n) : -1;
     if (g_loadingDepth == 1 && sz >= 0)
-        recordChunk(L, b, static_cast<size_t>(sz), n, result, "xluaL_loadbuffer");
+        recordChunk(L, static_cast<size_t>(sz), digest, n, result, "xluaL_loadbuffer");
     --g_loadingDepth;
     return result;
 }
 int luaLoadHook(LuaState *L, const char *b, size_t sz, const char *n, const char *mode) {
     ++g_loadingDepth;
+    const uint64_t digest = g_loadingDepth == 1 && b && sz > 0 ? hashPrefix(b, sz) : 0;
     int result = origLuaLoad ? origLuaLoad(L, b, sz, n, mode) : -1;
     if (g_loadingDepth == 1)
-        recordChunk(L, b, sz, n, result, "luaL_loadbufferx");
+        recordChunk(L, sz, digest, n, result, "luaL_loadbufferx");
     --g_loadingDepth;
     return result;
 }
