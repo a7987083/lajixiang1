@@ -3,6 +3,8 @@
 #include <dispatch/dispatch.h>
 #include <mach-o/dyld.h>
 #include <mach-o/loader.h>
+#include <mach/mach_time.h>
+#include <pthread.h>
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
@@ -21,6 +23,8 @@ using NewStateFn = LuaState *(*)(void);
 using CloseFn = void (*)(LuaState *);
 using XLuaLoadFn = int (*)(LuaState *, const char *, int, const char *);
 using LuaLoadFn = int (*)(LuaState *, const char *, size_t, const char *, const char *);
+using LuaKFunction = int (*)(LuaState *, int, intptr_t);
+using LuaPCallFn = int (*)(LuaState *, int, int, int, intptr_t, LuaKFunction);
 
 struct StateEvent {
     uintptr_t value;
@@ -37,12 +41,23 @@ struct ChunkEvent {
     uint64_t sequence;
     bool hashTruncated;
 };
+struct ExecutionEvent {
+    uintptr_t state;
+    uint64_t thread;
+    int nargs;
+    int nresults;
+    int errfunc;
+    int status;
+    uint64_t durationNs;
+    uint64_t sequence;
+};
 struct HookEntry {
     const char *name;
     void *address;
     bool installed;
     int error;
 };
+constexpr size_t kMaxExecutions = 512;
 constexpr size_t kMaxChunks = 256;
 constexpr size_t kMaxStates = 128;
 constexpr size_t kMaxHashBytes = 1024 * 1024;
@@ -56,6 +71,9 @@ std::once_flag g_once;
 std::atomic<uint64_t> g_seq{0};
 std::vector<StateEvent> g_states;
 std::vector<ChunkEvent> g_chunks;
+std::vector<ExecutionEvent> g_executions;
+std::atomic<uint64_t> g_executionTotal{0};
+std::atomic<uint64_t> g_executionDropped{0};
 std::vector<HookEntry> g_hooks;
 std::string g_reason = "not started";
 thread_local unsigned g_loadingDepth = 0;
@@ -64,6 +82,8 @@ NewStateFn origNewState = nullptr;
 CloseFn origClose = nullptr;
 XLuaLoadFn origXLuaLoad = nullptr;
 LuaLoadFn origLuaLoad = nullptr;
+LuaPCallFn origPCall = nullptr;
+thread_local unsigned g_executionDepth = 0;
 
 uint64_t hashPrefix(const char *data, size_t length) {
     uint64_t value = UINT64_C(14695981039346656037);
@@ -145,6 +165,45 @@ int luaLoadHook(LuaState *L, const char *b, size_t sz, const char *n, const char
     return result;
 }
 
+
+// Observe protected call *boundaries*, not individual Lua bytecode functions.
+// No Lua C API inspection or stack mutation is performed inside the hook.
+int pcallHook(LuaState *L, int nargs, int nresults, int errfunc,
+              intptr_t context, LuaKFunction continuation) {
+    ++g_executionDepth;
+    const bool capture = g_executionDepth == 1 && L &&
+                         g_active.load(std::memory_order_relaxed);
+    const uint64_t start = capture ? mach_absolute_time() : 0;
+    const int status = origPCall
+        ? origPCall(L, nargs, nresults, errfunc, context, continuation) : -1;
+    if (capture) {
+        const uint64_t end = mach_absolute_time();
+        static mach_timebase_info_data_t timebase = [] {
+            mach_timebase_info_data_t info = {};
+            mach_timebase_info(&info);
+            return info;
+        }();
+        const uint64_t delta = end - start;
+        const uint64_t elapsedNs = timebase.denom ?
+            static_cast<uint64_t>((static_cast<long double>(delta) *
+                timebase.numer) / timebase.denom) : 0;
+        uint64_t tid = 0;
+        pthread_threadid_np(nullptr, &tid);
+        g_executionTotal.fetch_add(1, std::memory_order_relaxed);
+        std::lock_guard<std::mutex> lock(g_mu);
+        if (g_executions.size() >= kMaxExecutions) {
+            g_executions.erase(g_executions.begin());
+            g_executionDropped.fetch_add(1, std::memory_order_relaxed);
+        }
+        g_executions.push_back({
+            reinterpret_cast<uintptr_t>(L), tid, nargs, nresults,
+            errfunc, status, elapsedNs, ++g_seq
+        });
+    }
+    --g_executionDepth;
+    return status;
+}
+
 // Only resolve exact exports in their owning loaded image, never inferred offsets.
 // A hook is never installed unless the original trampoline is provided.
 void *resolve(const char *name) {
@@ -185,7 +244,24 @@ std::string jsonSnapshot() {
         result += "{\"state\":\"" + hex(e.value) + "\",\"action\":\"" + e.action +
                   "\",\"sequence\":" + std::to_string(e.sequence) + "}";
     }
-    result += "],\"chunks\":[";
+    result += "],\"executions\":[";
+    for (size_t i = 0; i < g_executions.size(); ++i) {
+        if (i) result += ",";
+        const auto &e = g_executions[i];
+        result += "{\"api\":\"lua_pcallk\",\"state\":\"" + hex(e.state) +
+                  "\",\"threadId\":" + std::to_string(e.thread) +
+                  ",\"nargs\":" + std::to_string(e.nargs) +
+                  ",\"nresults\":" + std::to_string(e.nresults) +
+                  ",\"errfunc\":" + std::to_string(e.errfunc) +
+                  ",\"status\":" + std::to_string(e.status) +
+                  ",\"durationNs\":" + std::to_string(e.durationNs) +
+                  ",\"sequence\":" + std::to_string(e.sequence) + "}";
+    }
+    result += "],\"executionStats\":{\"total\":" +
+              std::to_string(g_executionTotal.load(std::memory_order_relaxed)) +
+              ",\"dropped\":" +
+              std::to_string(g_executionDropped.load(std::memory_order_relaxed)) +
+              ",\"scope\":\"protected_call_boundaries_only\"},\"chunks\":[";
     for (size_t i=0; i<g_chunks.size(); ++i) {
         if (i) result += ",";
         const auto &e=g_chunks[i];
@@ -222,7 +298,9 @@ void installAvailable() {
         {"xluaL_loadbuffer", reinterpret_cast<void *>(&xluaLoadHook),
          reinterpret_cast<void **>(&origXLuaLoad)},
         {"luaL_loadbufferx", reinterpret_cast<void *>(&luaLoadHook),
-         reinterpret_cast<void **>(&origLuaLoad)}
+         reinterpret_cast<void **>(&origLuaLoad)},
+        {"lua_pcallk", reinterpret_cast<void *>(&pcallHook),
+         reinterpret_cast<void **>(&origPCall)}
     };
     for (const auto &t : targets) {
         bool processed = false;
@@ -257,8 +335,8 @@ void installAvailable() {
     } else {
         unsigned count = 0;
         for (const auto &h : g_hooks) if (h.installed) ++count;
-        g_reason = count == 4 ? "Recording (4/4 hooks)"
-                              : "Recording (partial hooks; earlier VM/Chunk events not recoverable)";
+        g_reason = count == 5 ? "Recording (5/5 hooks)"
+                              : "Recording (partial hooks; earlier events not recoverable)";
     }
 }
 
@@ -315,6 +393,9 @@ extern "C" __attribute__((visibility("default"))) void xri_trace_clear(void) {
     std::lock_guard<std::mutex> lock(g_mu);
     g_chunks.clear();
     g_states.clear();
+    g_executions.clear();
+    g_executionTotal = 0;
+    g_executionDropped = 0;
 }
 extern "C" __attribute__((visibility("default")))
 size_t xri_trace_snapshot_json(char *output, size_t capacity) {
