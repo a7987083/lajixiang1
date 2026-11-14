@@ -76,3 +76,8 @@ jobs:
             xri/tools/analyze_trace.py
             xri/tools/test_analyze_trace.py
             xri/P3_2_BINARY_AUDIT.md
+            xri/HANDOFF.md
+            xri/KNOWN_ISSUES.md
+            xri/ROADMAP.md
+            xri/PROJECT_STATE.json
+            xri/CHANGELOG_DEV.md

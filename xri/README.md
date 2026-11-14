@@ -157,3 +157,11 @@ functions, or resolve the mapped managed C# method. Do not treat
 
 The current core source version is `0.3.2-p3`. No arbitrary
 per-callback hooks or VM stack reads are enabled.
+
+## P3.3–P4 — Target-gated callback execution evidence (2026-11-14)
+
+The only internal Lua-VM hook added is `luaD_precall` on **exact** Taylor's Secret 1.8.9-69 UnityFramework UUID. The loader validates both UUID and expected `blr x23` ARM64 instruction. Without a match this hook is **not installed**. Other seven symbol-driven observers retain their prior behavior.
+
+`trace.json` adds `cFunctionExecutions`, `cFunctionExecutionStats`, `bridges[].nativeCallback`, and `resourceProbes[].callbackCounts`. Native events mean callbacks **returned normally**, not that a currency method has been identified or that a resource changed. Only sampled individual events are retained outside active manual windows; during marked windows bounded per-callback counts are collected. `xri/tools/analyze_trace.py` produces a reproducible read-only candidate report, and `test_analyze_trace.py` provides synthetic unit tests.
+
+**P5 is intentionally not implemented** until a real target-game trace, verified callback-to-method ABI mapping, actual resource data flow and controlled test preconditions are available. See `xri/HANDOFF.md`, `xri/KNOWN_ISSUES.md` and `xri/PROJECT_STATE.json`.

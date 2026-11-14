@@ -1,0 +1,32 @@
+{
+  "repository": "a7987083/lajixiang1",
+  "branch": "feature/xri-universal",
+  "stableBaseline": "c3586528207e1473df12ee4c82c94b97c7b1e876",
+  "workingBaseline": "d96bc71fe7b35e91d43e57b0c4492e09ee0f573d",
+  "target": {
+    "game": "Taylor's Secret",
+    "build": "1.8.9-69",
+    "unityFrameworkSHA256": "d7ebc545a1568bdf78f026b86cd4fe6b1df77509f165621cd29546de3fbf29ae",
+    "uuid": "CC89F3E2-E288-3FBF-AB96-1FD4E58F047A",
+    "metadataSHA256": "e915547090ff9ea594bca4432ac5e722411ef033b45f78b9f38ec3c2b7475f68"
+  },
+  "implementation": {
+    "P1": "built",
+    "P2": "built",
+    "P3_2": "built",
+    "P3_3": "implemented_and_ci_built_device_unverified",
+    "P3_4": "same_thread_nested_correlation_only",
+    "P4": "read_only_evidence_analyzer_and_tests",
+    "P5": "blocked_on_device_trace_and_verified_resource_API"
+  },
+  "runtime": {
+    "deviceVerified": false,
+    "gameplayResourceChange": false,
+    "serverPersistence": false
+  },
+  "artifacts": {
+    "workflow": ".github/workflows/xri.yml",
+    "name": "XRI-P3.3-P4-Evidence-ios-arm64"
+  },
+  "nextAction": "Inject built dylib into exact target, perform control/energy/gold/diamond windows, export Documents/XRI/trace.json and snapshot.json, analyze; only then identify precise business method and controlled resource test."
+}
