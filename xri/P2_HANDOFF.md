@@ -149,3 +149,23 @@
 - Real-device resource/balance change, direct generated-wrapper invocation
   coverage, causal method identification, and on-device UI performance
   **remain unverified**.
+
+## P3.2 — Target verified xLua C callback registration
+
+- Actual reference image in user supplied archive:
+  `UnityFramework`, UUID `CC89F3E2-E288-3FBF-AB96-1FD4E58F047A`.
+  See `xri/P3_2_BINARY_AUDIT.md` for actual ARM64 instructions and
+  verified export addresses.
+- The exact target shows `luaD_precall` executing a C callback with
+  `blr x23` at image-relative `0x032537AC`. Thus the earlier assumption
+  that every Lua-to-native path calls `il2cpp_runtime_invoke` is false.
+- Existing HookManager/installer now observes `lua_pushcclosure` for
+  callback registration provenance, with a single bounded 512-address
+  registry. Results include runtime image and load-relative address;
+  all entries are explicitly labelled registration **not execution**.
+- No guessed per-MethodInfo offsets, arbitrary wrapper function Hook,
+  Lua stack reads, or internal VM ABI assumptions were added.
+- A registration does **not** prove that its CFunction ran or which
+  managed MethodInfo it represents. P3.3 needs further validated
+  instrumentation to claim execution-level bridging.
+- CI build is not a real-device validation.
