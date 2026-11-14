@@ -1,4 +1,4 @@
-name: Build XRI P3.2 UI dylib
+name: Build XRI P3.3-P4 Evidence UI dylib
 on:
   push:
     branches: [ 'feature/xri-universal' ]
@@ -12,6 +12,10 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      - name: Validate read-only evidence analyzer
+        run: |
+          python3 -m py_compile xri/tools/analyze_trace.py xri/tools/test_analyze_trace.py
+          python3 -m unittest discover -s xri/tools -p 'test_*.py' -v
       - name: Build pinned Dobby for iOS arm64
         shell: bash
         run: |
@@ -57,12 +61,18 @@ jobs:
       - name: Package independent XRI artifact
         run: |
           cd dist
-          zip -9 XRI-P3.2-UI.zip XLuaResourceInspector.dylib XRI-SHA256SUMS.txt DOBBY-LICENSE.txt
+          cp ../xri/tools/analyze_trace.py .
+          cp ../xri/P3_2_BINARY_AUDIT.md .
+          cp ../xri/README.md XRI-README.md
+          zip -9 XRI-P3.3-P4-Evidence.zip XLuaResourceInspector.dylib XRI-SHA256SUMS.txt DOBBY-LICENSE.txt analyze_trace.py P3_2_BINARY_AUDIT.md XRI-README.md
       - uses: actions/upload-artifact@v4
         with:
-          name: XRI-P3.2-UI-ios-arm64
+          name: XRI-P3.3-P4-Evidence-ios-arm64
           path: |
             dist/XLuaResourceInspector.dylib
-            dist/XRI-P3.2-UI.zip
+            dist/XRI-P3.3-P4-Evidence.zip
             dist/XRI-SHA256SUMS.txt
             dist/DOBBY-LICENSE.txt
+            xri/tools/analyze_trace.py
+            xri/tools/test_analyze_trace.py
+            xri/P3_2_BINARY_AUDIT.md
