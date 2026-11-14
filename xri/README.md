@@ -91,3 +91,25 @@ iPad scene behavior and game rendering require real-device tests.
 - Inline hooks remain installed until process exit. Safe physical unhooking
   and exact target-game validation remain outstanding; do not represent a
   successful CI build as device verification.
+
+## P2.5 — Trace search and resource observation
+
+The same search field now filters image/export data and, on the trace tab,
+VM events, Chunk names, execution call IDs, IL2CPP class/method names,
+and manually bracketed resource-operation samples. The search filters
+the display only; the exported `trace.json` retains the full bounded data.
+
+To observe an operation, select **跟踪**, choose 钻石/金币/体力/其他,
+tap **操作前**, perform one operation in the game, then tap **操作后**.
+The resulting observation is included in the next JSON export under
+`Documents/XRI/trace.json` → `resourceProbes`.
+
+**P2.5 is not complete real-device validation.** Call-count deltas and
+method names observed during a manually marked operation do not prove
+that those calls changed currency. This tool does not read balances or
+infer resource addresses. A genuine resource result requires target-game
+binary and runtime evidence.
+
+The fixed source version is `0.2.5-p2.5`. The core and tracer remain
+separate; there is still one hook installer and one bounded trace buffer
+set, with no added polling loop.
