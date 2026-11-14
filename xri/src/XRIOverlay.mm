@@ -166,7 +166,7 @@ static UIButton *XButton(NSString *title, UIColor *bg, id target, SEL action) {
     self.panel.frame = frame;
     // Preserve 340-pt design on phones; narrow screens scroll horizontally only if required.
     self.panel.transform = CGAffineTransformIdentity;
-    CGFloat scale = MIN(1, frame.size.width / 340.0, frame.size.height / 454.0);
+    CGFloat scale = MIN(1.0, MIN(frame.size.width / 340.0, frame.size.height / 454.0));
     // Scale contents as a unit, keeping a fully touchable panel.
     if (scale < 1) {
         self.panel.bounds = CGRectMake(0, 0, 340, 454);
