@@ -95,7 +95,7 @@ static UIButton *XButton(NSString *title, UIColor *bg, id target, SEL action) {
     [panel addSubview:header];
     [self label:@"◉  XLua Inspector" font:17 color:XColor(0xE6F8F5)
           frame:CGRectMake(16, 9, 245, 24) parent:header];
-    [self label:@"P3.1 · TRACE ANALYSIS · READ-ONLY" font:10 color:XColor(0x70DEC9)
+    [self label:@"P3.2 · WRAPPER REGISTRATION · READ-ONLY" font:10 color:XColor(0x70DEC9)
           frame:CGRectMake(17, 34, 180, 14) parent:header];
     UIButton *close = XButton(@"×", XColor(0x334353), self, @selector(togglePanel));
     close.frame = CGRectMake(300, 12, 27, 27);
@@ -244,7 +244,7 @@ static UIButton *XButton(NSString *title, UIColor *bg, id target, SEL action) {
                                : CGRectMake(16, 239, 308, 151);
     [self.scanButton setTitle:trace ? @"操作前" : @"扫描" forState:UIControlStateNormal];
     [self.secondaryButton setTitle:trace ? @"操作后" : @"复制结果" forState:UIControlStateNormal];
-    self.filter.placeholder = trace ? @"搜索方法 / 类 / callId / 资源" :
+    self.filter.placeholder = trace ? @"搜索方法 / 类 / Lua C回调 / callId" :
                                       @"搜索导出符号 / 镜像名称";
     [self renderResults];
 }
@@ -325,6 +325,8 @@ static UIButton *XButton(NSString *title, UIColor *bg, id target, SEL action) {
         NSArray *bridges = trace[@"bridges"] ?: @[];
         NSArray *checks = trace[@"resourceProbes"] ?: @[];
         NSArray *comparisons = trace[@"resourceComparisons"] ?: @[];
+        NSArray *registrations = trace[@"cFunctionRegistrations"] ?: @[];
+        NSDictionary *registrationStats = trace[@"cFunctionRegistrationStats"] ?: @{};
         NSDictionary *active = [trace[@"activeResourceProbe"] isKindOfClass:NSDictionary.class] ?
                                trace[@"activeResourceProbe"] : nil;
         NSDictionary *execStats = trace[@"executionStats"] ?: @{};
@@ -333,12 +335,12 @@ static UIButton *XButton(NSString *title, UIColor *bg, id target, SEL action) {
         NSMutableArray<NSString *> *lines = [NSMutableArray array];
 
         [lines addObject:[NSString stringWithFormat:
-            @"P3.1: %@ | %@\nVM %lu · Chunk %lu · 执行 %@ · IL2CPP %@\n操作样本 %lu · %@",
+            @"P3.2: %@ | %@\nVM %lu · Chunk %lu · 执行 %@ · IL2CPP %@\n操作样本 %lu · C回调注册 %@ · %@",
             [trace[@"recording"] boolValue] ? @"记录中" : @"未记录",
             trace[@"reason"] ?: @"状态不可用",
             (unsigned long)states.count, (unsigned long)chunks.count,
             execStats[@"total"] ?: @0, bridgeStats[@"total"] ?: @0,
-            (unsigned long)checks.count,
+            (unsigned long)checks.count,registrationStats[@"total"] ?: @0,
             active ? [NSString stringWithFormat:@"正在采集 %@", active[@"kind"]] : @"待标记"]];
 
         for (NSDictionary *e in states) {
@@ -374,6 +376,22 @@ static UIButton *XButton(NSString *title, UIColor *bg, id target, SEL action) {
         NSDictionary *names = @{
             @"diamond":@"钻石", @"gold":@"金币", @"energy":@"体力", @"other":@"对照"
         };
+        // Registration is evidence of a native Lua callback being pushed.
+        // It is not proof that the callback ran, or identification of a C# method.
+        NSArray *sortedRegistrations = [registrations sortedArrayUsingComparator:
+            ^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
+                NSComparisonResult r = [b[@"count"] compare:a[@"count"]];
+                return r != NSOrderedSame ? r :
+                    [a[@"callback"] compare:b[@"callback"]];
+            }];
+        for (NSDictionary *e in sortedRegistrations) {
+            NSString *line = [NSString stringWithFormat:
+                @"[Lua C回调注册·非执行] %@ · %@ ×%@\\n归属 %@ · offset %@ · upvalues %@",
+                e[@"callback"] ?: @"", e[@"state"] ?: @"", e[@"count"] ?: @0,
+                [e[@"ownerImage"] lastPathComponent] ?: @"",
+                e[@"ownerImageOffset"] ?: @"",e[@"upvalues"] ?: @0];
+            [self appendTraceLine:line to:lines query:query];
+        }
         for (NSDictionary *e in checks) {
             NSString *kind = e[@"kind"] ?: @"other";
             NSArray *counts = [e[@"methodCounts"] isKindOfClass:NSArray.class] ?
