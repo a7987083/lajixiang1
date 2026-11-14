@@ -20,10 +20,11 @@
 - Avoids duplicate nested loadbuffer events on the same thread.
 
 ## Runtime preconditions and limitations
-- **Optional DobbyHook provider must already be loaded** and export the
-  compatible `DobbyHook` symbol; this dylib does not bundle Dobby.
-- With no provider, `xri_trace_start()` returns 0 with an explicit reason.
-  UI remains useful for P1 export analysis.
+- Official CI artifact **bundles a statically linked Dobby provider**, pinned to
+  `jmpews/Dobby` commit `5dfc8546954ce3b3198132ab13fddb89ee92cdd7`.
+  The included Apache-2.0 license is packaged as `DOBBY-LICENSE.txt`.
+  Non-official builds without `XRI_BUNDLED_DOBBY` still require an already
+  loaded compatible provider; start returns 0 when unavailable.
 - Targets are exact exported symbols in already loaded candidate images;
   stripped symbols, different Lua backends and libraries outside the
   allowlist may not be instrumented.
@@ -43,6 +44,6 @@
 - CI verifies compilation, arm64 linkage, ad-hoc signing, exported symbols
   and Artifact upload.
 - No injection, real-device or game version testing completed.
-- Next: a tested, version-pinned inline-hook provider with explicit
-  uninstall support and integration tests; then real Lua VM / Chunk test
-  evidence before P3 cross-language bridging.
+- Next: real-device Lua VM/Chunk observations and Hook restoration safety
+  tests on the exact game binary. P3 cross-language bridging must not begin
+  with unverified VM ABI or incomplete Hook lifecycle evidence.
