@@ -252,6 +252,7 @@ int pcallHook(LuaState *L, int nargs, int nresults, int errfunc,
                          g_active.load(std::memory_order_relaxed);
     const uint64_t start = capture ? mach_absolute_time() : 0;
     const uint64_t previousCallId = g_currentCallId;
+    const uintptr_t previousNativeCallback = g_currentNativeCallback;
     const uint64_t callId = capture ? ++g_callIds : previousCallId;
     if (capture) g_currentCallId = callId;
     const int status = origPCall
@@ -281,6 +282,8 @@ int pcallHook(LuaState *L, int nargs, int nresults, int errfunc,
         });
     }
     if (capture) g_currentCallId = previousCallId;
+    // A Lua error may longjmp past precallHook; restore TLS on protected return.
+    g_currentNativeCallback = previousNativeCallback;
     --g_executionDepth;
     return status;
 }
