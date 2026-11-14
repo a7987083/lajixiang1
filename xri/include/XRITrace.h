@@ -4,8 +4,8 @@
 extern "C" {
 #endif
 
-// P2 read-only tracer. An active inline hook provider with the DobbyHook ABI
-// must already be loaded. Never changes Lua arguments, return values or stack.
+// P2 read-only tracer. An active inline hook provider with the DobbyHook ABI is linked
+// into the official CI artifact. Other builds may use an existing provider. Never changes Lua arguments, return values or stack.
 // start: 1 started, 0 inactive/unavailable, -1 invalid/incompatible target.
 // stop: disables recording; already installed inline hooks remain as transparent
 // pass-through because removing them without owner coordination is unsafe.
