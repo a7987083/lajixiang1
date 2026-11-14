@@ -69,5 +69,13 @@
 - User explicitly requested no Bundle ID access, version/Build verification or UnityFramework UUID verification; new runtime has none of these gates and no instruction-signature gate.
 - Resolve IL2CPP exports and XLua.LuaEnv methods dynamically; hook live Tick; invoke managed DoString on the current main-thread instance. No game native function RVAs/raw Lua state offsets.
 - Actual Petsharbor script calls ModuleManager.PropertySystem:CheckChangeData(id, amount, nil, ECheckerboardType.Main, FunctionSource.GM). IDs 1/2/3. No Taylor GM.AddItem dependency.
-- Lua 5.3 mock behavior and source gate audit passed; shell syntax/diff checks passed. CI pending, real device unverified.
+- Lua 5.3 mock behavior and source gate audit passed; shell syntax/diff checks passed. CI build/signature verification succeeded; see completed-build section. Real device unverified.
 - Implementation/ABI/evidence/build instructions: petsharbor-resource-menu-v1/README.md. Next: CI build, inspect signed dylib, deliver for device tests.
+
+
+### Pets Harbor V1 completed build — 2026-11-15
+- Built commit b57d9875d06c1434588945396ea27f53b4e689f3; Actions Run 43619681186 succeeded; Artifact 14123512947.
+- Signed iOS arm64 dylib, 142528 bytes, SHA-256 a62cc0fa23a7fd60e8065093a572426ddcf46692d5c63b5bdcacbf548beba3c1; downloaded ZIP and dylib hashes match CI. No dynamic Dobby/Substrate dependency.
+- New implementation has no Bundle ID access, version/Build, UUID, instruction-signature gates or fixed game function RVA map. New source audit and binary import/string audit passed. These do not prove cross-game compatibility.
+- Export discovery + live LuaEnv.Tick + managed DoString bridge is compiled, not yet device-tested. Single file PetsResourceMenu-V1.dylib delivered; P bubble / three resources / 1–100 quantity input.
+- Next: device test readiness, before/after values, numeric keyboard, scene reset and relaunch. Cloud acceptance remains unverified.

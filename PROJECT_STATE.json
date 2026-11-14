@@ -1,5 +1,5 @@
 {
-  "version": "10.0-device-test",
+  "version": "pets-resource-menu-v1",
   "repository": "a7987083/lajixiang1",
   "branch": "feature/petsharbor-resource-menu-v1",
   "baseline": {
@@ -23,15 +23,15 @@
     "v9_sha256": "4ebd1fa612040b5c4db5d929a122c05871cb9b4b794cdb13ac989641afe0ad01",
     "v10_sha256": "7825c5511e9f36306e5726f37a2944bc783e08262d6223e0cf6f0d605e57b9cf"
   },
-  "phase": "phase10-title-replacement",
-  "next_task": "real-device verify v10 keeps icon/color behavior and changes title to taobaozonoe",
+  "phase": "petsharbor-resource-menu-v1-device-test",
+  "next_task": "real-device test PetsResourceMenu-V1 resource menu",
   "taylor_resource_menu": {
     "branch": "feature/taylor-resource-menu-v1",
     "baseline": "67935a7a996ee0c996f278ca2103f029755bd3e5",
     "source": "taylor-resource-menu-v1",
     "local_checks": "Lua 5.3 mock operations + shell syntax + diff check passed",
     "ci": "success",
-    "device": "unverified",
+    "device": "user reported successful resource modification; relaunch/cloud persistence not independently verified",
     "next_task": "device test T bubble, balance refresh, +10 each resource, scene reset, relaunch persistence; inspect log if hook unavailable",
     "build": "compiled iOS arm64; ad-hoc signature verified in macOS CI",
     "built_commit": "a4e7537d2975e6bddb82d364f47d129f806ac2b5",
@@ -47,8 +47,14 @@
     "entry": "ModuleManager.PropertySystem:CheckChangeData",
     "runtime": "IL2CPP method discovery + managed DoString on live Tick",
     "local_checks": "Lua 5.3 mocks; gate audit; shell syntax; diff check passed",
-    "ci": "pending",
+    "ci": "success",
     "device": "unverified",
-    "next_task": "CI compile/signature validation; deliver; real-device runtime and resource tests"
+    "next_task": "device test P bubble, refresh balances, add 10 each resource; inspect managed errors and test scene/relaunch persistence",
+    "build": "compiled iOS arm64; ad-hoc signature verified in CI",
+    "built_commit": "b57d9875d06c1434588945396ea27f53b4e689f3",
+    "run_id": 43619681186,
+    "artifact_id": 14123512947,
+    "artifact_sha256": "a62cc0fa23a7fd60e8065093a572426ddcf46692d5c63b5bdcacbf548beba3c1",
+    "artifact_bytes": 142528
   }
 }
