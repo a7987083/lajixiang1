@@ -33,8 +33,8 @@ jobs:
             -DDOBBY_BUILD_EXAMPLE=OFF
           cmake --build /tmp/xri-dobby-build --target dobby_static -j 4
           test -f /tmp/xri-dobby-build/libdobby.a
-          mkdir -p dist
-          cp /tmp/xri-dobby/LICENSE dist/DOBBY-LICENSE.txt
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          cp /tmp/xri-dobby/LICENSE "$GITHUB_WORKSPACE/dist/DOBBY-LICENSE.txt"
       - name: Build iOS arm64 analyzer with floating UI
         shell: bash
         run: |
