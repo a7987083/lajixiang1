@@ -149,7 +149,7 @@ std::string capture() {
         if (std::strncmp(symbol.name, "il2cpp_", 7) == 0) il2cpp = true;
     }
 
-    std::string out = R"({"schemaVersion":1,"module":"XRI","version":"0.3.2-p3",)";
+    std::string out = R"({"schemaVersion":1,"module":"XRI","version":"0.6.0-generic-evidence",)";
     out += R"("mode":"read-only","capabilities":{"imageScan":true,"exportResolution":true,"luaVmTracking":false,"hookInstallation":false},)";
     out += "\"detected\":{\"lua\":" + std::string(lua ? "true" : "false") +
            ",\"xlua\":" + (xlua ? "true" : "false") +
@@ -181,7 +181,7 @@ std::string capture() {
 
 extern "C" __attribute__((visibility("default")))
 const char *xri_version(void) {
-    return "0.3.2-p3";
+    return "0.6.0-generic-evidence";
 }
 
 extern "C" __attribute__((visibility("default")))

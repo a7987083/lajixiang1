@@ -139,7 +139,7 @@ static UIButton *XButton(NSString *title, UIColor *bg, id target, SEL action) {
     [panel addSubview:self.category];
 
     self.resourceKind = [[UISegmentedControl alloc] initWithItems:
-                         @[@"钻石", @"金币", @"体力", @"对照"]];
+                         @[@"钻石", @"金币", @"体力", @"对照", @"自定义"]];
     self.resourceKind.frame = CGRectMake(16, 234, 308, 30);
     self.resourceKind.selectedSegmentIndex = 0;
     self.resourceKind.hidden = YES;
@@ -244,7 +244,7 @@ static UIButton *XButton(NSString *title, UIColor *bg, id target, SEL action) {
                                : CGRectMake(16, 239, 308, 151);
     [self.scanButton setTitle:trace ? @"操作前" : @"扫描" forState:UIControlStateNormal];
     [self.secondaryButton setTitle:trace ? @"操作后" : @"复制结果" forState:UIControlStateNormal];
-    self.filter.placeholder = trace ? @"搜索方法 / 类 / Lua C回调 / callId" :
+    self.filter.placeholder = trace ? @"搜索 / 自定义操作时输入英文标签" :
                                       @"搜索导出符号 / 镜像名称";
     [self renderResults];
 }
@@ -254,10 +254,19 @@ static UIButton *XButton(NSString *title, UIColor *bg, id target, SEL action) {
         [self scan];
         return;
     }
-    NSArray<NSString *> *types = @[@"diamond", @"gold", @"energy", @"other"];
+    NSArray<NSString *> *types = @[@"diamond", @"gold", @"energy", @"other", @"custom"];
     NSInteger index = self.resourceKind.selectedSegmentIndex;
     if (index < 0 || index >= (NSInteger)types.count) return;
-    int result = xri_resource_probe_begin(types[(NSUInteger)index].UTF8String);
+    NSString *kind = types[(NSUInteger)index];
+    if (index == 4) {
+        kind = [self.filter.text stringByTrimmingCharactersInSet:
+            NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        if (kind.length == 0 || kind.length > 24) {
+            self.status.text = @"状态：自定义标签请输入 1–24 位英文/数字/下划线";
+            return;
+        }
+    }
+    int result = xri_resource_probe_begin(kind.UTF8String);
     self.status.text = result == 1 ? @"状态：操作前已标记，请执行游戏操作" :
                                      @"状态：已有未结束的操作记录";
     [self renderResults];
@@ -333,7 +342,7 @@ static UIButton *XButton(NSString *title, UIColor *bg, id target, SEL action) {
                                trace[@"activeResourceProbe"] : nil;
         NSDictionary *execStats = trace[@"executionStats"] ?: @{};
         NSDictionary *bridgeStats = trace[@"bridgeStats"] ?: @{};
-        NSString *query = self.filter.text ?: @"";
+        NSString *query = self.resourceKind.selectedSegmentIndex == 4 ? @"" : (self.filter.text ?: @"");
         NSMutableArray<NSString *> *lines = [NSMutableArray array];
 
         [lines addObject:[NSString stringWithFormat:

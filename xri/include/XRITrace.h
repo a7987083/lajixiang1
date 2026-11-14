@@ -14,7 +14,7 @@ void xri_trace_stop(void);
 void xri_trace_clear(void);
 // P2.5 manually brackets a game operation. This records correlated Lua/IL2CPP
 // events and counters; it does NOT read or assert currency/resource values.
-// kind: "diamond", "gold", "energy", "other". 1 = success, 0 = inactive,
+// kind: any 1-24 ASCII letters/numbers/underscore/hyphen; "other" denotes control. 1 = success, 0 = inactive,
 // -1 = invalid kind / no active probe / an existing probe is in progress.
 int xri_resource_probe_begin(const char *kind);
 int xri_resource_probe_end(void);

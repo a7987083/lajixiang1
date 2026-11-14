@@ -1,4 +1,4 @@
-name: Build XRI P3.3-P4 Evidence UI dylib
+name: Build XRI P3.5-P6 Evidence Framework dylib
 on:
   push:
     branches: [ 'feature/xri-universal' ]
@@ -48,7 +48,7 @@ jobs:
           xcrun clang++ -std=c++17 -Wall -Wextra -Werror -fvisibility=hidden \
             -DXRI_BUNDLED_DOBBY=1 -fobjc-arc -arch arm64 -dynamiclib -isysroot "$SDK" \
             -miphoneos-version-min=13.0 -Ixri/include \
-            xri/src/XRI.cpp xri/src/XRITrace.cpp xri/src/XRIOverlay.mm \
+            xri/src/XRI.cpp xri/src/XRITrace.cpp xri/src/XRIAdapter.cpp xri/src/XRIOverlay.mm \
             /tmp/xri-dobby-build/libdobby.a \
             -o dist/XLuaResourceInspector.dylib \
             -framework UIKit -framework Foundation -framework CoreGraphics \
@@ -71,10 +71,10 @@ jobs:
           cp ../xri/tools/analyze_trace.py .
           cp ../xri/P3_2_BINARY_AUDIT.md .
           cp ../xri/README.md XRI-README.md
-          zip -9 XRI-P3.3-P4-Evidence.zip XLuaResourceInspector.dylib XRI-SHA256SUMS.txt DOBBY-LICENSE.txt analyze_trace.py P3_2_BINARY_AUDIT.md XRI-README.md
+          zip -9 XRI-P3.5-P6-Evidence.zip XLuaResourceInspector.dylib XRI-SHA256SUMS.txt DOBBY-LICENSE.txt analyze_trace.py P3_2_BINARY_AUDIT.md XRI-README.md
       - uses: actions/upload-artifact@v4
         with:
-          name: XRI-P3.3-P4-Evidence-ios-arm64
+          name: XRI-P3.5-P6-Evidence-ios-arm64
           path: |
             dist/XLuaResourceInspector.dylib
             dist/XRI-P3.3-P4-Evidence.zip

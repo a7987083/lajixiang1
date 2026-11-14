@@ -468,7 +468,7 @@ void *resolve(const char *name) {
 }
 std::string jsonSnapshot() {
     std::lock_guard<std::mutex> lock(g_mu);
-    std::string result = R"({"schemaVersion":1,"module":"XRITrace","mode":"read-only",)";
+    std::string result = R"({"schemaVersion":2,"module":"XRITrace","mode":"read-only",)";
     result += "\"recording\":" + std::string(g_active ? "true" : "false");
     result += ",\"hooksInstalled\":" + std::string(g_installed ? "true" : "false");
     result += ",\"autoStart\":" + std::string(g_autoStarted ? "true" : "false");
@@ -597,14 +597,14 @@ std::string jsonSnapshot() {
             baseline = &probe;
             continue;
         }
-        if (probe.kind != "energy" || !baseline) continue;
+        if (probe.kind == "other" || !baseline) continue;
         if (!firstCompare) result += ",";
         firstCompare = false;
         const uint64_t controlExecutions =
             baseline->endExecutionTotal - baseline->beginExecutionTotal;
         const uint64_t targetExecutions =
             probe.endExecutionTotal - probe.beginExecutionTotal;
-        result += "{\"kind\":\"energy\",\"evidence\":\"manual_window_differential\","
+        result += "{\"kind\":\"" + escape(probe.kind) + "\",\"evidence\":\"manual_window_differential\","
                   "\"controlStartSequence\":" + std::to_string(baseline->startSequence) +
                   ",\"targetStartSequence\":" + std::to_string(probe.startSequence) +
                   ",\"controlExecutions\":" + std::to_string(controlExecutions) +
@@ -638,7 +638,12 @@ std::string jsonSnapshot() {
     } else {
         result += "null";
     }
-    result += ",\"resourceValidation\":\"observation_only_no_currency_value_read\"";
+    result += ",\"resourceValidation\":\"observation_only_no_resource_values_or_arguments\"";
+    result += ",\"capabilityLevels\":{\"P3_5\":\"adapter_isolated_export_fallback\","
+              "\"P3_6\":\"bounded_execution_boundaries_not_full_lua_functions\","
+              "\"P4\":\"generic_operation_correlation\","
+              "\"P5\":\"offline_user_evidence_only\","
+              "\"P6\":\"non_executable_profile_export\"}";
     result += ",\"bridgeStats\":{\"total\":" +
               std::to_string(g_bridgeTotal.load(std::memory_order_relaxed)) +
               ",\"dropped\":" + std::to_string(g_bridgeDropped.load(std::memory_order_relaxed)) +
