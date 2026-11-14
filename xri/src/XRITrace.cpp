@@ -1,5 +1,6 @@
 #include "XRITrace.h"
 #include <dlfcn.h>
+#include <dispatch/dispatch.h>
 #include <mach-o/dyld.h>
 #include <mach-o/loader.h>
 #include <atomic>
@@ -48,6 +49,10 @@ constexpr size_t kMaxHashBytes = 1024 * 1024;
 std::mutex g_mu;
 std::atomic<bool> g_active{false};
 std::atomic<bool> g_installed{false};
+std::atomic<bool> g_autoStarted{false};
+std::atomic<bool> g_schedulePending{false};
+dispatch_queue_t g_installQueue = nullptr;
+std::once_flag g_once;
 std::atomic<uint64_t> g_seq{0};
 std::vector<StateEvent> g_states;
 std::vector<ChunkEvent> g_chunks;
@@ -165,6 +170,7 @@ std::string jsonSnapshot() {
     std::string result = R"({"schemaVersion":1,"module":"XRITrace","mode":"read-only",)";
     result += "\"recording\":" + std::string(g_active ? "true" : "false");
     result += ",\"hooksInstalled\":" + std::string(g_installed ? "true" : "false");
+    result += ",\"autoStart\":" + std::string(g_autoStarted ? "true" : "false");
     result += ",\"reason\":\"" + escape(g_reason) + "\",\"hooks\":[";
     for (size_t i=0; i<g_hooks.size(); ++i) {
         if (i) result += ",";
@@ -194,25 +200,19 @@ std::string jsonSnapshot() {
     result += "]}";
     return result;
 }
-} // namespace
 
-extern "C" __attribute__((visibility("default"))) int xri_trace_start(void) {
-    std::lock_guard<std::mutex> lock(g_mu);
-    if (g_installed) {
-        g_active = true;
-        g_reason = "recording";
-        return 1;
-    }
-    // Optional inline-hook provider. No new library is loaded by this path.
+void installAvailable() {
 #ifdef XRI_BUNDLED_DOBBY
-    DobbyHookFn hook = &DobbyHook;
+    const DobbyHookFn hook = &DobbyHook;
 #else
-    auto hook = reinterpret_cast<DobbyHookFn>(dlsym(RTLD_DEFAULT, "DobbyHook"));
+    const DobbyHookFn hook = reinterpret_cast<DobbyHookFn>(dlsym(RTLD_DEFAULT, "DobbyHook"));
 #endif
     if (!hook) {
-        g_reason = "DobbyHook provider not loaded; active capture unavailable";
-        return 0;
+        std::lock_guard<std::mutex> lock(g_mu);
+        g_reason = "Hook provider unavailable";
+        return;
     }
+
     struct Target {const char *name; void *replacement; void **original;};
     const Target targets[] = {
         {"luaL_newstate", reinterpret_cast<void *>(&newStateHook),
@@ -224,31 +224,92 @@ extern "C" __attribute__((visibility("default"))) int xri_trace_start(void) {
         {"luaL_loadbufferx", reinterpret_cast<void *>(&luaLoadHook),
          reinterpret_cast<void **>(&origLuaLoad)}
     };
-    int installed = 0;
     for (const auto &t : targets) {
+        bool processed = false;
+        {
+            std::lock_guard<std::mutex> lock(g_mu);
+            for (const auto &h : g_hooks) {
+                if (std::strcmp(h.name, t.name) == 0) { processed = true; break; }
+            }
+        }
+        if (processed) continue;
         void *addr = resolve(t.name);
-        if (!addr) { g_hooks.push_back({t.name, nullptr, false, -2}); continue; }
-        int error = hook(addr, t.replacement, t.original);
-        bool ok = error == 0 && *t.original != nullptr;
-        g_hooks.push_back({t.name, addr, ok, error});
-        if (ok) ++installed;
-        // We cannot safely revert unknown provider's partial hooks. Stop adding hooks
-        // if it returns success without a valid original trampoline.
-        if (error == 0 && !*t.original) {
-            g_reason = "hook provider returned no original trampoline";
-            return -1;
+        if (!addr) continue; // Not yet loaded. Try again after next dyld image notification.
+
+        // DobbyHook can suspend threads and install executable memory.
+        // Never perform it under the dyld callback or our event mutex.
+        const int error = hook(addr, t.replacement, t.original);
+        const bool ok = error == 0 && *t.original != nullptr;
+        {
+            std::lock_guard<std::mutex> lock(g_mu);
+            g_hooks.push_back({t.name, addr, ok, error ? error : (ok ? 0 : -3)});
+            if (ok) {
+                g_installed = true;
+                g_active = true;
+            }
         }
     }
-    g_installed = installed != 0;
-    g_active = installed != 0;
-    g_reason = installed ? "recording; pre-existing Lua states may be unobserved"
-                         : "no supported exported hook target";
-    return installed ? 1 : 0;
+
+    std::lock_guard<std::mutex> lock(g_mu);
+    if (!g_installed) {
+        g_reason = g_hooks.empty() ? "Waiting for exported Lua entry points"
+                                   : "Hook installation failed; see hooks";
+    } else {
+        unsigned count = 0;
+        for (const auto &h : g_hooks) if (h.installed) ++count;
+        g_reason = count == 4 ? "Recording (4/4 hooks)"
+                              : "Recording (partial hooks; earlier VM/Chunk events not recoverable)";
+    }
+}
+
+void installWorker(void *) {
+    // The serial queue isolates installation from dyld's image-add callback.
+    // Recheck the generation flag so newly added images are not lost.
+    do {
+        g_schedulePending = false;
+        installAvailable();
+    } while (g_schedulePending.exchange(false));
+}
+
+void scheduleInstall() {
+    if (g_installQueue && !g_schedulePending.exchange(true)) {
+        dispatch_async_f(g_installQueue, nullptr, installWorker);
+    }
+}
+
+void imageAdded(const mach_header *, intptr_t) {
+    // Never inspect symbols or patch instructions while dyld holds its loader lock.
+    scheduleInstall();
+}
+} // namespace
+
+extern "C" __attribute__((visibility("default"))) void xri_trace_initialize(void) {
+    std::call_once(g_once, [] {
+        g_autoStarted = true;
+        g_installQueue = dispatch_queue_create("com.xri.hooks.install", DISPATCH_QUEUE_SERIAL);
+        _dyld_register_func_for_add_image(imageAdded);
+        scheduleInstall(); // Also handles images already present before injection.
+    });
+}
+
+__attribute__((constructor)) static void xri_auto_initialize(void) {
+    xri_trace_initialize();
+}
+
+// ABI-compatible entry point: idempotent request, no longer required from UI.
+extern "C" __attribute__((visibility("default"))) int xri_trace_start(void) {
+    xri_trace_initialize();
+    if (g_installed) {
+        g_active = true;
+        return 1;
+    }
+    scheduleInstall();
+    return 0; // Pending is not a successful hook installation.
 }
 extern "C" __attribute__((visibility("default"))) void xri_trace_stop(void) {
     g_active = false;
     std::lock_guard<std::mutex> lock(g_mu);
-    g_reason = "paused; installed hooks remain pass-through";
+    g_reason = "Recording paused by API; hooks retained for safe pass-through";
 }
 extern "C" __attribute__((visibility("default"))) void xri_trace_clear(void) {
     std::lock_guard<std::mutex> lock(g_mu);
