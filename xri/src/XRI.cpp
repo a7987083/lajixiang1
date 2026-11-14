@@ -106,7 +106,7 @@ std::string hexNumber(uintptr_t number) {
 std::string capture() {
     std::vector<Image> images;
     std::vector<Export> exports;
-    for (const char *name : kExports) exports.push_back({name});
+    for (const char *name : kExports) exports.push_back({name, false, {}, 0});
 
     const uint32_t count = _dyld_image_count();
     for (uint32_t i = 0; i < count; ++i) {
