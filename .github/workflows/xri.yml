@@ -12,6 +12,29 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      - name: Build pinned Dobby for iOS arm64
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone https://github.com/jmpews/Dobby.git /tmp/xri-dobby
+          cd /tmp/xri-dobby
+          git checkout --detach 5dfc8546954ce3b3198132ab13fddb89ee92cdd7
+          test "$(git rev-parse HEAD)" = "5dfc8546954ce3b3198132ab13fddb89ee92cdd7"
+          cmake -S . -B /tmp/xri-dobby-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_SYSTEM_PROCESSOR=arm64 \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_SYSROOT="$(xcrun --sdk iphoneos --show-sdk-path)" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
+            -DPlugin.SymbolResolver=OFF \
+            -DPlugin.ImportTableReplace=OFF \
+            -DDOBBY_BUILD_TEST=OFF \
+            -DDOBBY_BUILD_EXAMPLE=OFF
+          cmake --build /tmp/xri-dobby-build --target dobby_static -j 4
+          test -f /tmp/xri-dobby-build/libdobby.a
+          mkdir -p dist
+          cp /tmp/xri-dobby/LICENSE dist/DOBBY-LICENSE.txt
       - name: Build iOS arm64 analyzer with floating UI
         shell: bash
         run: |
@@ -19,24 +42,27 @@ jobs:
           SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
           mkdir -p dist
           xcrun clang++ -std=c++17 -Wall -Wextra -Werror -fvisibility=hidden \
-            -fobjc-arc -arch arm64 -dynamiclib -isysroot "$SDK" \
+            -DXRI_BUNDLED_DOBBY=1 -fobjc-arc -arch arm64 -dynamiclib -isysroot "$SDK" \
             -miphoneos-version-min=13.0 -Ixri/include \
-            xri/src/XRI.cpp xri/src/XRITrace.cpp xri/src/XRIOverlay.mm -o dist/XLuaResourceInspector.dylib \
+            xri/src/XRI.cpp xri/src/XRITrace.cpp xri/src/XRIOverlay.mm \
+            /tmp/xri-dobby-build/libdobby.a \
+            -o dist/XLuaResourceInspector.dylib \
             -framework UIKit -framework Foundation -framework CoreGraphics \
             -Wl,-install_name,@rpath/XLuaResourceInspector.dylib
           codesign --force --sign - --timestamp=none dist/XLuaResourceInspector.dylib
           file dist/XLuaResourceInspector.dylib
           xcrun otool -L dist/XLuaResourceInspector.dylib
-          xcrun nm -gU dist/XLuaResourceInspector.dylib | grep -E '_xri_(snapshot_json|version)$'
+          xcrun nm -gU dist/XLuaResourceInspector.dylib | grep -E '_xri_(snapshot_json|trace_start|version)$'
           shasum -a 256 dist/XLuaResourceInspector.dylib > dist/XRI-SHA256SUMS.txt
       - name: Package independent XRI artifact
         run: |
           cd dist
-          zip -9 XRI-P2-UI.zip XLuaResourceInspector.dylib XRI-SHA256SUMS.txt
+          zip -9 XRI-P2-UI.zip XLuaResourceInspector.dylib XRI-SHA256SUMS.txt DOBBY-LICENSE.txt
       - uses: actions/upload-artifact@v4
         with:
           name: XRI-P2-UI-ios-arm64
           path: |
             dist/XLuaResourceInspector.dylib
-            dist/XRI-P1.zip
+            dist/XRI-P2-UI.zip
             dist/XRI-SHA256SUMS.txt
+            dist/DOBBY-LICENSE.txt
