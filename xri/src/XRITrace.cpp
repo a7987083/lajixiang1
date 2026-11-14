@@ -122,9 +122,10 @@ std::vector<ChunkEvent> g_chunks;
 std::vector<ExecutionEvent> g_executions;
 std::vector<BridgeEvent> g_bridges;
 std::vector<CallbackEvent> g_callbackEvents;
-std::atomic<uint64_t> g_callbackTotal{0}, g_callbackDropped{0};
+std::atomic<uint64_t> g_callbackTotal{0}, g_callbackDropped{0}, g_callbackSampledOut{0};
 std::vector<ResourceProbe> g_resourceProbes;
 bool g_probeActive = false;
+std::atomic<bool> g_probeActiveFast{false};
 ResourceProbe g_pendingProbe = {};
 std::atomic<uint64_t> g_bridgeTotal{0};
 std::atomic<uint64_t> g_bridgeDropped{0};
@@ -441,7 +442,14 @@ int precallHook(LuaState *L,const void *func,int nresults){
     const uint64_t ticks=mach_absolute_time()-start;
     const uint64_t ns=tb.denom?
         static_cast<uint64_t>((static_cast<long double>(ticks)*tb.numer)/tb.denom):0;
-    g_callbackTotal.fetch_add(1,std::memory_order_relaxed);
+    const uint64_t total=g_callbackTotal.fetch_add(1,std::memory_order_relaxed)+1;
+    // Each call is counted. Retain only 1/16 event records outside marked
+    // operation windows to limit allocation/locking overhead on the game thread.
+    // Inside a marked window all callback returns contribute to aggregation.
+    if(!g_probeActiveFast.load(std::memory_order_acquire) && (total&15U)){
+        g_callbackSampledOut.fetch_add(1,std::memory_order_relaxed);
+        return result;
+    }
     std::lock_guard<std::mutex> guard(g_mu);
     if(g_callbackEvents.size()>=kMaxCallbackEvents){
         g_callbackEvents.erase(g_callbackEvents.begin());
@@ -553,6 +561,9 @@ std::string jsonSnapshot() {
               std::to_string(g_callbackTotal.load(std::memory_order_relaxed)) +
               ",\"dropped\":" +
               std::to_string(g_callbackDropped.load(std::memory_order_relaxed)) +
+              ",\"sampledOut\":" +
+              std::to_string(g_callbackSampledOut.load(std::memory_order_relaxed)) +
+              ",\"outsideWindowSampleStride\":16" +
               ",\"scope\":\"taylor_uuid_verified_pre_call_normal_return_only\"}";
     result += ",\"resourceProbes\":[";
 
@@ -861,6 +872,8 @@ extern "C" __attribute__((visibility("default"))) void xri_trace_clear(void) {
     g_callbackEvents.clear();
     g_callbackTotal = 0;
     g_callbackDropped = 0;
+    g_callbackSampledOut = 0;
+    g_probeActiveFast = false;
     g_registrationsTotal = 0;
     g_registrationsOverflow = 0;
     g_probeActive = false;
@@ -889,6 +902,7 @@ int xri_resource_probe_begin(const char *kind) {
         g_bridgeTotal.load(std::memory_order_relaxed);
     g_pendingProbe.result = "capturing";
     g_probeActive = true;
+    g_probeActiveFast.store(true,std::memory_order_release);
     return 1;
 }
 extern "C" __attribute__((visibility("default")))
@@ -926,6 +940,7 @@ int xri_resource_probe_end(void) {
     g_resourceProbes.push_back(std::move(g_pendingProbe));
     g_pendingProbe = {};
     g_probeActive = false;
+    g_probeActiveFast.store(false,std::memory_order_release);
     return 1;
 }
 
