@@ -27,7 +27,7 @@ jobs:
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DCMAKE_OSX_SYSROOT="$(xcrun --sdk iphoneos --show-sdk-path)" \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
-            -DPlugin.SymbolResolver=OFF \
+            -DPlugin.SymbolResolver=ON \
             -DPlugin.ImportTableReplace=OFF \
             -DDOBBY_BUILD_TEST=OFF \
             -DDOBBY_BUILD_EXAMPLE=OFF
