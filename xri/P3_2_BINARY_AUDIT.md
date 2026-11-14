@@ -30,8 +30,7 @@ and are not compiled into the universal XRI hook resolver.
   parameter convention is `(lua_State*, lua_CFunction, int)`.
 - `luaD_call+0x3C`: calls `luaD_precall`,
   and only takes the `luaV_execute` branch when the precall returns 0.
-- `luaD_precall+0x2D8` (image-relative `0x032537B0` approximate
-  disassembly continuation): the **confirmed instruction** at
+- `luaD_precall+0x2D4` (image-relative `0x032537AC`): the **confirmed instruction** at
   `0x032537AC` is `blr x23`, i.e. an indirect native C callback
   invocation following an optional debug hook. This supplies binary-level
   evidence that Lua C callbacks can execute without calling the exported
