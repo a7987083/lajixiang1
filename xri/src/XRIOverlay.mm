@@ -92,7 +92,7 @@ static UIButton *XButton(NSString *title, UIColor *bg, id target, SEL action) {
     [panel addSubview:header];
     [self label:@"◉  XLua Inspector" font:17 color:XColor(0xE6F8F5)
           frame:CGRectMake(16, 9, 245, 24) parent:header];
-    [self label:@"P2.1 · AUTO TRACE · READ-ONLY" font:10 color:XColor(0x70DEC9)
+    [self label:@"P2.3 · AUTO TRACE · READ-ONLY" font:10 color:XColor(0x70DEC9)
           frame:CGRectMake(17, 34, 180, 14) parent:header];
     UIButton *close = XButton(@"×", XColor(0x334353), self, @selector(togglePanel));
     close.frame = CGRectMake(300, 12, 27, 27);
@@ -262,12 +262,19 @@ static UIButton *XButton(NSString *title, UIColor *bg, id target, SEL action) {
         NSDictionary *trace = [self traceInfo];
         NSArray *chunks = trace[@"chunks"] ?: @[];
         NSArray *states = trace[@"states"] ?: @[];
+        NSArray *executions = trace[@"executions"] ?: @[];
+        NSDictionary *metrics = trace[@"executionStats"] ?: @{};
         NSMutableArray<NSString *> *lines = [NSMutableArray array];
-        [lines addObject:[NSString stringWithFormat:@"P2: %@\n%@\nVM 事件 %lu · Chunk %lu",
+        [lines addObject:[NSString stringWithFormat:@"P2.3: %@\n%@\nVM %lu · Chunk %lu · 执行 %lu (累计 %@)",
             [trace[@"recording"] boolValue] ? @"记录中" : @"未记录",
-            trace[@"reason"] ?: @"状态不可用", (unsigned long)states.count, (unsigned long)chunks.count]];
+            trace[@"reason"] ?: @"状态不可用", (unsigned long)states.count, (unsigned long)chunks.count,
+            (unsigned long)executions.count, metrics[@"total"] ?: @0]];
         for (NSDictionary *e in states) [lines addObject:[NSString stringWithFormat:@"[VM] %@ %@",e[@"action"],e[@"state"]]];
         for (NSDictionary *e in chunks) [lines addObject:[NSString stringWithFormat:@"[CHUNK] %@ (%@ bytes)\n%@ result=%@",e[@"name"],e[@"size"],e[@"source"],e[@"result"]]];
+        for (NSDictionary *e in executions) {
+            [lines addObject:[NSString stringWithFormat:@"[EXEC] lua_pcallk · state %@\nargs %@ · status %@ · %@ ns",
+                e[@"state"] ?: @"—", e[@"nargs"] ?: @0, e[@"status"] ?: @0, e[@"durationNs"] ?: @0]];
+        }
         self.results.text = [lines componentsJoinedByString:@"\n\n"];
         self.status.text = [trace[@"recording"] boolValue] ? @"状态：Lua 采集中" : [NSString stringWithFormat:@"状态：%@", trace[@"reason"] ?: @"等待 Lua Hook"];
         return;
