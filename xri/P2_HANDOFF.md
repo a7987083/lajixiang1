@@ -9,7 +9,7 @@
 ## Implemented in P2
 - `xri/include/XRITrace.h`: C ABI for start/stop/clear/snapshot.
 - `xri/src/XRITrace.cpp`: read-only VM lifecycle and Lua Chunk observer.
-- `xri/src/XRIOverlay.mm`: trace tab, trace toggle, JSON copy and export.
+- `xri/src/XRIOverlay.mm`: automatic trace status, event views, JSON copy and export.
 - `.github/workflows/xri.yml`: arm64 iOS signed dylib artifact.
 - Exact API signatures for `xluaL_loadbuffer(lua_State*,const char*,int,const char*)`,
   `luaL_loadbufferx(lua_State*,const char*,size_t,const char*,const char*)`,
@@ -69,7 +69,7 @@
   the next iteration must verify the target Lua ABI and select a safe
   instrumentation strategy with device-level evidence.
 - P2.2 detailed Hook inspection is deliberately skipped at user request;
-  existing diagnostic fields remain in JSON. P2.4 and P2.5 not started.
+  existing diagnostic fields remain in JSON. P2.4 follows below; P2.5 not started.
 
 ## P2.4 — conservative Lua / IL2CPP correlation
 
