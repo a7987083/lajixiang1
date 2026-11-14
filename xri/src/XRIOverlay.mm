@@ -1,6 +1,7 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
 #import "XRI.h"
+#import "XRITrace.h"
 
 namespace {
 static UIColor *XColor(unsigned rgb) {
@@ -40,6 +41,8 @@ static UIButton *XButton(NSString *title, UIColor *bg, id target, SEL action) {
 @property(nonatomic, strong) UISegmentedControl *category;
 @property(nonatomic, strong) NSDictionary *snapshot;
 @property(nonatomic, strong) NSData *rawSnapshot;
+@property(nonatomic, strong) NSDictionary *traceSnapshot;
+@property(nonatomic, strong) NSData *rawTrace;
 @property(nonatomic, weak) UIWindow *priorKeyWindow;
 @end
 
@@ -94,6 +97,9 @@ static UIButton *XButton(NSString *title, UIColor *bg, id target, SEL action) {
     UIButton *close = XButton(@"×", XColor(0x334353), self, @selector(togglePanel));
     close.frame = CGRectMake(300, 12, 27, 27);
     [header addSubview:close];
+    UIButton *traceButton = XButton(@"跟踪", XColor(0x237E72), self, @selector(toggleTrace));
+    traceButton.frame = CGRectMake(239, 12, 56, 27);
+    [header addSubview:traceButton];
     UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc]
         initWithTarget:self action:@selector(movePanel:)];
     [header addGestureRecognizer:pan];
@@ -123,7 +129,7 @@ static UIButton *XButton(NSString *title, UIColor *bg, id target, SEL action) {
           forControlEvents:UIControlEventEditingChanged];
     [panel addSubview:self.filter];
 
-    self.category = [[UISegmentedControl alloc] initWithItems:@[@"全部", @"Lua", @"IL2CPP", @"镜像"]];
+    self.category = [[UISegmentedControl alloc] initWithItems:@[@"全部", @"Lua", @"IL2CPP", @"镜像", @"跟踪"]];
     self.category.frame = CGRectMake(16, 197, 308, 31);
     self.category.selectedSegmentIndex = 0;
     [self.category addTarget:self action:@selector(renderResults)
@@ -197,6 +203,30 @@ static UIButton *XButton(NSString *title, UIColor *bg, id target, SEL action) {
     [self.view setNeedsLayout];
 }
 
+- (void)toggleTrace {
+    NSDictionary *old = [self traceInfo];
+    if ([old[@"recording"] boolValue]) {
+        xri_trace_stop();
+    } else {
+        xri_trace_start();
+    }
+    self.category.selectedSegmentIndex = 4;
+    [self renderResults];
+}
+
+- (NSDictionary *)traceInfo {
+    size_t n = xri_trace_snapshot_json(NULL, 0);
+    if (n == 0 || n > (4u << 20)) return @{};
+    NSMutableData *bytes = [NSMutableData dataWithLength:n];
+    if (!bytes || xri_trace_snapshot_json((char *)bytes.mutableBytes, n) != n) return @{};
+    NSData *json = [bytes subdataWithRange:NSMakeRange(0, n - 1)];
+    NSDictionary *parsed = [NSJSONSerialization JSONObjectWithData:json options:0 error:NULL];
+    if (![parsed isKindOfClass:NSDictionary.class]) return @{};
+    self.traceSnapshot = parsed;
+    self.rawTrace = json;
+    return parsed;
+}
+
 - (void)scan {
     size_t needed = xri_snapshot_json(NULL, 0);
     if (!needed || needed > (4u << 20)) {
@@ -231,6 +261,20 @@ static UIButton *XButton(NSString *title, UIColor *bg, id target, SEL action) {
 }
 
 - (void)renderResults {
+    if (self.category.selectedSegmentIndex == 4) {
+        NSDictionary *trace = [self traceInfo];
+        NSArray *chunks = trace[@"chunks"] ?: @[];
+        NSArray *states = trace[@"states"] ?: @[];
+        NSMutableArray<NSString *> *lines = [NSMutableArray array];
+        [lines addObject:[NSString stringWithFormat:@"P2: %@\n%@\nVM 事件 %lu · Chunk %lu",
+            [trace[@"recording"] boolValue] ? @"记录中" : @"未记录",
+            trace[@"reason"] ?: @"状态不可用", (unsigned long)states.count, (unsigned long)chunks.count]];
+        for (NSDictionary *e in states) [lines addObject:[NSString stringWithFormat:@"[VM] %@ %@",e[@"action"],e[@"state"]]];
+        for (NSDictionary *e in chunks) [lines addObject:[NSString stringWithFormat:@"[CHUNK] %@ (%@ bytes)\n%@ result=%@",e[@"name"],e[@"size"],e[@"source"],e[@"result"]]];
+        self.results.text = [lines componentsJoinedByString:@"\n\n"];
+        self.status.text = [trace[@"recording"] boolValue] ? @"状态：Lua 采集中" : @"状态：Lua 未采集";
+        return;
+    }
     if (!self.snapshot) return;
     NSString *query = self.filter.text.lowercaseString ?: @"";
     NSMutableArray<NSString *> *lines = [NSMutableArray array];
@@ -258,22 +302,24 @@ static UIButton *XButton(NSString *title, UIColor *bg, id target, SEL action) {
 }
 
 - (void)copyJSON {
-    if (!self.rawSnapshot) { self.status.text = @"状态：请先扫描"; return; }
-    NSString *json = [[NSString alloc] initWithData:self.rawSnapshot encoding:NSUTF8StringEncoding];
+    NSData *source = self.category.selectedSegmentIndex == 4 ? ([self traceInfo], self.rawTrace) : self.rawSnapshot;
+    if (!source) { self.status.text = @"状态：请先扫描"; return; }
+    NSString *json = [[NSString alloc] initWithData:source encoding:NSUTF8StringEncoding];
     if (!json) { self.status.text = @"状态：文本转换失败"; return; }
     UIPasteboard.generalPasteboard.string = json;
     self.status.text = @"状态：JSON 已复制";
 }
 
 - (void)exportJSON {
-    if (!self.rawSnapshot) { self.status.text = @"状态：请先扫描"; return; }
+    NSData *source = self.category.selectedSegmentIndex == 4 ? ([self traceInfo], self.rawTrace) : self.rawSnapshot;
+    if (!source) { self.status.text = @"状态：请先扫描"; return; }
     NSString *directory = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject;
     if (!directory) { self.status.text = @"状态：缓存目录不可用"; return; }
     NSString *name = [NSString stringWithFormat:@"xri-snapshot-%lld.json",
                       (long long)[NSDate.date timeIntervalSince1970]];
     NSString *path = [directory stringByAppendingPathComponent:name];
     NSError *error = nil;
-    if ([self.rawSnapshot writeToFile:path options:NSDataWritingAtomic error:&error]) {
+    if ([source writeToFile:path options:NSDataWritingAtomic error:&error]) {
         self.status.text = @"状态：已保存到 App/Caches";
     } else {
         self.status.text = @"状态：JSON 写入失败";
