@@ -1,4 +1,4 @@
-name: Build XRI P1 dylib
+name: Build XRI P1 UI dylib
 on:
   push:
     branches: [ 'feature/xri-universal' ]
@@ -8,20 +8,21 @@ on:
   workflow_dispatch:
 
 jobs:
-  xri-p1:
+  xri-ui:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-      - name: Build iOS arm64 read-only analyzer
+      - name: Build iOS arm64 analyzer with floating UI
         shell: bash
         run: |
           set -euo pipefail
           SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
           mkdir -p dist
           xcrun clang++ -std=c++17 -Wall -Wextra -Werror -fvisibility=hidden \
-            -arch arm64 -dynamiclib -isysroot "$SDK" \
+            -fobjc-arc -arch arm64 -dynamiclib -isysroot "$SDK" \
             -miphoneos-version-min=13.0 -Ixri/include \
-            xri/src/XRI.cpp -o dist/XLuaResourceInspector.dylib \
+            xri/src/XRI.cpp xri/src/XRIOverlay.mm -o dist/XLuaResourceInspector.dylib \
+            -framework UIKit -framework Foundation \
             -Wl,-install_name,@rpath/XLuaResourceInspector.dylib
           codesign --force --sign - --timestamp=none dist/XLuaResourceInspector.dylib
           file dist/XLuaResourceInspector.dylib
@@ -31,10 +32,10 @@ jobs:
       - name: Package independent XRI artifact
         run: |
           cd dist
-          zip -9 XRI-P1.zip XLuaResourceInspector.dylib XRI-SHA256SUMS.txt
+          zip -9 XRI-P1-UI.zip XLuaResourceInspector.dylib XRI-SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: XRI-P1-ios-arm64
+          name: XRI-P1-UI-ios-arm64
           path: |
             dist/XLuaResourceInspector.dylib
             dist/XRI-P1.zip
