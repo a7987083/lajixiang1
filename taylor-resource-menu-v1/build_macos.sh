@@ -11,7 +11,7 @@ git -C .deps/Dobby checkout --detach "$DOBBY_COMMIT"
 cmake -S .deps/Dobby -B .deps/build -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
   -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_SYSTEM_PROCESSOR=arm64 -DCMAKE_OSX_ARCHITECTURES=arm64 \
   -DCMAKE_OSX_SYSROOT="$SDK" -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 \
-  -DCMAKE_BUILD_TYPE=Release -DDOBBY_DEBUG=OFF -DPlugin.SymbolResolver=OFF \
+  -DCMAKE_BUILD_TYPE=Release -DDOBBY_DEBUG=OFF -DPlugin.SymbolResolver=ON \
   -DPlugin.ImportTableReplace=OFF -DDOBBY_BUILD_EXAMPLE=OFF -DDOBBY_BUILD_TEST=OFF
 cmake --build .deps/build --target dobby_static --parallel 3
 python3 - <<'PY'
