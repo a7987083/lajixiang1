@@ -1,4 +1,4 @@
-name: Build XRI P2.5 UI dylib
+name: Build XRI P3 UI dylib
 on:
   push:
     branches: [ 'feature/xri-universal' ]
@@ -57,12 +57,12 @@ jobs:
       - name: Package independent XRI artifact
         run: |
           cd dist
-          zip -9 XRI-P2.5-UI.zip XLuaResourceInspector.dylib XRI-SHA256SUMS.txt DOBBY-LICENSE.txt
+          zip -9 XRI-P3-UI.zip XLuaResourceInspector.dylib XRI-SHA256SUMS.txt DOBBY-LICENSE.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: XRI-P2.5-UI-ios-arm64
+          name: XRI-P3-UI-ios-arm64
           path: |
             dist/XLuaResourceInspector.dylib
-            dist/XRI-P2.5-UI.zip
+            dist/XRI-P3-UI.zip
             dist/XRI-SHA256SUMS.txt
             dist/DOBBY-LICENSE.txt
