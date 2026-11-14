@@ -1,0 +1,33 @@
+name: Build Hollywood Lua Runtime V4
+on:
+  push:
+    branches: [feature/hollywood-lua-runtime-v4]
+    paths: ['hollywood-lua-runtime-v4/**', '.github/workflows/build-hollywood-lua-v4.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: hollywood-lua-runtime-v4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and verify iOS arm64 dylib
+        run: |
+          set -eux
+          sh build_macos.sh
+          xcrun otool -L LuaRuntimeHookV4.dylib
+          xcrun nm -g LuaRuntimeHookV4.dylib | grep LuaHookV4_Request
+          xcrun nm -g LuaRuntimeHookV4.dylib | grep DobbyHook
+          shasum -a 256 -c SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Hollywood-LuaRuntimeHook-V4-ios-arm64
+          path: |
+            hollywood-lua-runtime-v4/LuaRuntimeHookV4.dylib
+            hollywood-lua-runtime-v4/SHA256SUMS.txt
+            hollywood-lua-runtime-v4/Dobby-LICENSE.txt
+            hollywood-lua-runtime-v4/README.md
+          if-no-files-found: error

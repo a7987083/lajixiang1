@@ -1,0 +1,6 @@
+.deps/
+*.o
+*.dylib
+LuaBootstrapV3.h
+SHA256SUMS.txt
+Dobby-LICENSE.txt
