@@ -41,7 +41,7 @@ static UIButton *XButton(NSString *title, UIColor *bg, id target, SEL action) {
 @property(nonatomic, strong) UISegmentedControl *category;
 @property(nonatomic, strong) UISegmentedControl *resourceKind;
 @property(nonatomic, strong) UIButton *scanButton;
-@property(nonatomic, strong) UIButton *copyButton;
+@property(nonatomic, strong) UIButton *copyActionButton;
 @property(nonatomic, strong) NSDictionary *snapshot;
 @property(nonatomic, strong) NSData *rawSnapshot;
 @property(nonatomic, strong) NSDictionary *traceSnapshot;
@@ -162,7 +162,7 @@ static UIButton *XButton(NSString *title, UIColor *bg, id target, SEL action) {
     copy.frame = CGRectMake(122, 401, 96, 37);
     [panel addSubview:copy];
     self.scanButton = scan;
-    self.copyButton = copy;
+    self.copyActionButton = copy;
     UIButton *save = XButton(@"导出 JSON", XColor(0x33485E), self, @selector(exportJSON));
     save.frame = CGRectMake(228, 401, 96, 37);
     [panel addSubview:save];
@@ -243,7 +243,7 @@ static UIButton *XButton(NSString *title, UIColor *bg, id target, SEL action) {
     self.results.frame = trace ? CGRectMake(16, 270, 308, 120)
                                : CGRectMake(16, 239, 308, 151);
     [self.scanButton setTitle:trace ? @"操作前" : @"扫描" forState:UIControlStateNormal];
-    [self.copyButton setTitle:trace ? @"操作后" : @"复制结果" forState:UIControlStateNormal];
+    [self.copyActionButton setTitle:trace ? @"操作后" : @"复制结果" forState:UIControlStateNormal];
     self.filter.placeholder = trace ? @"搜索方法 / 类 / callId / 资源" :
                                       @"搜索导出符号 / 镜像名称";
     [self renderResults];
