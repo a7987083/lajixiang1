@@ -117,3 +117,35 @@
   and verified game data/ABI are required for true resource validation.
 - This release intentionally does **not** add speculative currency-value
   hooks, a second hook engine or a separate search index.
+
+## P3.1 — live bounded aggregation and energy/control differential
+- Live aggregation counts each observed `il2cpp_runtime_invoke` during the
+  user-marked operation **inside the same existing hook callback**, before
+  the 256-record bridge ring can evict the event.
+- The per-window aggregate keys on namespace + class + method name, capped
+  at 256 distinct names. `methodAggregationOverflow` reports calls to
+  additional unseen method names; `matchedMethodCount` counts all observed
+  bridge invocations in the marked window, not merely the retained tail.
+  Method overloads with the same display name remain merged.
+- Completed `resourceProbes[].methodCounts` retains bounded per-method
+  frequencies independent of `bridges` ring eviction. Existing
+  `observedMethods` compatibility list now contains the 20 most frequent
+  names instead of arbitrary tail events.
+- A user-labelled **other** sample is a baseline. Every subsequent
+  user-labelled **energy** sample is paired with the nearest *earlier*
+  other baseline, until a new baseline is captured. JSON exports
+  `resourceComparisons[].methodDeltas` with both rates normalized per
+  1,000 recorded Lua protected-call boundaries. No baseline means no
+  comparison is generated. Both windows must contain Lua calls to set
+  `comparisonReady=true`.
+- UI displays top methods from per-operation aggregation plus top
+  positive normalized delta methods, explicitly labelled observational
+  not causal. Raw JSON retains full bounded aggregate and comparison data.
+- Operational test: first record **对照** while performing a normal
+  similar UI action (no energy change), then record **体力** while actually
+  spending or restoring energy; export `Documents/XRI/trace.json`.
+- Existing prior P2.5 JSON cannot reconstruct method counts already
+  evicted; P3 needs a fresh real-device sample.
+- Real-device resource/balance change, direct generated-wrapper invocation
+  coverage, causal method identification, and on-device UI performance
+  **remain unverified**.
