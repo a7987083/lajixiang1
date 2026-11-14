@@ -388,7 +388,7 @@ static UIButton *XButton(NSString *title, UIColor *bg, id target, SEL action) {
         for (NSDictionary *e in sortedRegistrations) {
             if (!query.length && displayedRegistrations++ >= 30) break;
             NSString *line = [NSString stringWithFormat:
-                @"[Lua C回调注册·非执行] %@ · %@ ×%@\\n归属 %@ · offset %@ · upvalues %@",
+                @"[Lua C回调注册·非执行] %@ · %@ ×%@\n归属 %@ · offset %@ · upvalues %@",
                 e[@"callback"] ?: @"", e[@"state"] ?: @"", e[@"count"] ?: @0,
                 [e[@"ownerImage"] lastPathComponent] ?: @"",
                 e[@"ownerImageOffset"] ?: @"",e[@"upvalues"] ?: @0];
