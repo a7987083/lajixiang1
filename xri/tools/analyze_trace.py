@@ -5,7 +5,6 @@ import json
 from collections import Counter, defaultdict
 from pathlib import Path
 
-EXPECTED_UUID = "CC89F3E2-E288-3FBF-AB96-1FD4E58F047A"
 
 def load_json(path):
     with open(path, encoding="utf-8") as f:
@@ -36,6 +35,7 @@ def analyze(trace, snapshot=None, observations=None):
 
     sample_summary = []
     last_control = None
+    last_control_overflow = False
     callback_scores = Counter()
     normalized_comparison_count = 0
     for probe in samples:
@@ -54,12 +54,14 @@ def analyze(trace, snapshot=None, observations=None):
         }
         if probe.get("kind") == "other":
             last_control = current
+            last_control_overflow = bool(entry["callbackAggregationOverflow"])
         elif last_control is not None:
             # Counts are observational; compare with a manually marked control.
             control_total = sum(last_control.values())
             target_total = sum(current.values())
             entry["comparisonReady"] = bool(control_total and target_total and
-                                            not entry["callbackAggregationOverflow"])
+                                            not entry["callbackAggregationOverflow"] and
+                                            not last_control_overflow)
             if entry["comparisonReady"]:
                 normalized_comparison_count += 1
                 for key in sorted(set(current) | set(last_control)):
@@ -94,11 +96,14 @@ def analyze(trace, snapshot=None, observations=None):
             "resourceMutationEvidence": "NOT_VERIFIED",
         })
 
-    image_uuids = []
+    images = []
     if snapshot:
-        for im in snapshot.get("images", []):
-            if isinstance(im, dict) and im.get("uuid"):
-                image_uuids.append(str(im["uuid"]).upper())
+        images = [
+            {"path": im.get("path", ""), "uuid": str(im.get("uuid", "")).upper()}
+            for im in snapshot.get("images", [])
+            if isinstance(im, dict)
+        ]
+    adapter = trace.get("internalVmAdapter", "unreported")
     user_observations = []
     if observations:
         for ob in observations:
@@ -112,10 +117,13 @@ def analyze(trace, snapshot=None, observations=None):
 
     return {
         "reportVersion": 1,
-        "target": "Taylor Secret 1.8.9-69",
-        "targetExpectedUUID": EXPECTED_UUID,
-        "targetUuidSeenInOptionalSnapshot": EXPECTED_UUID in image_uuids,
-        "targetUuidCheckNotSupplied": snapshot is None,
+        "runtime": {
+            "adapter": adapter,
+            "images": images,
+            "imageMetadataProvided": snapshot is not None,
+            "abiSafety": "EXACT_ADAPTER_ONLY" if adapter not in ("unreported", "export-api-only")
+                         else "EXPORTED_API_ONLY",
+        },
         "nativeCallbackHookInstalled": c_hook,
         "nativeCallbacksReturnedTotal": integer(trace.get("cFunctionExecutionStats", {}).get("total")),
         "nativeCallbackEventsRetained": len(executions),
@@ -129,7 +137,7 @@ def analyze(trace, snapshot=None, observations=None):
             "correlation are observations only. No resource values, arguments, causal "
             "effects or server persistence are established by this trace."
         ),
-        "P3_3": "DEVICE_EVIDENCE_REQUIRED" if c_hook else "HOOK_NOT_CONFIRMED",
+        "P3_3": "OBSERVED_HOOK_INSTALLED_NOT_FUNCTION_COMPLETE" if c_hook else "INTERNAL_HOOK_UNAVAILABLE",
         "P3_4": "CANDIDATE_CORRELATION_ONLY",
         "P4": "RESOURCE_VALUES_NOT_INSTRUMENTED",
         "P5": "BLOCKED_UNTIL_VERIFIED_RESOURCE_API_AND_DEVICE_DATA",
