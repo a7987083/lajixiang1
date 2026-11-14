@@ -25,6 +25,12 @@ using XLuaLoadFn = int (*)(LuaState *, const char *, int, const char *);
 using LuaLoadFn = int (*)(LuaState *, const char *, size_t, const char *, const char *);
 using LuaKFunction = int (*)(LuaState *, int, intptr_t);
 using LuaPCallFn = int (*)(LuaState *, int, int, int, intptr_t, LuaKFunction);
+// Opaque IL2CPP types: method metadata is accessed only via public runtime APIs.
+using RuntimeInvokeFn = void *(*)(const void *, void *, void **, void **);
+using MethodNameFn = const char *(*)(const void *);
+using MethodClassFn = void *(*)(const void *);
+using ClassNameFn = const char *(*)(void *);
+using ClassNamespaceFn = const char *(*)(void *);
 
 struct StateEvent {
     uintptr_t value;
@@ -51,12 +57,24 @@ struct ExecutionEvent {
     uint64_t durationNs;
     uint64_t sequence;
 };
+struct BridgeEvent {
+    uintptr_t method;
+    uint64_t thread;
+    uint64_t callId;
+    uint64_t durationNs;
+    bool exception;
+    uint64_t sequence;
+    std::string methodName;
+    std::string className;
+    std::string namespaceName;
+};
 struct HookEntry {
     const char *name;
     void *address;
     bool installed;
     int error;
 };
+constexpr size_t kMaxBridges = 256;
 constexpr size_t kMaxExecutions = 512;
 constexpr size_t kMaxChunks = 256;
 constexpr size_t kMaxStates = 128;
@@ -72,6 +90,10 @@ std::atomic<uint64_t> g_seq{0};
 std::vector<StateEvent> g_states;
 std::vector<ChunkEvent> g_chunks;
 std::vector<ExecutionEvent> g_executions;
+std::vector<BridgeEvent> g_bridges;
+std::atomic<uint64_t> g_bridgeTotal{0};
+std::atomic<uint64_t> g_bridgeDropped{0};
+std::atomic<uint64_t> g_callIds{0};
 std::atomic<uint64_t> g_executionTotal{0};
 std::atomic<uint64_t> g_executionDropped{0};
 std::vector<HookEntry> g_hooks;
@@ -83,6 +105,12 @@ CloseFn origClose = nullptr;
 XLuaLoadFn origXLuaLoad = nullptr;
 LuaLoadFn origLuaLoad = nullptr;
 LuaPCallFn origPCall = nullptr;
+RuntimeInvokeFn origRuntimeInvoke = nullptr;
+MethodNameFn methodGetName = nullptr;
+MethodClassFn methodGetClass = nullptr;
+ClassNameFn classGetName = nullptr;
+ClassNamespaceFn classGetNamespace = nullptr;
+thread_local uint64_t g_currentCallId = 0;
 thread_local unsigned g_executionDepth = 0;
 
 uint64_t hashPrefix(const char *data, size_t length) {
@@ -174,6 +202,9 @@ int pcallHook(LuaState *L, int nargs, int nresults, int errfunc,
     const bool capture = g_executionDepth == 1 && L &&
                          g_active.load(std::memory_order_relaxed);
     const uint64_t start = capture ? mach_absolute_time() : 0;
+    const uint64_t previousCallId = g_currentCallId;
+    const uint64_t callId = capture ? ++g_callIds : previousCallId;
+    if (capture) g_currentCallId = callId;
     const int status = origPCall
         ? origPCall(L, nargs, nresults, errfunc, context, continuation) : -1;
     if (capture) {
@@ -200,8 +231,60 @@ int pcallHook(LuaState *L, int nargs, int nresults, int errfunc,
             errfunc, status, elapsedNs, ++g_seq
         });
     }
+    if (capture) g_currentCallId = previousCallId;
     --g_executionDepth;
     return status;
+}
+
+
+std::string boundedMetadata(const char *text) {
+    return text ? std::string(text, strnlen(text, 192)) : std::string();
+}
+
+// A same-thread, dynamically nested invocation is evidence of an execution
+// relationship only. Generated xLua wrappers can call C# directly and bypass
+// il2cpp_runtime_invoke entirely. We never claim all Lua->C# calls are covered.
+void *runtimeInvokeHook(const void *method, void *object,
+                        void **args, void **exception) {
+    const uint64_t callId = g_currentCallId;
+    const bool observe = callId != 0 && method &&
+                         g_active.load(std::memory_order_relaxed);
+    const uint64_t start = observe ? mach_absolute_time() : 0;
+    void *result = origRuntimeInvoke
+        ? origRuntimeInvoke(method, object, args, exception) : nullptr;
+    if (!observe) return result;
+
+    const uint64_t elapsedTicks = mach_absolute_time() - start;
+    static mach_timebase_info_data_t timebase = [] {
+        mach_timebase_info_data_t info = {};
+        mach_timebase_info(&info);
+        return info;
+    }();
+    const uint64_t elapsedNs = timebase.denom ?
+        static_cast<uint64_t>((static_cast<long double>(elapsedTicks) *
+            timebase.numer) / timebase.denom) : 0;
+
+    // Use exports from the same already-loaded runtime image only; never
+    // inspect opaque MethodInfo, Il2CppClass, or argument memory layouts.
+    std::string methodName = boundedMetadata(methodGetName ? methodGetName(method) : nullptr);
+    void *klass = methodGetClass ? methodGetClass(method) : nullptr;
+    std::string className = boundedMetadata(klass && classGetName ? classGetName(klass) : nullptr);
+    std::string namespaceName = boundedMetadata(klass && classGetNamespace ?
+        classGetNamespace(klass) : nullptr);
+    uint64_t tid = 0;
+    pthread_threadid_np(nullptr, &tid);
+    g_bridgeTotal.fetch_add(1, std::memory_order_relaxed);
+
+    std::lock_guard<std::mutex> lock(g_mu);
+    if (g_bridges.size() >= kMaxBridges) {
+        g_bridges.erase(g_bridges.begin());
+        g_bridgeDropped.fetch_add(1, std::memory_order_relaxed);
+    }
+    g_bridges.push_back({reinterpret_cast<uintptr_t>(method), tid, callId,
+                         elapsedNs, exception && *exception != nullptr, ++g_seq,
+                         std::move(methodName), std::move(className),
+                         std::move(namespaceName)});
+    return result;
 }
 
 // Only resolve exact exports in their owning loaded image, never inferred offsets.
@@ -212,6 +295,7 @@ void *resolve(const char *name) {
         const char *path = _dyld_get_image_name(i);
         const mach_header *mh = _dyld_get_image_header(i);
         if (!path || !mh || (!std::strstr(path,"UnityFramework") &&
+            !std::strstr(path,"GameAssembly") &&
             !std::strstr(path,"xlua") && !std::strstr(path,"XLua") &&
             !std::strstr(path,"liblua") && !std::strstr(path,"Lua"))) continue;
         void *handle = dlopen(path, RTLD_NOW | RTLD_NOLOAD);
@@ -257,7 +341,26 @@ std::string jsonSnapshot() {
                   ",\"durationNs\":" + std::to_string(e.durationNs) +
                   ",\"sequence\":" + std::to_string(e.sequence) + "}";
     }
-    result += "],\"executionStats\":{\"total\":" +
+    result += "],\"bridges\":[";
+    for (size_t i = 0; i < g_bridges.size(); ++i) {
+        if (i) result += ",";
+        const auto &e = g_bridges[i];
+        result += "{\"api\":\"il2cpp_runtime_invoke\",\"evidence\":\"same_thread_nested\"," +
+                  std::string("\"method\":\"") + hex(e.method) +
+                  "\",\"methodName\":\"" + escape(e.methodName) +
+                  "\",\"className\":\"" + escape(e.className) +
+                  "\",\"namespace\":\"" + escape(e.namespaceName) +
+                  "\",\"threadId\":" + std::to_string(e.thread) +
+                  ",\"protectedCallId\":" + std::to_string(e.callId) +
+                  ",\"durationNs\":" + std::to_string(e.durationNs) +
+                  ",\"exception\":" + (e.exception ? "true" : "false") +
+                  ",\"sequence\":" + std::to_string(e.sequence) + "}";
+    }
+    result += "],\"bridgeStats\":{\"total\":" +
+              std::to_string(g_bridgeTotal.load(std::memory_order_relaxed)) +
+              ",\"dropped\":" + std::to_string(g_bridgeDropped.load(std::memory_order_relaxed)) +
+              ",\"scope\":\"il2cpp_runtime_invoke_within_lua_pcallk_same_thread\"}";
+    result += ",\"executionStats\":{\"total\":" +
               std::to_string(g_executionTotal.load(std::memory_order_relaxed)) +
               ",\"dropped\":" +
               std::to_string(g_executionDropped.load(std::memory_order_relaxed)) +
@@ -289,6 +392,34 @@ void installAvailable() {
         return;
     }
 
+    // Do not install IL2CPP hook unless the metadata ABI is fully available
+    // from the same loaded runtime module. No guessed offsets or structures.
+    void *invokeAddress = resolve("il2cpp_runtime_invoke");
+    void *getName = resolve("il2cpp_method_get_name");
+    void *getClass = resolve("il2cpp_method_get_class");
+    void *getClassName = resolve("il2cpp_class_get_name");
+    void *getNamespace = resolve("il2cpp_class_get_namespace");
+    const bool bridgeReady = invokeAddress && getName && getClass &&
+        getClassName && getNamespace;
+    if (bridgeReady) {
+        Dl_info info = {};
+        Dl_info a = {}, b = {}, c = {}, d = {};
+        if (!dladdr(invokeAddress, &info) || !dladdr(getName, &a) ||
+            !dladdr(getClass, &b) || !dladdr(getClassName, &c) ||
+            !dladdr(getNamespace, &d) ||
+            info.dli_fbase != a.dli_fbase || info.dli_fbase != b.dli_fbase ||
+            info.dli_fbase != c.dli_fbase || info.dli_fbase != d.dli_fbase) {
+            invokeAddress = nullptr;
+        } else {
+            methodGetName = reinterpret_cast<MethodNameFn>(getName);
+            methodGetClass = reinterpret_cast<MethodClassFn>(getClass);
+            classGetName = reinterpret_cast<ClassNameFn>(getClassName);
+            classGetNamespace = reinterpret_cast<ClassNamespaceFn>(getNamespace);
+        }
+    } else {
+        invokeAddress = nullptr;
+    }
+
     struct Target {const char *name; void *replacement; void **original;};
     const Target targets[] = {
         {"luaL_newstate", reinterpret_cast<void *>(&newStateHook),
@@ -300,7 +431,9 @@ void installAvailable() {
         {"luaL_loadbufferx", reinterpret_cast<void *>(&luaLoadHook),
          reinterpret_cast<void **>(&origLuaLoad)},
         {"lua_pcallk", reinterpret_cast<void *>(&pcallHook),
-         reinterpret_cast<void **>(&origPCall)}
+         reinterpret_cast<void **>(&origPCall)},
+        {"il2cpp_runtime_invoke", reinterpret_cast<void *>(&runtimeInvokeHook),
+         reinterpret_cast<void **>(&origRuntimeInvoke)}
     };
     for (const auto &t : targets) {
         bool processed = false;
@@ -311,7 +444,8 @@ void installAvailable() {
             }
         }
         if (processed) continue;
-        void *addr = resolve(t.name);
+        void *addr = std::strcmp(t.name, "il2cpp_runtime_invoke") == 0 ?
+            invokeAddress : resolve(t.name);
         if (!addr) continue; // Not yet loaded. Try again after next dyld image notification.
 
         // DobbyHook can suspend threads and install executable memory.
@@ -335,7 +469,7 @@ void installAvailable() {
     } else {
         unsigned count = 0;
         for (const auto &h : g_hooks) if (h.installed) ++count;
-        g_reason = count == 5 ? "Recording (5/5 hooks)"
+        g_reason = count == 6 ? "Recording (6/6 hooks)"
                               : "Recording (partial hooks; earlier events not recoverable)";
     }
 }
@@ -394,6 +528,9 @@ extern "C" __attribute__((visibility("default"))) void xri_trace_clear(void) {
     g_chunks.clear();
     g_states.clear();
     g_executions.clear();
+    g_bridges.clear();
+    g_bridgeTotal = 0;
+    g_bridgeDropped = 0;
     g_executionTotal = 0;
     g_executionDropped = 0;
 }
