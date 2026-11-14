@@ -1,4 +1,4 @@
-name: Build XRI P1 UI dylib
+name: Build XRI P2 UI dylib
 on:
   push:
     branches: [ 'feature/xri-universal' ]
@@ -21,7 +21,7 @@ jobs:
           xcrun clang++ -std=c++17 -Wall -Wextra -Werror -fvisibility=hidden \
             -fobjc-arc -arch arm64 -dynamiclib -isysroot "$SDK" \
             -miphoneos-version-min=13.0 -Ixri/include \
-            xri/src/XRI.cpp xri/src/XRIOverlay.mm -o dist/XLuaResourceInspector.dylib \
+            xri/src/XRI.cpp xri/src/XRITrace.cpp xri/src/XRIOverlay.mm -o dist/XLuaResourceInspector.dylib \
             -framework UIKit -framework Foundation -framework CoreGraphics \
             -Wl,-install_name,@rpath/XLuaResourceInspector.dylib
           codesign --force --sign - --timestamp=none dist/XLuaResourceInspector.dylib
@@ -32,10 +32,10 @@ jobs:
       - name: Package independent XRI artifact
         run: |
           cd dist
-          zip -9 XRI-P1-UI.zip XLuaResourceInspector.dylib XRI-SHA256SUMS.txt
+          zip -9 XRI-P2-UI.zip XLuaResourceInspector.dylib XRI-SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: XRI-P1-UI-ios-arm64
+          name: XRI-P2-UI-ios-arm64
           path: |
             dist/XLuaResourceInspector.dylib
             dist/XRI-P1.zip
