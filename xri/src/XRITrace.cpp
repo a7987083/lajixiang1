@@ -522,7 +522,33 @@ std::string jsonSnapshot() {
                   ",\"exception\":" + (e.exception ? "true" : "false") +
                   ",\"sequence\":" + std::to_string(e.sequence) + "}";
     }
-    result += "],\"resourceProbes\":[";
+    result += "],\"cFunctionExecutions\":[";
+    for(size_t i=0;i<g_callbackEvents.size();++i){
+        if(i)result += ",";
+        const auto &e=g_callbackEvents[i];
+        Dl_info owner={};
+        const bool found=dladdr(reinterpret_cast<void *>(e.callback),&owner) &&
+                         owner.dli_fbase!=nullptr;
+        const uintptr_t off=found ? e.callback-
+            reinterpret_cast<uintptr_t>(owner.dli_fbase) : 0;
+        result += "{\"callback\":\"" + hex(e.callback) +
+                  "\",\"state\":\"" + hex(e.state) +
+                  "\",\"tag\":" + std::to_string(e.tag) +
+                  ",\"protectedCallId\":" + std::to_string(e.callId) +
+                  ",\"threadId\":" + std::to_string(e.thread) +
+                  ",\"durationNs\":" + std::to_string(e.durationNs) +
+                  ",\"sequence\":" + std::to_string(e.sequence) +
+                  ",\"ownerImage\":\"" +
+                  escape(found && owner.dli_fname?owner.dli_fname:"") +
+                  "\",\"ownerImageOffset\":\"" + (found?hex(off):"") + "\"}";
+    }
+    result += "],\"cFunctionExecutionStats\":{\"total\":" +
+              std::to_string(g_callbackTotal.load(std::memory_order_relaxed)) +
+              ",\"dropped\":" +
+              std::to_string(g_callbackDropped.load(std::memory_order_relaxed)) +
+              ",\"scope\":\"taylor_uuid_verified_pre_call_normal_return_only\"}";
+    result += ",\"resourceProbes\":[";
+
     for (size_t i = 0; i < g_resourceProbes.size(); ++i) {
         if (i) result += ",";
         const auto &e = g_resourceProbes[i];
@@ -532,6 +558,8 @@ std::string jsonSnapshot() {
                   ",\"endSequence\":" + std::to_string(e.endSequence) +
                   ",\"executionDelta\":" +
                   std::to_string(e.endExecutionTotal - e.beginExecutionTotal) +
+                  ",\"callbackDelta\":" +
+                  std::to_string(e.endCallbackTotal - e.beginCallbackTotal) +
                   ",\"bridgeDelta\":" +
                   std::to_string(e.endBridgeTotal - e.beginBridgeTotal) +
                   ",\"matchedMethodCount\":" + std::to_string(e.observedMethodCount) +
@@ -548,7 +576,17 @@ std::string jsonSnapshot() {
             result += "{\"method\":\"" + escape(entry.first) +
                       "\",\"count\":" + std::to_string(entry.second) + "}";
         }
-        result += "],\"methodAggregationOverflow\":" +
+        result += "],\"callbackCounts\":[";
+        bool firstCallback=true;
+        for(const auto &pair:e.callbackCounts){
+            if(!firstCallback)result += ",";
+            firstCallback=false;
+            result += "{\"callback\":\"" + hex(pair.first) +
+                      "\",\"count\":" + std::to_string(pair.second) + "}";
+        }
+        result += "],\"callbackAggregationOverflow\":" +
+                  std::to_string(e.callbackOverflow);
+        result += ",\"methodAggregationOverflow\":" +
                   std::to_string(e.overflowCount) + "}";
     }
     result += "],\"resourceComparisons\":[";
@@ -813,6 +851,9 @@ extern "C" __attribute__((visibility("default"))) void xri_trace_clear(void) {
     g_bridges.clear();
     g_resourceProbes.clear();
     g_registeredCFunctions.clear();
+    g_callbackEvents.clear();
+    g_callbackTotal = 0;
+    g_callbackDropped = 0;
     g_registrationsTotal = 0;
     g_registrationsOverflow = 0;
     g_probeActive = false;
@@ -835,6 +876,8 @@ int xri_resource_probe_begin(const char *kind) {
     g_pendingProbe.startSequence = g_seq.load(std::memory_order_relaxed);
     g_pendingProbe.beginExecutionTotal =
         g_executionTotal.load(std::memory_order_relaxed);
+    g_pendingProbe.beginCallbackTotal =
+        g_callbackTotal.load(std::memory_order_relaxed);
     g_pendingProbe.beginBridgeTotal =
         g_bridgeTotal.load(std::memory_order_relaxed);
     g_pendingProbe.result = "capturing";
@@ -848,6 +891,8 @@ int xri_resource_probe_end(void) {
     g_pendingProbe.endSequence = g_seq.load(std::memory_order_relaxed);
     g_pendingProbe.endExecutionTotal =
         g_executionTotal.load(std::memory_order_relaxed);
+    g_pendingProbe.endCallbackTotal =
+        g_callbackTotal.load(std::memory_order_relaxed);
     g_pendingProbe.endBridgeTotal =
         g_bridgeTotal.load(std::memory_order_relaxed);
 
@@ -865,7 +910,8 @@ int xri_resource_probe_end(void) {
     }
     const bool observations =
         g_pendingProbe.endExecutionTotal > g_pendingProbe.beginExecutionTotal ||
-        g_pendingProbe.endBridgeTotal > g_pendingProbe.beginBridgeTotal;
+        g_pendingProbe.endBridgeTotal > g_pendingProbe.beginBridgeTotal ||
+        g_pendingProbe.endCallbackTotal > g_pendingProbe.beginCallbackTotal;
     g_pendingProbe.result = observations ? "calls_observed_unverified_resource"
                                          : "no_calls_observed_unverified_resource";
     if (g_resourceProbes.size() >= kMaxResourceProbes)
