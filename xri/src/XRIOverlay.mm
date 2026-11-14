@@ -326,6 +326,8 @@ static UIButton *XButton(NSString *title, UIColor *bg, id target, SEL action) {
         NSArray *checks = trace[@"resourceProbes"] ?: @[];
         NSArray *comparisons = trace[@"resourceComparisons"] ?: @[];
         NSArray *registrations = trace[@"cFunctionRegistrations"] ?: @[];
+        NSArray *callbackExecs = trace[@"cFunctionExecutions"] ?: @[];
+        NSDictionary *callbackStats = trace[@"cFunctionExecutionStats"] ?: @{};
         NSDictionary *registrationStats = trace[@"cFunctionRegistrationStats"] ?: @{};
         NSDictionary *active = [trace[@"activeResourceProbe"] isKindOfClass:NSDictionary.class] ?
                                trace[@"activeResourceProbe"] : nil;
@@ -335,12 +337,13 @@ static UIButton *XButton(NSString *title, UIColor *bg, id target, SEL action) {
         NSMutableArray<NSString *> *lines = [NSMutableArray array];
 
         [lines addObject:[NSString stringWithFormat:
-            @"P3.2: %@ | %@\nVM %lu · Chunk %lu · 执行 %@ · IL2CPP %@\n操作样本 %lu · C回调注册 %@ · %@",
+            @"P3.3: %@ | %@\nVM %lu · Chunk %lu · Lua执行 %@ · IL2CPP %@\n操作样本 %lu · C回调注册 %@ · 返回 %@ · %@",
             [trace[@"recording"] boolValue] ? @"记录中" : @"未记录",
             trace[@"reason"] ?: @"状态不可用",
             (unsigned long)states.count, (unsigned long)chunks.count,
             execStats[@"total"] ?: @0, bridgeStats[@"total"] ?: @0,
             (unsigned long)checks.count,registrationStats[@"total"] ?: @0,
+            callbackStats[@"total"] ?: @0,
             active ? [NSString stringWithFormat:@"正在采集 %@", active[@"kind"]] : @"待标记"]];
 
         for (NSDictionary *e in states) {
@@ -365,12 +368,21 @@ static UIButton *XButton(NSString *title, UIColor *bg, id target, SEL action) {
         }
         for (NSDictionary *e in bridges) {
             NSString *line = [NSString stringWithFormat:
-                @"[IL2CPP] %@.%@.%@ · method %@\ncallId %@ · thread %@ · %@ ns%@",
+                @"[IL2CPP] %@.%@.%@ · method %@\ncallId %@ · C回调 %@ · thread %@ · %@ ns%@",
                 e[@"namespace"] ?: @"",e[@"className"] ?: @"",
                 e[@"methodName"] ?: @"",e[@"method"] ?: @"",
-                e[@"protectedCallId"] ?: @0,e[@"threadId"] ?: @0,
+                e[@"protectedCallId"] ?: @0,e[@"nativeCallback"] ?: @"",e[@"threadId"] ?: @0,
                 e[@"durationNs"] ?: @0,
                 [e[@"exception"] boolValue] ? @" · exception" : @""];
+            [self appendTraceLine:line to:lines query:query];
+        }
+        NSUInteger shownCallbacks=0;
+        for(NSDictionary *e in [callbackExecs reverseObjectEnumerator]) {
+            if(!query.length && shownCallbacks++>=40)break;
+            NSString *line=[NSString stringWithFormat:
+                @"[C回调已返回·非资源证明] %@ · offset %@ · %@ ns\ncallId %@ · thread %@",
+                e[@"callback"] ?: @"",e[@"ownerImageOffset"] ?: @"",
+                e[@"durationNs"] ?: @0,e[@"protectedCallId"] ?: @0,e[@"threadId"] ?: @0];
             [self appendTraceLine:line to:lines query:query];
         }
         NSDictionary *names = @{
@@ -411,9 +423,9 @@ static UIButton *XButton(NSString *title, UIColor *bg, id target, SEL action) {
                     entry[@"method"] ?: @"",entry[@"count"] ?: @0]];
             }
             NSString *line = [NSString stringWithFormat:
-                @"[操作观察·%@] Lua增量 %@ · IL2CPP增量 %@ · 实时聚合 %@\n%@\n%@\n资源实际数值：未验证",
+                @"[操作观察·%@] Lua增量 %@ · C回调返回 %@ · IL2CPP增量 %@ · 实时聚合 %@\n%@\n%@\n资源实际数值：未验证",
                 names[kind] ?: kind,e[@"executionDelta"] ?: @0,
-                e[@"bridgeDelta"] ?: @0,e[@"matchedMethodCount"] ?: @0,
+                e[@"callbackDelta"] ?: @0,e[@"bridgeDelta"] ?: @0,e[@"matchedMethodCount"] ?: @0,
                 [top componentsJoinedByString:@"\n"],
                 [e[@"methodAggregationOverflow"] unsignedLongLongValue] ?
                    @"存在超限方法，结果不完整" : @"聚合容量内"];
