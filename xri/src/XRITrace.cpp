@@ -13,6 +13,9 @@
 namespace {
 using LuaState = void;
 using DobbyHookFn = int (*)(void *, void *, void **);
+#ifdef XRI_BUNDLED_DOBBY
+extern "C" int DobbyHook(void *, void *, void **);
+#endif
 using NewStateFn = LuaState *(*)(void);
 using CloseFn = void (*)(LuaState *);
 using XLuaLoadFn = int (*)(LuaState *, const char *, int, const char *);
@@ -200,7 +203,11 @@ extern "C" __attribute__((visibility("default"))) int xri_trace_start(void) {
         return 1;
     }
     // Optional inline-hook provider. No new library is loaded by this path.
+#ifdef XRI_BUNDLED_DOBBY
+    DobbyHookFn hook = &DobbyHook;
+#else
     auto hook = reinterpret_cast<DobbyHookFn>(dlsym(RTLD_DEFAULT, "DobbyHook"));
+#endif
     if (!hook) {
         g_reason = "DobbyHook provider not loaded; active capture unavailable";
         return 0;
