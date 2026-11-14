@@ -72,3 +72,22 @@ Tweak.mm. Used as a behavior reference, not copied code. Upstream is MIT.
 GitHub Actions compiles and signs the arm64 dylib; no device runtime evidence
 yet. Touch pass-through, keyboard restoration, startup timing, orientation,
 iPad scene behavior and game rendering require real-device tests.
+
+## P2.1 — automatic lifecycle and export
+- The tracer is initialized at dylib load. Image-add notifications schedule the
+  hook installer on a dedicated serial queue; the dyld callback never patches
+  code itself.
+- Installation is idempotent by entry-point name. Already installed hooks are
+  not installed again, and missing exports are retried when a new image loads.
+- Hook activity is reported separately from successful API detection.
+- Lua and IL2CPP export discovery is **not** equivalent to Lua VM event capture.
+- The UI no longer has a manual start/stop toggle. A status view displays
+  pending, partial, successful or failed installation.
+- A single manual export writes **both** `snapshot.json` and `trace.json` to
+  the active application's `Documents/XRI/` sandbox directory. Each write is
+  atomic and replaces the previous version; no file I/O occurs inside hooks.
+- The `xri_trace_start/stop` C symbols remain for compatibility with existing
+  integrations, not as extra UI paths. The official UI never pauses capture.
+- Inline hooks remain installed until process exit. Safe physical unhooking
+  and exact target-game validation remain outstanding; do not represent a
+  successful CI build as device verification.
