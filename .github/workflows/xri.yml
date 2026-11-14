@@ -16,6 +16,10 @@ jobs:
         run: |
           python3 -m py_compile xri/tools/analyze_trace.py xri/tools/test_analyze_trace.py
           python3 -m unittest discover -s xri/tools -p 'test_*.py' -v
+      - name: Validate portable P5/P6 profiles
+        run: |
+          python3 -m py_compile xri/tools/export_profile.py xri/tools/test_export_profile.py
+          python3 -m unittest discover -s xri/tools -p 'test_*.py' -v
       - name: Build pinned Dobby for iOS arm64
         shell: bash
         run: |
@@ -69,9 +73,10 @@ jobs:
         run: |
           cd dist
           cp ../xri/tools/analyze_trace.py .
+          cp ../xri/tools/export_profile.py .
           cp ../xri/P3_2_BINARY_AUDIT.md .
           cp ../xri/README.md XRI-README.md
-          zip -9 XRI-P3.5-P6-Evidence.zip XLuaResourceInspector.dylib XRI-SHA256SUMS.txt DOBBY-LICENSE.txt analyze_trace.py P3_2_BINARY_AUDIT.md XRI-README.md
+          zip -9 XRI-P3.5-P6-Evidence.zip XLuaResourceInspector.dylib XRI-SHA256SUMS.txt DOBBY-LICENSE.txt analyze_trace.py export_profile.py P3_2_BINARY_AUDIT.md XRI-README.md
       - uses: actions/upload-artifact@v4
         with:
           name: XRI-P3.5-P6-Evidence-ios-arm64
@@ -84,6 +89,8 @@ jobs:
             dist/DOBBY-LICENSE.txt
             xri/tools/analyze_trace.py
             xri/tools/test_analyze_trace.py
+            xri/tools/export_profile.py
+            xri/tools/test_export_profile.py
             xri/P3_2_BINARY_AUDIT.md
             xri/HANDOFF.md
             xri/KNOWN_ISSUES.md

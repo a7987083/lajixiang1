@@ -165,3 +165,34 @@ The only internal Lua-VM hook added is `luaD_precall` on **exact** Taylor's Secr
 `trace.json` adds `cFunctionExecutions`, `cFunctionExecutionStats`, `bridges[].nativeCallback`, and `resourceProbes[].callbackCounts`. Native events mean callbacks **returned normally**, not that a currency method has been identified or that a resource changed. Only sampled individual events are retained outside active manual windows; during marked windows bounded per-callback counts are collected. `xri/tools/analyze_trace.py` produces a reproducible read-only candidate report, and `test_analyze_trace.py` provides synthetic unit tests.
 
 **P5 is intentionally not implemented** until a real target-game trace, verified callback-to-method ABI mapping, actual resource data flow and controlled test preconditions are available. See `xri/HANDOFF.md`, `xri/KNOWN_ISSUES.md` and `xri/PROJECT_STATE.json`.
+
+## P3.5 — Universal runtime detection (2026-11-14)
+
+- ABI-sensitive VM internals are isolated in `xri/src/XRIAdapter.cpp`.
+- Exact binary UUID + `luaD_precall` offset + native branch opcode must match for an internal hook. Otherwise only compatible exported API hooks are attempted and the trace reports `internalVmAdapter: export-api-only`.
+- **No automatic internal RVA inference or guessed Lua struct layout**. New game versions require independently audited adapters.
+- The runtime supports operation labels in ASCII `[A-Za-z0-9_-]`, 1–24 chars. UI custom operation label uses the search field when 自定义 is selected; default four quick labels remain.
+- P3.6 collects protected-call boundaries, chunk names, C callback registration and (where the adapter is available) normal callback returns. It does **not** claim full Lua-to-Lua function instrumentation; this requires an ABI-safe non-interfering strategy.
+
+## P4–P6 — Portable evidence pipeline
+
+- P4 normalizes callback frequency per 1000 observed returns against a control window and rejects overflowing samples.
+- P5 `xri/tools/export_profile.py` optionally ingests manually supplied before/after/restart resource values. It labels these as user-reported, not independently observed.
+- P6 exports portable, **non-executable** JSON candidate manifests with owning image UUID when supplied in snapshot, image-relative offset, candidate method metadata, and explicit ABI/causality verification gates.
+- Profiles are **not executable actions**: `action.enabled=false` and `invocation=null`. No game currency mutation is implemented or claimed.
+
+Usage:
+
+```sh
+python3 xri/tools/analyze_trace.py trace.json --snapshot snapshot.json --output evidence.json
+python3 xri/tools/export_profile.py trace.json --snapshot snapshot.json --output profile.json
+python3 -m unittest discover -s xri/tools -p 'test_*.py'
+```
+
+Optional manual observation format:
+
+```json
+[{"kind":"energy","before":10,"after":9,"afterRestart":9}]
+```
+
+Pass with `--observations observations.json`. This *never* grants executable status. Real game function arguments, instance selection, reversible mutation, persistence and generality across multiple games remain unverified.

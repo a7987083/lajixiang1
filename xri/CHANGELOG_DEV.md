@@ -10,3 +10,11 @@
 - Added read-only evidence analyzer and synthetic tests to XRI CI build.
 - Preserved all existing read-only behavior; no resource mutator or offset patch created.
 - Build and device statuses must be read from latest workflow and user logs separately.
+
+## 2026-11-14 — Universal P3.5–P6 framework
+- Extracted Taylor-specific `luaD_precall` guard into XRIAdapter without duplicating hook engines.
+- Added runtime adapter ID and optional-VM-hook capability to exported trace JSON.
+- Replaced fixed currency-only labels with generic operation names, retained UI quick actions.
+- Generalized comparison beyond energy, removed target UUID assumptions from offline analyzer.
+- Added manual-value evidence grading and P6 metadata-only profile exporter with automated tests.
+- Exported profiles do not contain executable methods, guessed arguments or unsupported success claims.

@@ -16,17 +16,23 @@
     "P3_2": "built",
     "P3_3": "implemented_and_ci_built_device_unverified",
     "P3_4": "same_thread_nested_correlation_only",
-    "P4": "read_only_evidence_analyzer_and_tests",
-    "P5": "blocked_on_device_trace_and_verified_resource_API"
+    "P4": "custom_operation_window_generic_differential",
+    "P5": "manual_evidence_ingestion_only_no_verified_resource_mutation",
+    "P3_5": "adapter_separated_export_fallback_ci_pending_two_game_validation",
+    "P3_6": "partial_boundary_callbacks_no_full_lua_function_trace",
+    "P6": "portable_non_executable_candidate_export"
   },
   "runtime": {
     "deviceVerified": false,
     "gameplayResourceChange": false,
-    "serverPersistence": false
+    "serverPersistence": false,
+    "universalAcrossGamesVerified": false,
+    "genericExecutableProfiles": false
   },
   "artifacts": {
     "workflow": ".github/workflows/xri.yml",
-    "name": "XRI-P3.3-P4-Evidence-ios-arm64"
+    "name": "XRI-P3.5-P6-Evidence-ios-arm64"
   },
-  "nextAction": "Inject built dylib into exact target, perform control/energy/gold/diamond windows, export Documents/XRI/trace.json and snapshot.json, analyze; only then identify precise business method and controlled resource test."
+  "nextAction": "Real-device two-game adapter/fallback regression; obtain independent resource data flow/ABI before enabling P5 mutation or P6 executable profiles.",
+  "phase": "p3.5-p6-universal-evidence-framework"
 }

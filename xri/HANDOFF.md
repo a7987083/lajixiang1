@@ -36,3 +36,16 @@
 
 ## Risks and known limits
 See `xri/KNOWN_ISSUES.md`. Do not copy confirmed values to a different Mach-O UUID.
+
+## P3.5–P6 universal development (2026-11-14)
+
+- Adapter contract: `xri/include/XRIAdapter.h`, implementation `xri/src/XRIAdapter.cpp`. Exact Taylor 1.8.9 UUID-based adapter is kept as one plugin; it is not the generic ABI.
+- Generic loader/export observer stays in `xri/src/XRITrace.cpp`; one Hook engine, no duplicated Dobby installation.
+- Unknown/internal-ABI mismatch: no `luaD_precall` hook; exports are still observable. `internalVmAdapter` describes selection.
+- Operation marker C ABI now permits any 1–24 ASCII `[A-Za-z0-9_-]` label. `other` denotes control.
+- P3.6 is partial; full Lua-to-Lua function graph has not been implemented.
+- P4 generic candidate pipeline: `xri/tools/analyze_trace.py` (no Taylor hardcoding).
+- P5 manual evidence grading + P6 metadata-only profile export: `xri/tools/export_profile.py`; never produces enabled action/arguments/verified signatures from frequencies.
+- Verification remains strict: framework CI compilation, unit tests and signature are not two-game regression or game-resource modification proof.
+- Build workflow: `.github/workflows/xri.yml`; artifact `XRI-P3.5-P6-Evidence-ios-arm64`.
+- No existing commits/tags are rewritten. Root CyberSkin documents remain unrelated to XRI.

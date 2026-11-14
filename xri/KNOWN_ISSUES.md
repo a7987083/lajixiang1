@@ -8,3 +8,10 @@
 - **P5 blocked:** no verified gold/gem/energy business method or signature; no runtime resource value or server persistence evidence. No mutation endpoint should be introduced based on frequency ranking.
 - **CI vs device:** a green CI build is not a successful injection, runtime hook test, gameplay change or server persistence verification.
 - **Existing legacy docs:** root `HANDOFF.md`, `ROADMAP.md`, and `PROJECT_STATE.json` describe CyberSkin, not XRI. XRI-specific docs live in `xri/`.
+
+## Generic development limits
+- Exports do not prove ABI; unavailable `luaD_precall` adapter is expected on other games.
+- `lua_pcallk` only observes the protected entry/exit boundary, not nested Lua-only functions.
+- P4 per-window differences can be caused by UI/rendering or background tasks; candidate ranking is not causal identification.
+- P5 manually reported balances are not independently measured; user screenshots/logs cannot prove server persistence.
+- P6 profiles remain intentionally non-executable and require separate verified method ABI, ownership, parameter binding and authorization before any mutation engine can be designed.
