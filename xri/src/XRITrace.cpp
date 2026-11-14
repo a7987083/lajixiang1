@@ -1,4 +1,5 @@
 #include "XRITrace.h"
+#include "XRIAdapter.h"
 #include <dlfcn.h>
 #include <dispatch/dispatch.h>
 #include <mach-o/dyld.h>
@@ -144,6 +145,7 @@ std::atomic<uint64_t> g_registrationsTotal{0};
 std::atomic<uint64_t> g_registrationsOverflow{0};
 std::vector<HookEntry> g_hooks;
 std::string g_reason = "not started";
+std::string g_adapterId = "export-api-only";
 thread_local unsigned g_loadingDepth = 0;
 
 NewStateFn origNewState = nullptr;
@@ -386,32 +388,6 @@ void pushCClosureHook(LuaState *state, LuaCFunction fn, int upvalues) {
 
 // Only resolve exact exports in their owning loaded image, never inferred offsets.
 
-// Exact target ABI only: Taylor Secret 1.8.9 UUID CC89F3E2-E288-3FBF-AB96-1FD4E58F047A.
-bool verifiedTaylorPrecall(void *address) {
-    Dl_info info={};
-    if (!address || !dladdr(address,&info) || !info.dli_fbase || !info.dli_fname ||
-        !std::strstr(info.dli_fname,"/UnityFramework.framework/UnityFramework")) return false;
-    const auto *h = reinterpret_cast<const mach_header_64 *>(info.dli_fbase);
-    if(h->magic != MH_MAGIC_64 || h->ncmds > 1024) return false;
-    const uint8_t expected[16]={0xCC,0x89,0xF3,0xE2,0xE2,0x88,0x3F,0xBF,
-                                0xAB,0x96,0x1F,0xD4,0xE5,0x8F,0x04,0x7A};
-    const auto *p=reinterpret_cast<const uint8_t *>(h+1);
-    bool match=false;
-    for(uint32_t i=0;i<h->ncmds;++i){
-        const auto *lc=reinterpret_cast<const load_command *>(p);
-        if(lc->cmdsize<sizeof(load_command)||lc->cmdsize>65536)return false;
-        if(lc->cmd==LC_UUID && lc->cmdsize>=sizeof(uuid_command)){
-            match=std::memcmp(reinterpret_cast<const uuid_command *>(p)->uuid,expected,16)==0;
-            break;
-        }
-        p+=lc->cmdsize;
-    }
-    if(!match || reinterpret_cast<uintptr_t>(address)-reinterpret_cast<uintptr_t>(h)
-           != UINT64_C(0x032534D8)) return false;
-    uint32_t opcode=0;
-    std::memcpy(&opcode,reinterpret_cast<const uint8_t *>(h)+UINT64_C(0x032537AC),4);
-    return opcode==UINT32_C(0xD63F02E0);
-}
 // Read-only observer. Exact target: TValue tag at +8; 0x16 light C function;
 // 0x26 CClosure, callback at closure +0x18. Normal return from precall only.
 int precallHook(LuaState *L,const void *func,int nresults){
@@ -496,7 +472,9 @@ std::string jsonSnapshot() {
     result += "\"recording\":" + std::string(g_active ? "true" : "false");
     result += ",\"hooksInstalled\":" + std::string(g_installed ? "true" : "false");
     result += ",\"autoStart\":" + std::string(g_autoStarted ? "true" : "false");
-    result += ",\"reason\":\"" + escape(g_reason) + "\",\"hooks\":[";
+    result += ",\"reason\":\"" + escape(g_reason) +
+              "\",\"internalVmAdapter\":\"" + escape(g_adapterId) +
+              "\",\"internalVmHookIsOptional\":true,\"hooks\":[";
     for (size_t i=0; i<g_hooks.size(); ++i) {
         if (i) result += ",";
         const auto &h=g_hooks[i];
@@ -756,7 +734,12 @@ void installAvailable() {
 
     struct Target {const char *name; void *replacement; void **original;};
     void *verifiedPrecall=resolve("luaD_precall");
-    if(!verifiedTaylorPrecall(verifiedPrecall))verifiedPrecall=nullptr;
+    const char *matchedAdapter = xri_internal_adapter_for_precall(verifiedPrecall);
+    if (!matchedAdapter) verifiedPrecall = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(g_mu);
+        g_adapterId = matchedAdapter ? matchedAdapter : "export-api-only";
+    }
     const Target targets[] = {
         {"luaL_newstate", reinterpret_cast<void *>(&newStateHook),
          reinterpret_cast<void **>(&origNewState)},
@@ -810,8 +793,11 @@ void installAvailable() {
     } else {
         unsigned count = 0;
         for (const auto &h : g_hooks) if (h.installed) ++count;
-        g_reason = count == 8 ? "Recording (8/8 hooks)"
-                              : "Recording (partial hooks; earlier events not recoverable)";
+        const bool internalExpected = g_adapterId != "export-api-only";
+        const unsigned expected = internalExpected ? 8U : 7U;
+        g_reason = count == expected
+            ? "Recording (supported hooks installed)"
+            : "Recording (partial supported hooks; earlier events not recoverable)";
     }
 }
 
@@ -889,9 +875,17 @@ extern "C" __attribute__((visibility("default"))) void xri_trace_clear(void) {
 extern "C" __attribute__((visibility("default")))
 int xri_resource_probe_begin(const char *kind) {
     if (!kind) return -1;
-    const std::string type(kind, strnlen(kind, 24));
-    if (type != "diamond" && type != "gold" &&
-        type != "energy" && type != "other") return -1;
+    // Custom ASCII category: portable across games and safe in JSON/UI logs.
+    const size_t length = strnlen(kind, 25);
+    if (!length || length > 24) return -1;
+    for (size_t i=0; i<length; ++i) {
+        const unsigned char c = static_cast<unsigned char>(kind[i]);
+        if (!((c >= 'a' && c <= 'z') ||
+              (c >= 'A' && c <= 'Z') ||
+              (c >= '0' && c <= '9') ||
+              c == '_' || c == '-')) return -1;
+    }
+    const std::string type(kind, length);
     std::lock_guard<std::mutex> lock(g_mu);
     if (g_probeActive) return -1;
     g_pendingProbe = {};
