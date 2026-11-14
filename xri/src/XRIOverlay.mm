@@ -39,6 +39,9 @@ static UIButton *XButton(NSString *title, UIColor *bg, id target, SEL action) {
 @property(nonatomic, strong) UITextView *results;
 @property(nonatomic, strong) UITextField *filter;
 @property(nonatomic, strong) UISegmentedControl *category;
+@property(nonatomic, strong) UISegmentedControl *resourceKind;
+@property(nonatomic, strong) UIButton *scanButton;
+@property(nonatomic, strong) UIButton *copyButton;
 @property(nonatomic, strong) NSDictionary *snapshot;
 @property(nonatomic, strong) NSData *rawSnapshot;
 @property(nonatomic, strong) NSDictionary *traceSnapshot;
@@ -92,7 +95,7 @@ static UIButton *XButton(NSString *title, UIColor *bg, id target, SEL action) {
     [panel addSubview:header];
     [self label:@"◉  XLua Inspector" font:17 color:XColor(0xE6F8F5)
           frame:CGRectMake(16, 9, 245, 24) parent:header];
-    [self label:@"P2.4 · AUTO TRACE · READ-ONLY" font:10 color:XColor(0x70DEC9)
+    [self label:@"P2.5 · AUTO TRACE · READ-ONLY" font:10 color:XColor(0x70DEC9)
           frame:CGRectMake(17, 34, 180, 14) parent:header];
     UIButton *close = XButton(@"×", XColor(0x334353), self, @selector(togglePanel));
     close.frame = CGRectMake(300, 12, 27, 27);
@@ -131,9 +134,16 @@ static UIButton *XButton(NSString *title, UIColor *bg, id target, SEL action) {
     self.category = [[UISegmentedControl alloc] initWithItems:@[@"全部", @"Lua", @"IL2CPP", @"镜像", @"跟踪"]];
     self.category.frame = CGRectMake(16, 197, 308, 31);
     self.category.selectedSegmentIndex = 0;
-    [self.category addTarget:self action:@selector(renderResults)
+    [self.category addTarget:self action:@selector(updateCategory)
            forControlEvents:UIControlEventValueChanged];
     [panel addSubview:self.category];
+
+    self.resourceKind = [[UISegmentedControl alloc] initWithItems:
+                         @[@"钻石", @"金币", @"体力", @"其他"]];
+    self.resourceKind.frame = CGRectMake(16, 234, 308, 30);
+    self.resourceKind.selectedSegmentIndex = 0;
+    self.resourceKind.hidden = YES;
+    [panel addSubview:self.resourceKind];
 
     self.results = [[UITextView alloc] initWithFrame:CGRectMake(16, 239, 308, 151)];
     self.results.backgroundColor = XColor(0x1D2836);
@@ -145,15 +155,18 @@ static UIButton *XButton(NSString *title, UIColor *bg, id target, SEL action) {
     self.results.text = @"自动跟踪已启用。点击「扫描」读取镜像与导出信息。";
     [panel addSubview:self.results];
 
-    UIButton *scan = XButton(@"扫描", XColor(0x237E72), self, @selector(scan));
+    UIButton *scan = XButton(@"扫描", XColor(0x237E72), self, @selector(scanOrBegin));
     scan.frame = CGRectMake(16, 401, 96, 37);
     [panel addSubview:scan];
-    UIButton *copy = XButton(@"复制结果", XColor(0x33485E), self, @selector(copyJSON));
+    UIButton *copy = XButton(@"复制结果", XColor(0x33485E), self, @selector(copyOrEnd));
     copy.frame = CGRectMake(122, 401, 96, 37);
     [panel addSubview:copy];
+    self.scanButton = scan;
+    self.copyButton = copy;
     UIButton *save = XButton(@"导出 JSON", XColor(0x33485E), self, @selector(exportJSON));
     save.frame = CGRectMake(228, 401, 96, 37);
     [panel addSubview:save];
+    [self updateCategory];
 }
 
 - (void)viewDidLayoutSubviews {
@@ -224,6 +237,52 @@ static UIButton *XButton(NSString *title, UIColor *bg, id target, SEL action) {
     return @{};
 }
 
+- (void)updateCategory {
+    BOOL trace = self.category.selectedSegmentIndex == 4;
+    self.resourceKind.hidden = !trace;
+    self.results.frame = trace ? CGRectMake(16, 270, 308, 120)
+                               : CGRectMake(16, 239, 308, 151);
+    [self.scanButton setTitle:trace ? @"操作前" : @"扫描" forState:UIControlStateNormal];
+    [self.copyButton setTitle:trace ? @"操作后" : @"复制结果" forState:UIControlStateNormal];
+    self.filter.placeholder = trace ? @"搜索方法 / 类 / callId / 资源" :
+                                      @"搜索导出符号 / 镜像名称";
+    [self renderResults];
+}
+
+- (void)scanOrBegin {
+    if (self.category.selectedSegmentIndex != 4) {
+        [self scan];
+        return;
+    }
+    NSArray<NSString *> *types = @[@"diamond", @"gold", @"energy", @"other"];
+    NSInteger index = self.resourceKind.selectedSegmentIndex;
+    if (index < 0 || index >= (NSInteger)types.count) return;
+    int result = xri_resource_probe_begin(types[(NSUInteger)index].UTF8String);
+    self.status.text = result == 1 ? @"状态：操作前已标记，请执行游戏操作" :
+                                     @"状态：已有未结束的操作记录";
+    [self renderResults];
+}
+
+- (void)copyOrEnd {
+    if (self.category.selectedSegmentIndex != 4) {
+        [self copyJSON];
+        return;
+    }
+    int result = xri_resource_probe_end();
+    self.status.text = result == 1 ? @"状态：操作已记录，查看事件后导出 JSON" :
+                                     @"状态：请先点击「操作前」";
+    [self renderResults];
+}
+
+- (void)appendTraceLine:(NSString *)line
+                     to:(NSMutableArray<NSString *> *)lines
+                  query:(NSString *)query {
+    if (!query.length || [line rangeOfString:query
+        options:NSCaseInsensitiveSearch | NSDiacriticInsensitiveSearch].location != NSNotFound) {
+        [lines addObject:line];
+    }
+}
+
 - (void)scan {
     size_t needed = xri_snapshot_json(NULL, 0);
     if (!needed || needed > (4u << 20)) {
@@ -263,33 +322,73 @@ static UIButton *XButton(NSString *title, UIColor *bg, id target, SEL action) {
         NSArray *chunks = trace[@"chunks"] ?: @[];
         NSArray *states = trace[@"states"] ?: @[];
         NSArray *executions = trace[@"executions"] ?: @[];
-        NSDictionary *metrics = trace[@"executionStats"] ?: @{};
         NSArray *bridges = trace[@"bridges"] ?: @[];
-        NSDictionary *bridgeMetrics = trace[@"bridgeStats"] ?: @{};
+        NSArray *checks = trace[@"resourceProbes"] ?: @[];
+        NSDictionary *active = [trace[@"activeResourceProbe"] isKindOfClass:NSDictionary.class] ?
+                               trace[@"activeResourceProbe"] : nil;
+        NSDictionary *execStats = trace[@"executionStats"] ?: @{};
+        NSDictionary *bridgeStats = trace[@"bridgeStats"] ?: @{};
+        NSString *query = self.filter.text ?: @"";
         NSMutableArray<NSString *> *lines = [NSMutableArray array];
-        [lines addObject:[NSString stringWithFormat:@"P2.4: %@\n%@\nVM %lu · Chunk %lu · 执行 %lu (累计 %@)\nIL2CPP 关联 %lu (累计 %@)",
+
+        [lines addObject:[NSString stringWithFormat:
+            @"P2.5: %@ | %@\nVM %lu · Chunk %lu · 执行 %@ · IL2CPP %@\n操作样本 %lu · %@",
             [trace[@"recording"] boolValue] ? @"记录中" : @"未记录",
-            trace[@"reason"] ?: @"状态不可用", (unsigned long)states.count, (unsigned long)chunks.count,
-            (unsigned long)executions.count, metrics[@"total"] ?: @0,
-            (unsigned long)bridges.count, bridgeMetrics[@"total"] ?: @0]];
-        for (NSDictionary *e in states) [lines addObject:[NSString stringWithFormat:@"[VM] %@ %@",e[@"action"],e[@"state"]]];
-        for (NSDictionary *e in chunks) [lines addObject:[NSString stringWithFormat:@"[CHUNK] %@ (%@ bytes)\n%@ result=%@",e[@"name"],e[@"size"],e[@"source"],e[@"result"]]];
+            trace[@"reason"] ?: @"状态不可用",
+            (unsigned long)states.count, (unsigned long)chunks.count,
+            execStats[@"total"] ?: @0, bridgeStats[@"total"] ?: @0,
+            (unsigned long)checks.count,
+            active ? [NSString stringWithFormat:@"正在采集 %@", active[@"kind"]] : @"待标记"]];
+
+        for (NSDictionary *e in states) {
+            NSString *line = [NSString stringWithFormat:
+                @"[VM] %@ %@ · #%@",e[@"action"] ?: @"",
+                e[@"state"] ?: @"",e[@"sequence"] ?: @0];
+            [self appendTraceLine:line to:lines query:query];
+        }
+        for (NSDictionary *e in chunks) {
+            NSString *line = [NSString stringWithFormat:
+                @"[CHUNK] %@ (%@ bytes) · %@ · result %@ · state %@",
+                e[@"name"] ?: @"", e[@"size"] ?: @0,
+                e[@"source"] ?: @"", e[@"result"] ?: @0,e[@"state"] ?: @""];
+            [self appendTraceLine:line to:lines query:query];
+        }
         for (NSDictionary *e in executions) {
-            [lines addObject:[NSString stringWithFormat:@"[EXEC] lua_pcallk · state %@\nargs %@ · status %@ · %@ ns",
-                e[@"state"] ?: @"—", e[@"nargs"] ?: @0, e[@"status"] ?: @0, e[@"durationNs"] ?: @0]];
+            NSString *line = [NSString stringWithFormat:
+                @"[EXEC] lua_pcallk callId %@ · state %@ · thread %@\nargs %@ · status %@ · %@ ns",
+                e[@"callId"] ?: @0, e[@"state"] ?: @"",e[@"threadId"] ?: @0,
+                e[@"nargs"] ?: @0,e[@"status"] ?: @0,e[@"durationNs"] ?: @0];
+            [self appendTraceLine:line to:lines query:query];
         }
         for (NSDictionary *e in bridges) {
-            NSString *cls = e[@"className"] ?: @"";
-            NSString *method = e[@"methodName"] ?: @"";
-            NSString *ns = e[@"namespace"] ?: @"";
-            [lines addObject:[NSString stringWithFormat:
-                @"[IL2CPP · 同线程嵌套] %@%@%@.%@\nLua callId %@ · %@ ns%@",
-                ns.length ? ns : @"", ns.length ? @"." : @"", cls, method,
-                e[@"protectedCallId"] ?: @0, e[@"durationNs"] ?: @0,
-                [e[@"exception"] boolValue] ? @" · exception" : @""]];
+            NSString *line = [NSString stringWithFormat:
+                @"[IL2CPP] %@.%@.%@ · method %@\ncallId %@ · thread %@ · %@ ns%@",
+                e[@"namespace"] ?: @"",e[@"className"] ?: @"",
+                e[@"methodName"] ?: @"",e[@"method"] ?: @"",
+                e[@"protectedCallId"] ?: @0,e[@"threadId"] ?: @0,
+                e[@"durationNs"] ?: @0,
+                [e[@"exception"] boolValue] ? @" · exception" : @""];
+            [self appendTraceLine:line to:lines query:query];
         }
+        NSDictionary *names = @{
+            @"diamond":@"钻石", @"gold":@"金币", @"energy":@"体力", @"other":@"其他"
+        };
+        for (NSDictionary *e in checks) {
+            NSString *kind = e[@"kind"] ?: @"other";
+            NSString *methods = [e[@"observedMethods"] isKindOfClass:NSArray.class] ?
+                [e[@"observedMethods"] componentsJoinedByString:@", "] : @"";
+            NSString *line = [NSString stringWithFormat:
+                @"[操作观察·%@] Lua 调用增量 %@ · IL2CPP 调用增量 %@\n%@\n%@\n资源实际数值：未验证",
+                names[kind] ?: kind,e[@"executionDelta"] ?: @0,
+                e[@"bridgeDelta"] ?: @0,e[@"status"] ?: @"",methods];
+            [self appendTraceLine:line to:lines query:query];
+        }
+        if (lines.count == 1 && query.length)
+            [lines addObject:@"没有匹配记录；搜索不影响 JSON 原始数据。"];
         self.results.text = [lines componentsJoinedByString:@"\n\n"];
-        self.status.text = [trace[@"recording"] boolValue] ? @"状态：Lua 采集中" : [NSString stringWithFormat:@"状态：%@", trace[@"reason"] ?: @"等待 Lua Hook"];
+        self.status.text = [trace[@"recording"] boolValue] ?
+            @"状态：跟踪中 · 资源变化需实机验证" :
+            [NSString stringWithFormat:@"状态：%@",trace[@"reason"] ?: @"等待 Hook"];
         return;
     }
     if (!self.snapshot) return;
