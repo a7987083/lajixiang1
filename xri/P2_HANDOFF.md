@@ -47,3 +47,26 @@
 - Next: real-device Lua VM/Chunk observations and Hook restoration safety
   tests on the exact game binary. P3 cross-language bridging must not begin
   with unverified VM ABI or incomplete Hook lifecycle evidence.
+
+## P2.3 — protected Lua execution boundaries
+- Adds a fifth target: exact exported `lua_pcallk`, with the Lua 5.3/5.4
+  compatible signature (Lua state, nargs, nresults, errfunc, context,
+  continuation). Does not assume `lua_resume` ABI is portable between 5.3/5.4.
+- Records observed protected-call completion with state pointer, thread ID,
+  argument count, expected result count, error handler index, return status,
+  monotonic duration and sequence number.
+- Last 512 events are stored; total and evicted-count metrics are exported.
+- No Lua stack reads/writes, lua_Debug layout assumptions, lua_sethook
+  interference, or unsafe string dereferencing are introduced.
+- Exports records under `executions` and `executionStats` in the existing
+  `Documents/XRI/trace.json`. The floating trace tab shows execution events
+  independently from VM and script loader events.
+- This is **a protected-call boundary observer**, not a complete Lua VM
+  instruction/function profiler. Lua-to-Lua internal calls and calls bypassing
+  the exported API remain unobserved. A zero count is not evidence of no Lua
+  execution; check the installed `lua_pcallk` Hook first.
+- To obtain per-function names, source locations or internal VM callbacks,
+  the next iteration must verify the target Lua ABI and select a safe
+  instrumentation strategy with device-level evidence.
+- P2.2 detailed Hook inspection is deliberately skipped at user request;
+  existing diagnostic fields remain in JSON. P2.4 and P2.5 not started.
