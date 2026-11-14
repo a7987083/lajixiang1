@@ -69,7 +69,7 @@
   the next iteration must verify the target Lua ABI and select a safe
   instrumentation strategy with device-level evidence.
 - P2.2 detailed Hook inspection is deliberately skipped at user request;
-  existing diagnostic fields remain in JSON. P2.4 follows below; P2.5 not started.
+  existing diagnostic fields remain in JSON. P2.4 follows below; P2.5 observation support is described below; no target-game runtime validation yet.
 
 ## P2.4 — conservative Lua / IL2CPP correlation
 
@@ -93,3 +93,27 @@
   counts), and `executions[].callId`. Existing export paths are unchanged.
 - Runtime/dylib load/injection and real-device event capture are **unverified**.
   P2.5 resource-operation validation has not started.
+
+## P2.5 — trace search and manual resource-operation observation
+
+- The existing search field now filters VM, Chunk, Lua protected calls,
+  IL2CPP bridge records and P2.5 operation samples. Matching is textual
+  and case/diacritic insensitive; raw JSON export remains **unfiltered**.
+- In the existing **跟踪** tab, choose 钻石 / 金币 / 体力 / 其他,
+  click **操作前**, perform the game operation, then click **操作后**.
+  This adds an observation window, not a new hook.
+- The C ABI `xri_resource_probe_begin(kind)` and
+  `xri_resource_probe_end()` delimit windows using the existing event
+  sequence and execution/bridge counters. At most 24 completed samples
+  are retained; 20 method identifiers per sample are shown. Existing
+  callback buffers remain bounded.
+- `trace.json` exports `resourceProbes`, `activeResourceProbe` and
+  `resourceValidation: observation_only_no_currency_value_read`.
+  Samples explicitly report `calls_observed_unverified_resource` or
+  `no_calls_observed_unverified_resource`.
+- **No balance or currency value is read or inferred.** Counting calls
+  while a diamond/gold/energy action occurs is not proof of the observed
+  method being responsible for resource change. Real device testing
+  and verified game data/ABI are required for true resource validation.
+- This release intentionally does **not** add speculative currency-value
+  hooks, a second hook engine or a separate search index.
