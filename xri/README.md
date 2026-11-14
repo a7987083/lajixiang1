@@ -113,3 +113,23 @@ binary and runtime evidence.
 The fixed source version is `0.2.5-p2.5`. The core and tracer remain
 separate; there is still one hook installer and one bounded trace buffer
 set, with no added polling loop.
+
+## P3.1 — Energy/control differential observation
+
+P3 reuses P2.5's operation marker rather than installing new hooks.
+
+1. Choose **跟踪 → 对照 → 操作前**. Perform a similar ordinary UI
+   action *without* changing energy, then press **操作后**.
+2. Choose **体力 → 操作前**. Spend/restore energy and press **操作后**.
+3. Export both snapshots using **导出 JSON**. In
+   `Documents/XRI/trace.json` inspect `resourceProbes[].methodCounts`
+   and `resourceComparisons[].methodDeltas`.
+
+The analyzer records per-method frequencies live while the marker is
+active, so old individual bridge events being evicted no longer truncates
+method aggregation. It retains at most 256 distinct method names per
+window; `methodAggregationOverflow` signals capacity loss.
+Method frequency normalization uses recorded Lua protected calls as the
+denominator. This is a **candidate signal**, not proof a method causes
+a resource change; games using direct xLua-generated wrappers can bypass
+`il2cpp_runtime_invoke` entirely. P3 does not read or change balances.
