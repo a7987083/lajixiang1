@@ -22,3 +22,12 @@ v10 replaces only file offsets `0x15190..0x1519D`; decoded result is `taobaozono
 
 ## Acceptance
 Verify on device that v10 keeps the working replacement icon, preserves v9 color behavior, and shows `taobaozonoe` where the plugin previously showed `Check0ver Team`.
+
+
+## Taylor resource menu V1 (2026-11-14)
+- Branch: feature/taylor-resource-menu-v1; baseline: 67935a7a996ee0c996f278ca2103f029755bd3e5.
+- Source: taylor-resource-menu-v1/README.md covers ABI/RVAs, lifecycle and build steps.
+- Tick hook uses the live LuaEnv only on the game main thread; explicit one-shot GM.AddItem for IDs 1/2/3, balance verification, input and feedback. Embedded pinned Dobby.
+- Local checks: Lua 5.3 mock behavior harness, shell syntax and diff checks passed. These do not prove game behavior.
+- Public source publication explicitly approved by user. CI build/signature verification pending; local host has no Apple SDK; real device and cloud persistence unverified.
+- Next: inspect Actions result, deliver dylib, verify device hook installation and before/after resource values, then scene/reset/relaunch persistence.

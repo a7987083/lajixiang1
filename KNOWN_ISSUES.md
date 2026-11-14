@@ -23,3 +23,11 @@ Status: unchanged.
 ## KI-005 — Exact supplied-build offsets are version-specific
 All offsets documented here apply to UUID `BA5FE867-6E15-3EC5-A68F-AE847E92EF26`.
 Status: controlled by exact baseline tracking.
+
+
+## Taylor resource menu V1
+- Exact target UUID only; other game versions disabled.
+- Device hook permissions, UI/keyboard/rotation, LuaEnv recreation and server acceptance unverified.
+- Quantity 1–100 is a test UI range, not a guarantee against game validation. Original validation remains active.
+- No forced saves/cloud sync; normal game save lifecycle applies.
+- Disable export leaves an inert trampoline until process exit; remove injection and restart to uninstall.

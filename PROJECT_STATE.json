@@ -24,5 +24,15 @@
     "v10_sha256": "7825c5511e9f36306e5726f37a2944bc783e08262d6223e0cf6f0d605e57b9cf"
   },
   "phase": "phase10-title-replacement",
-  "next_task": "real-device verify v10 keeps icon/color behavior and changes title to taobaozonoe"
+  "next_task": "real-device verify v10 keeps icon/color behavior and changes title to taobaozonoe",
+  "taylor_resource_menu": {
+    "branch": "feature/taylor-resource-menu-v1",
+    "baseline": "67935a7a996ee0c996f278ca2103f029755bd3e5",
+    "source": "taylor-resource-menu-v1",
+    "local_checks": "Lua 5.3 mock operations + shell syntax + diff check passed",
+    "ci": "pending",
+    "device": "unverified",
+    "next_task": "publish approved source and inspect Actions build/signature checks",
+    "build": "not compiled: no local xcrun/iPhoneOS SDK"
+  }
 }

@@ -21,3 +21,12 @@
 
 ## Current acceptance
 Test v10 as one file. Expected: working replacement icon from v8, cyan theme from v9, and title `taobaozonoe`. If one item fails, isolate that chain without changing the already verified icon/MD5 path.
+
+
+## Taylor resource menu V1 (2026-11-14)
+- Branch: feature/taylor-resource-menu-v1; baseline: 67935a7a996ee0c996f278ca2103f029755bd3e5.
+- Source: taylor-resource-menu-v1/README.md covers ABI/RVAs, lifecycle and build steps.
+- Tick hook uses the live LuaEnv only on the game main thread; explicit one-shot GM.AddItem for IDs 1/2/3, balance verification, input and feedback. Embedded pinned Dobby.
+- Local checks: Lua 5.3 mock behavior harness, shell syntax and diff checks passed. These do not prove game behavior.
+- Public source publication explicitly approved by user. CI build/signature verification pending; local host has no Apple SDK; real device and cloud persistence unverified.
+- Next: inspect Actions result, deliver dylib, verify device hook installation and before/after resource values, then scene/reset/relaunch persistence.
