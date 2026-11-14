@@ -32,6 +32,9 @@ constexpr const char *kExports[] = {
     "xluaL_loadbuffer", "luaL_loadbufferx", "luaL_loadbuffer",
     "lua_pcallk", "lua_pcall", "lua_newstate", "luaL_newstate",
     "lua_close", "il2cpp_domain_get", "il2cpp_thread_attach",
+    "il2cpp_runtime_invoke", "il2cpp_method_get_name",
+    "il2cpp_method_get_class", "il2cpp_class_get_name",
+    "il2cpp_class_get_namespace",
     "il2cpp_assembly_get_image", "il2cpp_class_from_name"
 };
 
@@ -146,7 +149,7 @@ std::string capture() {
         if (std::strncmp(symbol.name, "il2cpp_", 7) == 0) il2cpp = true;
     }
 
-    std::string out = R"({"schemaVersion":1,"module":"XRI","version":"0.1.0-p1",)";
+    std::string out = R"({"schemaVersion":1,"module":"XRI","version":"0.2.5-p2.5",)";
     out += R"("mode":"read-only","capabilities":{"imageScan":true,"exportResolution":true,"luaVmTracking":false,"hookInstallation":false},)";
     out += "\"detected\":{\"lua\":" + std::string(lua ? "true" : "false") +
            ",\"xlua\":" + (xlua ? "true" : "false") +
@@ -178,7 +181,7 @@ std::string capture() {
 
 extern "C" __attribute__((visibility("default")))
 const char *xri_version(void) {
-    return "0.1.0-p1";
+    return "0.2.5-p2.5";
 }
 
 extern "C" __attribute__((visibility("default")))
