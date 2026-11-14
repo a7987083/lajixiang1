@@ -22,7 +22,7 @@ jobs:
             -fobjc-arc -arch arm64 -dynamiclib -isysroot "$SDK" \
             -miphoneos-version-min=13.0 -Ixri/include \
             xri/src/XRI.cpp xri/src/XRIOverlay.mm -o dist/XLuaResourceInspector.dylib \
-            -framework UIKit -framework Foundation \
+            -framework UIKit -framework Foundation -framework CoreGraphics \
             -Wl,-install_name,@rpath/XLuaResourceInspector.dylib
           codesign --force --sign - --timestamp=none dist/XLuaResourceInspector.dylib
           file dist/XLuaResourceInspector.dylib
