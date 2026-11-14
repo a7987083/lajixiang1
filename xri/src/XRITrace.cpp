@@ -29,6 +29,7 @@ using LuaKFunction = int (*)(LuaState *, int, intptr_t);
 using LuaPCallFn = int (*)(LuaState *, int, int, int, intptr_t, LuaKFunction);
 using LuaCFunction = int (*)(LuaState *);
 using LuaPushCClosureFn = void (*)(LuaState *, LuaCFunction, int);
+using LuaPrecallFn = int (*)(LuaState *, const void *, int);
 // Opaque IL2CPP types: method metadata is accessed only via public runtime APIs.
 using RuntimeInvokeFn = void *(*)(const void *, void *, void **, void **);
 using MethodNameFn = const char *(*)(const void *);
@@ -73,18 +74,22 @@ struct BridgeEvent {
     std::string className;
     std::string namespaceName;
 };
+struct CallbackEvent { uintptr_t state, callback; uint64_t callId, thread, sequence, durationNs; unsigned tag; };
 struct ResourceProbe {
     std::string kind;
     uint64_t startSequence;
     uint64_t endSequence;
     uint64_t beginExecutionTotal;
     uint64_t endExecutionTotal;
+    uint64_t beginCallbackTotal = 0, endCallbackTotal = 0;
     uint64_t beginBridgeTotal;
     uint64_t endBridgeTotal;
     std::string result;
     uint64_t observedMethodCount;
     std::vector<std::string> methods;
     std::map<std::string, uint64_t> methodCounts;
+    std::map<uintptr_t, uint64_t> callbackCounts;
+    uint64_t callbackOverflow = 0;
     uint64_t overflowCount = 0;
 };
 struct HookEntry {
@@ -94,6 +99,7 @@ struct HookEntry {
     int error;
 };
 constexpr size_t kMaxRegisteredCFunctions = 512;
+constexpr size_t kMaxCallbackEvents = 512, kMaxProbeCallbacks = 256;
 constexpr size_t kMaxResourceProbes = 24;
 constexpr size_t kMaxProbeMethods = 20;
 constexpr size_t kMaxDistinctMethods = 256;
@@ -114,6 +120,8 @@ std::vector<StateEvent> g_states;
 std::vector<ChunkEvent> g_chunks;
 std::vector<ExecutionEvent> g_executions;
 std::vector<BridgeEvent> g_bridges;
+std::vector<CallbackEvent> g_callbackEvents;
+std::atomic<uint64_t> g_callbackTotal{0}, g_callbackDropped{0};
 std::vector<ResourceProbe> g_resourceProbes;
 bool g_probeActive = false;
 ResourceProbe g_pendingProbe = {};
@@ -142,6 +150,7 @@ XLuaLoadFn origXLuaLoad = nullptr;
 LuaLoadFn origLuaLoad = nullptr;
 LuaPCallFn origPCall = nullptr;
 LuaPushCClosureFn origPushCClosure = nullptr;
+LuaPrecallFn origPrecall = nullptr;
 RuntimeInvokeFn origRuntimeInvoke = nullptr;
 MethodNameFn methodGetName = nullptr;
 MethodClassFn methodGetClass = nullptr;
@@ -369,6 +378,81 @@ void pushCClosureHook(LuaState *state, LuaCFunction fn, int upvalues) {
 }
 
 // Only resolve exact exports in their owning loaded image, never inferred offsets.
+
+// Exact target ABI only: Taylor Secret 1.8.9 UUID CC89F3E2-E288-3FBF-AB96-1FD4E58F047A.
+bool verifiedTaylorPrecall(void *address) {
+    Dl_info info={};
+    if (!address || !dladdr(address,&info) || !info.dli_fbase || !info.dli_fname ||
+        !std::strstr(info.dli_fname,"/UnityFramework.framework/UnityFramework")) return false;
+    const auto *h = reinterpret_cast<const mach_header_64 *>(info.dli_fbase);
+    if(h->magic != MH_MAGIC_64 || h->ncmds > 1024) return false;
+    const uint8_t expected[16]={0xCC,0x89,0xF3,0xE2,0xE2,0x88,0x3F,0xBF,
+                                0xAB,0x96,0x1F,0xD4,0xE5,0x8F,0x04,0x7A};
+    const auto *p=reinterpret_cast<const uint8_t *>(h+1);
+    bool match=false;
+    for(uint32_t i=0;i<h->ncmds;++i){
+        const auto *lc=reinterpret_cast<const load_command *>(p);
+        if(lc->cmdsize<sizeof(load_command)||lc->cmdsize>65536)return false;
+        if(lc->cmd==LC_UUID && lc->cmdsize>=sizeof(uuid_command)){
+            match=std::memcmp(reinterpret_cast<const uuid_command *>(p)->uuid,expected,16)==0;
+            break;
+        }
+        p+=lc->cmdsize;
+    }
+    if(!match || reinterpret_cast<uintptr_t>(address)-reinterpret_cast<uintptr_t>(h)
+           != UINT64_C(0x032534D8)) return false;
+    uint32_t opcode=0;
+    std::memcpy(&opcode,reinterpret_cast<const uint8_t *>(h)+UINT64_C(0x032537AC),4);
+    return opcode==UINT32_C(0xD63F02E0);
+}
+// Read-only observer. Exact target: TValue tag at +8; 0x16 light C function;
+// 0x26 CClosure, callback at closure +0x18. Normal return from precall only.
+int precallHook(LuaState *L,const void *func,int nresults){
+    if(!origPrecall)return 0;
+    uintptr_t callback=0;
+    unsigned tag=0;
+    if(L && func && g_active.load(std::memory_order_relaxed)){
+        const auto *p=static_cast<const uint8_t *>(func);
+        uint32_t rawTag=0;
+        std::memcpy(&rawTag,p+8,4);
+        tag=rawTag&0x3fU;
+        if(tag==0x16U)std::memcpy(&callback,p,8);
+        else if(tag==0x26U){
+            uintptr_t closure=0;
+            std::memcpy(&closure,p,8);
+            if(closure)std::memcpy(&callback,reinterpret_cast<const void *>(closure+0x18),8);
+        }
+    }
+    const uint64_t start=callback?mach_absolute_time():0;
+    const int result=origPrecall(L,func,nresults);
+    if(!callback || result!=1 || !g_active.load(std::memory_order_relaxed))return result;
+    uint64_t tid=0;
+    pthread_threadid_np(nullptr,&tid);
+    const uint64_t callId=g_currentCallId;
+    static mach_timebase_info_data_t tb=[] {
+        mach_timebase_info_data_t value={};mach_timebase_info(&value);return value;
+    }();
+    const uint64_t ticks=mach_absolute_time()-start;
+    const uint64_t ns=tb.denom?
+        static_cast<uint64_t>((static_cast<long double>(ticks)*tb.numer)/tb.denom):0;
+    g_callbackTotal.fetch_add(1,std::memory_order_relaxed);
+    std::lock_guard<std::mutex> guard(g_mu);
+    if(g_callbackEvents.size()>=kMaxCallbackEvents){
+        g_callbackEvents.erase(g_callbackEvents.begin());
+        g_callbackDropped.fetch_add(1,std::memory_order_relaxed);
+    }
+    g_callbackEvents.push_back({reinterpret_cast<uintptr_t>(L),callback,callId,
+                                tid,++g_seq,ns,tag});
+    if(g_probeActive){
+        auto &counts=g_pendingProbe.callbackCounts;
+        auto it=counts.find(callback);
+        if(it!=counts.end())++it->second;
+        else if(counts.size()<kMaxProbeCallbacks)counts.emplace(callback,1);
+        else ++g_pendingProbe.callbackOverflow;
+    }
+    return result;
+}
+
 // A hook is never installed unless the original trampoline is provided.
 void *resolve(const char *name) {
     uint32_t count = _dyld_image_count();
@@ -612,6 +696,8 @@ void installAvailable() {
     }
 
     struct Target {const char *name; void *replacement; void **original;};
+    void *verifiedPrecall=resolve("luaD_precall");
+    if(!verifiedTaylorPrecall(verifiedPrecall))verifiedPrecall=nullptr;
     const Target targets[] = {
         {"luaL_newstate", reinterpret_cast<void *>(&newStateHook),
          reinterpret_cast<void **>(&origNewState)},
@@ -623,6 +709,8 @@ void installAvailable() {
          reinterpret_cast<void **>(&origLuaLoad)},
         {"lua_pushcclosure", reinterpret_cast<void *>(&pushCClosureHook),
          reinterpret_cast<void **>(&origPushCClosure)},
+        {"luaD_precall", reinterpret_cast<void *>(&precallHook),
+         reinterpret_cast<void **>(&origPrecall)},
         {"lua_pcallk", reinterpret_cast<void *>(&pcallHook),
          reinterpret_cast<void **>(&origPCall)},
         {"il2cpp_runtime_invoke", reinterpret_cast<void *>(&runtimeInvokeHook),
@@ -637,8 +725,9 @@ void installAvailable() {
             }
         }
         if (processed) continue;
-        void *addr = std::strcmp(t.name, "il2cpp_runtime_invoke") == 0 ?
-            invokeAddress : resolve(t.name);
+        void *addr = std::strcmp(t.name,"il2cpp_runtime_invoke")==0 ?
+            invokeAddress : std::strcmp(t.name,"luaD_precall")==0 ?
+            verifiedPrecall : resolve(t.name);
         if (!addr) continue; // Not yet loaded. Try again after next dyld image notification.
 
         // DobbyHook can suspend threads and install executable memory.
@@ -662,7 +751,7 @@ void installAvailable() {
     } else {
         unsigned count = 0;
         for (const auto &h : g_hooks) if (h.installed) ++count;
-        g_reason = count == 7 ? "Recording (7/7 hooks)"
+        g_reason = count == 8 ? "Recording (8/8 hooks)"
                               : "Recording (partial hooks; earlier events not recoverable)";
     }
 }
