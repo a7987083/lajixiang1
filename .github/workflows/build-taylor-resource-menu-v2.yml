@@ -1,0 +1,27 @@
+name: Build Taylor Resource Menu V2
+on:
+  push:
+    branches: [feature/taylor-resource-menu-v2]
+    paths: ['taylor-resource-menu-v2/**', '.github/workflows/build-taylor-resource-menu-v2.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: taylor-resource-menu-v2
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build signed iOS arm64 V2 dylib with embedded Dobby
+        run: sh build_macos.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TaylorResourceMenu-V2-ios-arm64
+          path: |
+            taylor-resource-menu-v2/TaylorResourceMenu-V2.dylib
+            taylor-resource-menu-v2/SHA256SUMS.txt
+            taylor-resource-menu-v2/README.md
+            taylor-resource-menu-v2/Dobby-LICENSE.txt
+          if-no-files-found: error
