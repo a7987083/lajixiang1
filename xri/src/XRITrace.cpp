@@ -69,12 +69,26 @@ struct BridgeEvent {
     std::string className;
     std::string namespaceName;
 };
+struct ResourceProbe {
+    std::string kind;
+    uint64_t startSequence;
+    uint64_t endSequence;
+    uint64_t beginExecutionTotal;
+    uint64_t endExecutionTotal;
+    uint64_t beginBridgeTotal;
+    uint64_t endBridgeTotal;
+    std::string result;
+    uint64_t observedMethodCount;
+    std::vector<std::string> methods;
+};
 struct HookEntry {
     const char *name;
     void *address;
     bool installed;
     int error;
 };
+constexpr size_t kMaxResourceProbes = 24;
+constexpr size_t kMaxProbeMethods = 20;
 constexpr size_t kMaxBridges = 256;
 constexpr size_t kMaxExecutions = 512;
 constexpr size_t kMaxChunks = 256;
@@ -92,6 +106,9 @@ std::vector<StateEvent> g_states;
 std::vector<ChunkEvent> g_chunks;
 std::vector<ExecutionEvent> g_executions;
 std::vector<BridgeEvent> g_bridges;
+std::vector<ResourceProbe> g_resourceProbes;
+bool g_probeActive = false;
+ResourceProbe g_pendingProbe = {};
 std::atomic<uint64_t> g_bridgeTotal{0};
 std::atomic<uint64_t> g_bridgeDropped{0};
 std::atomic<uint64_t> g_callIds{0};
@@ -358,7 +375,36 @@ std::string jsonSnapshot() {
                   ",\"exception\":" + (e.exception ? "true" : "false") +
                   ",\"sequence\":" + std::to_string(e.sequence) + "}";
     }
-    result += "],\"bridgeStats\":{\"total\":" +
+    result += "],\"resourceProbes\":[";
+    for (size_t i = 0; i < g_resourceProbes.size(); ++i) {
+        if (i) result += ",";
+        const auto &e = g_resourceProbes[i];
+        result += "{\"kind\":\"" + escape(e.kind) +
+                  "\",\"status\":\"" + escape(e.result) +
+                  "\",\"startSequence\":" + std::to_string(e.startSequence) +
+                  ",\"endSequence\":" + std::to_string(e.endSequence) +
+                  ",\"executionDelta\":" +
+                  std::to_string(e.endExecutionTotal - e.beginExecutionTotal) +
+                  ",\"bridgeDelta\":" +
+                  std::to_string(e.endBridgeTotal - e.beginBridgeTotal) +
+                  ",\"matchedMethodCount\":" + std::to_string(e.observedMethodCount) +
+                  ",\"observedMethods\":[";
+        for (size_t j = 0; j < e.methods.size(); ++j) {
+            if (j) result += ",";
+            result += "\"" + escape(e.methods[j]) + "\"";
+        }
+        result += "]}";
+    }
+    result += "],\"activeResourceProbe\":";
+    if (g_probeActive) {
+        result += "{\"kind\":\"" + escape(g_pendingProbe.kind) +
+                  "\",\"startSequence\":" +
+                  std::to_string(g_pendingProbe.startSequence) + "}";
+    } else {
+        result += "null";
+    }
+    result += ",\"resourceValidation\":\"observation_only_no_currency_value_read\"";
+    result += ",\"bridgeStats\":{\"total\":" +
               std::to_string(g_bridgeTotal.load(std::memory_order_relaxed)) +
               ",\"dropped\":" + std::to_string(g_bridgeDropped.load(std::memory_order_relaxed)) +
               ",\"scope\":\"il2cpp_runtime_invoke_within_lua_pcallk_same_thread\"}";
@@ -531,11 +577,69 @@ extern "C" __attribute__((visibility("default"))) void xri_trace_clear(void) {
     g_states.clear();
     g_executions.clear();
     g_bridges.clear();
+    g_resourceProbes.clear();
+    g_probeActive = false;
+    g_pendingProbe = {};
     g_bridgeTotal = 0;
     g_bridgeDropped = 0;
     g_executionTotal = 0;
     g_executionDropped = 0;
 }
+extern "C" __attribute__((visibility("default")))
+int xri_resource_probe_begin(const char *kind) {
+    if (!kind) return -1;
+    const std::string type(kind, strnlen(kind, 24));
+    if (type != "diamond" && type != "gold" &&
+        type != "energy" && type != "other") return -1;
+    std::lock_guard<std::mutex> lock(g_mu);
+    if (g_probeActive) return -1;
+    g_pendingProbe = {};
+    g_pendingProbe.kind = type;
+    g_pendingProbe.startSequence = g_seq.load(std::memory_order_relaxed);
+    g_pendingProbe.beginExecutionTotal =
+        g_executionTotal.load(std::memory_order_relaxed);
+    g_pendingProbe.beginBridgeTotal =
+        g_bridgeTotal.load(std::memory_order_relaxed);
+    g_pendingProbe.result = "capturing";
+    g_probeActive = true;
+    return 1;
+}
+extern "C" __attribute__((visibility("default")))
+int xri_resource_probe_end(void) {
+    std::lock_guard<std::mutex> lock(g_mu);
+    if (!g_probeActive) return -1;
+    g_pendingProbe.endSequence = g_seq.load(std::memory_order_relaxed);
+    g_pendingProbe.endExecutionTotal =
+        g_executionTotal.load(std::memory_order_relaxed);
+    g_pendingProbe.endBridgeTotal =
+        g_bridgeTotal.load(std::memory_order_relaxed);
+
+    for (const auto &bridge : g_bridges) {
+        if (bridge.sequence <= g_pendingProbe.startSequence ||
+            bridge.sequence > g_pendingProbe.endSequence) continue;
+        ++g_pendingProbe.observedMethodCount;
+        if (g_pendingProbe.methods.size() < kMaxProbeMethods) {
+            std::string identifier = bridge.namespaceName;
+            if (!identifier.empty()) identifier += ".";
+            identifier += bridge.className;
+            identifier += ".";
+            identifier += bridge.methodName;
+            g_pendingProbe.methods.push_back(std::move(identifier));
+        }
+    }
+    const bool observations =
+        g_pendingProbe.endExecutionTotal > g_pendingProbe.beginExecutionTotal ||
+        g_pendingProbe.endBridgeTotal > g_pendingProbe.beginBridgeTotal;
+    g_pendingProbe.result = observations ? "calls_observed_unverified_resource"
+                                         : "no_calls_observed_unverified_resource";
+    if (g_resourceProbes.size() >= kMaxResourceProbes)
+        g_resourceProbes.erase(g_resourceProbes.begin());
+    g_resourceProbes.push_back(std::move(g_pendingProbe));
+    g_pendingProbe = {};
+    g_probeActive = false;
+    return 1;
+}
+
 extern "C" __attribute__((visibility("default")))
 size_t xri_trace_snapshot_json(char *output, size_t capacity) {
     const std::string s = jsonSnapshot();
