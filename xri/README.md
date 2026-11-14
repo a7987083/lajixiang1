@@ -1,8 +1,17 @@
 # XRI — XLua Resource Inspector
 
-## Scope (P1)
-Independent, read-only iOS arm64 diagnostics dylib. It does **not** install hooks,
-decode Lua scripts, enumerate Lua states, patch memory, or change game resources.
+## Current scope (P3.2)
+Independent, read-only iOS arm64 tracer. It installs Dobby inline hooks on
+exported Lua and IL2CPP entry points, collects bounded execution/registration
+events, and correlates events observed in manually marked operation windows.
+It **does not** modify game resources or claim that callback registration
+equals callback execution. Exact supported target and ABI limitations are
+documented in `P3_2_BINARY_AUDIT.md`.
+
+## Historical P1 scope
+The original P1 module did not install hooks, decode Lua scripts, enumerate
+Lua states, patch memory, or change game resources. Later P2/P3 stages
+extended runtime observation while preserving the public P1 scanner API.
 
 ### Public C ABI
 ```c
@@ -110,7 +119,7 @@ that those calls changed currency. This tool does not read balances or
 infer resource addresses. A genuine resource result requires target-game
 binary and runtime evidence.
 
-The fixed source version is `0.2.5-p2.5`. The core and tracer remain
+The historical P2.5 source version was `0.2.5-p2.5`. The core and tracer remain
 separate; there is still one hook installer and one bounded trace buffer
 set, with no added polling loop.
 
@@ -133,3 +142,18 @@ Method frequency normalization uses recorded Lua protected calls as the
 denominator. This is a **candidate signal**, not proof a method causes
 a resource change; games using direct xLua-generated wrappers can bypass
 `il2cpp_runtime_invoke` entirely. P3 does not read or change balances.
+
+## P3.2 — Native callback registration, not execution
+The target Mach-O export `lua_pushcclosure` can register a callback
+directly invoked later by the Lua VM; the game's `luaD_precall`
+contains a confirmed ARM64 indirect branch `blr x23`.
+The unified tracer observes registration only and records a bounded
+`cFunctionRegistrations` array plus `cFunctionRegistrationStats`
+(total registrations, retained distinct callbacks and overflow count).
+These rows identify callback pointer, owner image and image-relative
+offset. They do **not** prove a call happened, identify Lua source
+functions, or resolve the mapped managed C# method. Do not treat
+`lua_pushcclosure` as a complete Lua-to-C# execution trace.
+
+The current core source version is `0.3.2-p3`. No arbitrary
+per-callback hooks or VM stack reads are enabled.
