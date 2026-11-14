@@ -384,7 +384,9 @@ static UIButton *XButton(NSString *title, UIColor *bg, id target, SEL action) {
                 return r != NSOrderedSame ? r :
                     [a[@"callback"] compare:b[@"callback"]];
             }];
+        NSUInteger displayedRegistrations = 0;
         for (NSDictionary *e in sortedRegistrations) {
+            if (!query.length && displayedRegistrations++ >= 30) break;
             NSString *line = [NSString stringWithFormat:
                 @"[Lua C回调注册·非执行] %@ · %@ ×%@\\n归属 %@ · offset %@ · upvalues %@",
                 e[@"callback"] ?: @"", e[@"state"] ?: @"", e[@"count"] ?: @0,
