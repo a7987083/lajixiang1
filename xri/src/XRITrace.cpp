@@ -50,6 +50,7 @@ struct ChunkEvent {
 struct ExecutionEvent {
     uintptr_t state;
     uint64_t thread;
+    uint64_t callId;
     int nargs;
     int nresults;
     int errfunc;
@@ -227,7 +228,7 @@ int pcallHook(LuaState *L, int nargs, int nresults, int errfunc,
             g_executionDropped.fetch_add(1, std::memory_order_relaxed);
         }
         g_executions.push_back({
-            reinterpret_cast<uintptr_t>(L), tid, nargs, nresults,
+            reinterpret_cast<uintptr_t>(L), tid, callId, nargs, nresults,
             errfunc, status, elapsedNs, ++g_seq
         });
     }
@@ -334,6 +335,7 @@ std::string jsonSnapshot() {
         const auto &e = g_executions[i];
         result += "{\"api\":\"lua_pcallk\",\"state\":\"" + hex(e.state) +
                   "\",\"threadId\":" + std::to_string(e.thread) +
+                  ",\"callId\":" + std::to_string(e.callId) +
                   ",\"nargs\":" + std::to_string(e.nargs) +
                   ",\"nresults\":" + std::to_string(e.nresults) +
                   ",\"errfunc\":" + std::to_string(e.errfunc) +
