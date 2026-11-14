@@ -58,6 +58,13 @@ jobs:
           xcrun otool -L dist/XLuaResourceInspector.dylib
           xcrun nm -gU dist/XLuaResourceInspector.dylib | grep -E '_xri_(snapshot_json|trace_start|version)$'
           shasum -a 256 dist/XLuaResourceInspector.dylib > dist/XRI-SHA256SUMS.txt
+      - name: Archive exact XRI source snapshot
+        run: |
+          set -euo pipefail
+          mkdir -p dist/xri-source
+          git archive HEAD xri .github/workflows/xri.yml | tar -xf - -C dist/xri-source
+          (cd dist && zip -qr XRI-Source-Commit.zip xri-source)
+          (cd dist && shasum -a 256 XRI-Source-Commit.zip > XRI-SOURCE-SHA256SUMS.txt)
       - name: Package independent XRI artifact
         run: |
           cd dist
@@ -71,6 +78,8 @@ jobs:
           path: |
             dist/XLuaResourceInspector.dylib
             dist/XRI-P3.3-P4-Evidence.zip
+            dist/XRI-Source-Commit.zip
+            dist/XRI-SOURCE-SHA256SUMS.txt
             dist/XRI-SHA256SUMS.txt
             dist/DOBBY-LICENSE.txt
             xri/tools/analyze_trace.py
