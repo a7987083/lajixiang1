@@ -10,6 +10,8 @@
 #include <cstdio>
 #include <cstring>
 #include <mutex>
+#include <map>
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -80,6 +82,8 @@ struct ResourceProbe {
     std::string result;
     uint64_t observedMethodCount;
     std::vector<std::string> methods;
+    std::map<std::string, uint64_t> methodCounts;
+    uint64_t overflowCount = 0;
 };
 struct HookEntry {
     const char *name;
@@ -89,6 +93,7 @@ struct HookEntry {
 };
 constexpr size_t kMaxResourceProbes = 24;
 constexpr size_t kMaxProbeMethods = 20;
+constexpr size_t kMaxDistinctMethods = 256;
 constexpr size_t kMaxBridges = 256;
 constexpr size_t kMaxExecutions = 512;
 constexpr size_t kMaxChunks = 256;
@@ -298,6 +303,23 @@ void *runtimeInvokeHook(const void *method, void *object,
         g_bridges.erase(g_bridges.begin());
         g_bridgeDropped.fetch_add(1, std::memory_order_relaxed);
     }
+    // Aggregate before the bounded event ring evicts individual records.
+    if (g_probeActive) {
+        ++g_pendingProbe.observedMethodCount;
+        std::string identifier = namespaceName;
+        if (!identifier.empty()) identifier += ".";
+        identifier += className;
+        identifier += ".";
+        identifier += methodName;
+        auto found = g_pendingProbe.methodCounts.find(identifier);
+        if (found != g_pendingProbe.methodCounts.end()) {
+            ++found->second;
+        } else if (g_pendingProbe.methodCounts.size() < kMaxDistinctMethods) {
+            g_pendingProbe.methodCounts.emplace(std::move(identifier), 1);
+        } else {
+            ++g_pendingProbe.overflowCount;
+        }
+    }
     g_bridges.push_back({reinterpret_cast<uintptr_t>(method), tid, callId,
                          elapsedNs, exception && *exception != nullptr, ++g_seq,
                          std::move(methodName), std::move(className),
@@ -392,6 +414,57 @@ std::string jsonSnapshot() {
         for (size_t j = 0; j < e.methods.size(); ++j) {
             if (j) result += ",";
             result += "\"" + escape(e.methods[j]) + "\"";
+        }
+        result += "],\"methodCounts\":[";
+        bool firstCount = true;
+        for (const auto &entry : e.methodCounts) {
+            if (!firstCount) result += ",";
+            firstCount = false;
+            result += "{\"method\":\"" + escape(entry.first) +
+                      "\",\"count\":" + std::to_string(entry.second) + "}";
+        }
+        result += "],\"methodAggregationOverflow\":" +
+                  std::to_string(e.overflowCount) + "}";
+    }
+    result += "],\"resourceComparisons\":[";
+    // Only compare energy samples with a preceding user-labelled control.
+    bool firstCompare = true;
+    const ResourceProbe *baseline = nullptr;
+    for (const auto &probe : g_resourceProbes) {
+        if (probe.kind == "other") {
+            baseline = &probe;
+            continue;
+        }
+        if (probe.kind != "energy" || !baseline) continue;
+        if (!firstCompare) result += ",";
+        firstCompare = false;
+        const uint64_t controlExecutions =
+            baseline->endExecutionTotal - baseline->beginExecutionTotal;
+        const uint64_t targetExecutions =
+            probe.endExecutionTotal - probe.beginExecutionTotal;
+        result += "{\"kind\":\"energy\",\"evidence\":\"manual_window_differential\","
+                  "\"controlStartSequence\":" + std::to_string(baseline->startSequence) +
+                  ",\"targetStartSequence\":" + std::to_string(probe.startSequence) +
+                  ",\"controlExecutions\":" + std::to_string(controlExecutions) +
+                  ",\"targetExecutions\":" + std::to_string(targetExecutions) +
+                  ",\"comparisonReady\":" +
+                  std::string(controlExecutions && targetExecutions ? "true" : "false") +
+                  ",\"methodDeltas\":[";
+        bool firstDelta = true;
+        for (const auto &entry : probe.methodCounts) {
+            const auto it = baseline->methodCounts.find(entry.first);
+            const uint64_t controlCount = it == baseline->methodCounts.end() ? 0 : it->second;
+            const double controlRate = controlExecutions ?
+                (1000.0 * controlCount / controlExecutions) : 0.0;
+            const double targetRate = targetExecutions ?
+                (1000.0 * entry.second / targetExecutions) : 0.0;
+            if (!firstDelta) result += ",";
+            firstDelta = false;
+            result += "{\"method\":\"" + escape(entry.first) +
+                      "\",\"controlCount\":" + std::to_string(controlCount) +
+                      ",\"targetCount\":" + std::to_string(entry.second) +
+                      ",\"controlRatePer1kLuaCalls\":" + std::to_string(controlRate) +
+                      ",\"targetRatePer1kLuaCalls\":" + std::to_string(targetRate) + "}";
         }
         result += "]}";
     }
@@ -614,18 +687,17 @@ int xri_resource_probe_end(void) {
     g_pendingProbe.endBridgeTotal =
         g_bridgeTotal.load(std::memory_order_relaxed);
 
-    for (const auto &bridge : g_bridges) {
-        if (bridge.sequence <= g_pendingProbe.startSequence ||
-            bridge.sequence > g_pendingProbe.endSequence) continue;
-        ++g_pendingProbe.observedMethodCount;
-        if (g_pendingProbe.methods.size() < kMaxProbeMethods) {
-            std::string identifier = bridge.namespaceName;
-            if (!identifier.empty()) identifier += ".";
-            identifier += bridge.className;
-            identifier += ".";
-            identifier += bridge.methodName;
-            g_pendingProbe.methods.push_back(std::move(identifier));
-        }
+    // Live aggregation retains counts independently of the event ring.
+    std::vector<std::pair<std::string, uint64_t>> ordered(
+        g_pendingProbe.methodCounts.begin(), g_pendingProbe.methodCounts.end());
+    std::sort(ordered.begin(), ordered.end(),
+              [](const auto &a, const auto &b) {
+                  return a.second != b.second ? a.second > b.second :
+                         a.first < b.first;
+              });
+    for (const auto &entry : ordered) {
+        if (g_pendingProbe.methods.size() >= kMaxProbeMethods) break;
+        g_pendingProbe.methods.push_back(entry.first);
     }
     const bool observations =
         g_pendingProbe.endExecutionTotal > g_pendingProbe.beginExecutionTotal ||
