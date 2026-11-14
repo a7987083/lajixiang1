@@ -67,6 +67,7 @@ struct BridgeEvent {
     uintptr_t method;
     uint64_t thread;
     uint64_t callId;
+    uintptr_t nativeCallback;
     uint64_t durationNs;
     bool exception;
     uint64_t sequence;
@@ -157,6 +158,7 @@ MethodClassFn methodGetClass = nullptr;
 ClassNameFn classGetName = nullptr;
 ClassNamespaceFn classGetNamespace = nullptr;
 thread_local uint64_t g_currentCallId = 0;
+thread_local uintptr_t g_currentNativeCallback = 0;
 thread_local unsigned g_executionDepth = 0;
 
 uint64_t hashPrefix(const char *data, size_t length) {
@@ -295,6 +297,7 @@ void *runtimeInvokeHook(const void *method, void *object,
     const uint64_t callId = g_currentCallId;
     const bool observe = callId != 0 && method &&
                          g_active.load(std::memory_order_relaxed);
+    const uintptr_t nativeCallback = observe ? g_currentNativeCallback : 0;
     const uint64_t start = observe ? mach_absolute_time() : 0;
     void *result = origRuntimeInvoke
         ? origRuntimeInvoke(method, object, args, exception) : nullptr;
@@ -344,7 +347,7 @@ void *runtimeInvokeHook(const void *method, void *object,
         }
     }
     g_bridges.push_back({reinterpret_cast<uintptr_t>(method), tid, callId,
-                         elapsedNs, exception && *exception != nullptr, ++g_seq,
+                         nativeCallback, elapsedNs, exception && *exception != nullptr, ++g_seq,
                          std::move(methodName), std::move(className),
                          std::move(namespaceName)});
     return result;
@@ -424,7 +427,10 @@ int precallHook(LuaState *L,const void *func,int nresults){
         }
     }
     const uint64_t start=callback?mach_absolute_time():0;
+    const uintptr_t previousCallback=g_currentNativeCallback;
+    if(callback)g_currentNativeCallback=callback;
     const int result=origPrecall(L,func,nresults);
+    g_currentNativeCallback=previousCallback;
     if(!callback || result!=1 || !g_active.load(std::memory_order_relaxed))return result;
     uint64_t tid=0;
     pthread_threadid_np(nullptr,&tid);
@@ -518,7 +524,8 @@ std::string jsonSnapshot() {
                   "\",\"namespace\":\"" + escape(e.namespaceName) +
                   "\",\"threadId\":" + std::to_string(e.thread) +
                   ",\"protectedCallId\":" + std::to_string(e.callId) +
-                  ",\"durationNs\":" + std::to_string(e.durationNs) +
+                  ",\"nativeCallback\":\"" + hex(e.nativeCallback) +
+                  "\",\"nativeCallbackRelationship\":\"same_thread_nested_not_identity\",\"durationNs\":" + std::to_string(e.durationNs) +
                   ",\"exception\":" + (e.exception ? "true" : "false") +
                   ",\"sequence\":" + std::to_string(e.sequence) + "}";
     }
