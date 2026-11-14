@@ -95,7 +95,7 @@ static UIButton *XButton(NSString *title, UIColor *bg, id target, SEL action) {
     [panel addSubview:header];
     [self label:@"◉  XLua Inspector" font:17 color:XColor(0xE6F8F5)
           frame:CGRectMake(16, 9, 245, 24) parent:header];
-    [self label:@"P2.5 · AUTO TRACE · READ-ONLY" font:10 color:XColor(0x70DEC9)
+    [self label:@"P3.1 · TRACE ANALYSIS · READ-ONLY" font:10 color:XColor(0x70DEC9)
           frame:CGRectMake(17, 34, 180, 14) parent:header];
     UIButton *close = XButton(@"×", XColor(0x334353), self, @selector(togglePanel));
     close.frame = CGRectMake(300, 12, 27, 27);
@@ -139,7 +139,7 @@ static UIButton *XButton(NSString *title, UIColor *bg, id target, SEL action) {
     [panel addSubview:self.category];
 
     self.resourceKind = [[UISegmentedControl alloc] initWithItems:
-                         @[@"钻石", @"金币", @"体力", @"其他"]];
+                         @[@"钻石", @"金币", @"体力", @"对照"]];
     self.resourceKind.frame = CGRectMake(16, 234, 308, 30);
     self.resourceKind.selectedSegmentIndex = 0;
     self.resourceKind.hidden = YES;
@@ -324,6 +324,7 @@ static UIButton *XButton(NSString *title, UIColor *bg, id target, SEL action) {
         NSArray *executions = trace[@"executions"] ?: @[];
         NSArray *bridges = trace[@"bridges"] ?: @[];
         NSArray *checks = trace[@"resourceProbes"] ?: @[];
+        NSArray *comparisons = trace[@"resourceComparisons"] ?: @[];
         NSDictionary *active = [trace[@"activeResourceProbe"] isKindOfClass:NSDictionary.class] ?
                                trace[@"activeResourceProbe"] : nil;
         NSDictionary *execStats = trace[@"executionStats"] ?: @{};
@@ -332,7 +333,7 @@ static UIButton *XButton(NSString *title, UIColor *bg, id target, SEL action) {
         NSMutableArray<NSString *> *lines = [NSMutableArray array];
 
         [lines addObject:[NSString stringWithFormat:
-            @"P2.5: %@ | %@\nVM %lu · Chunk %lu · 执行 %@ · IL2CPP %@\n操作样本 %lu · %@",
+            @"P3.1: %@ | %@\nVM %lu · Chunk %lu · 执行 %@ · IL2CPP %@\n操作样本 %lu · %@",
             [trace[@"recording"] boolValue] ? @"记录中" : @"未记录",
             trace[@"reason"] ?: @"状态不可用",
             (unsigned long)states.count, (unsigned long)chunks.count,
@@ -371,16 +372,61 @@ static UIButton *XButton(NSString *title, UIColor *bg, id target, SEL action) {
             [self appendTraceLine:line to:lines query:query];
         }
         NSDictionary *names = @{
-            @"diamond":@"钻石", @"gold":@"金币", @"energy":@"体力", @"other":@"其他"
+            @"diamond":@"钻石", @"gold":@"金币", @"energy":@"体力", @"other":@"对照"
         };
         for (NSDictionary *e in checks) {
             NSString *kind = e[@"kind"] ?: @"other";
-            NSString *methods = [e[@"observedMethods"] isKindOfClass:NSArray.class] ?
-                [e[@"observedMethods"] componentsJoinedByString:@", "] : @"";
+            NSArray *counts = [e[@"methodCounts"] isKindOfClass:NSArray.class] ?
+                e[@"methodCounts"] : @[];
+            NSArray *ordered = [counts sortedArrayUsingComparator:
+                ^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
+                    NSComparisonResult r = [b[@"count"] compare:a[@"count"]];
+                    return r != NSOrderedSame ? r :
+                        [a[@"method"] compare:b[@"method"]];
+                }];
+            NSMutableArray<NSString *> *top = [NSMutableArray array];
+            for (NSDictionary *entry in ordered) {
+                if (top.count >= 8) break;
+                [top addObject:[NSString stringWithFormat:@"%@ ×%@",
+                    entry[@"method"] ?: @"",entry[@"count"] ?: @0]];
+            }
             NSString *line = [NSString stringWithFormat:
-                @"[操作观察·%@] Lua 调用增量 %@ · IL2CPP 调用增量 %@\n%@\n%@\n资源实际数值：未验证",
+                @"[操作观察·%@] Lua增量 %@ · IL2CPP增量 %@ · 实时聚合 %@\n%@\n%@\n资源实际数值：未验证",
                 names[kind] ?: kind,e[@"executionDelta"] ?: @0,
-                e[@"bridgeDelta"] ?: @0,e[@"status"] ?: @"",methods];
+                e[@"bridgeDelta"] ?: @0,e[@"matchedMethodCount"] ?: @0,
+                [top componentsJoinedByString:@"\n"],
+                [e[@"methodAggregationOverflow"] unsignedLongLongValue] ?
+                   @"存在超限方法，结果不完整" : @"聚合容量内"];
+            [self appendTraceLine:line to:lines query:query];
+        }
+        for (NSDictionary *cmp in comparisons) {
+            if (![cmp[@"comparisonReady"] boolValue]) continue;
+            NSArray *deltas = cmp[@"methodDeltas"] ?: @[];
+            NSMutableArray *candidates = [NSMutableArray array];
+            for (NSDictionary *entry in deltas) {
+                double rise = [entry[@"targetRatePer1kLuaCalls"] doubleValue] -
+                              [entry[@"controlRatePer1kLuaCalls"] doubleValue];
+                if (rise <= 0) continue;
+                [candidates addObject:@{@"method":entry[@"method"] ?: @"",
+                                        @"rise":@(rise)}];
+            }
+            [candidates sortUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
+                NSComparisonResult r = [b[@"rise"] compare:a[@"rise"]];
+                return r != NSOrderedSame ? r :
+                    [a[@"method"] compare:b[@"method"]];
+            }];
+            NSMutableArray<NSString *> *top = [NSMutableArray array];
+            for (NSDictionary *entry in candidates) {
+                if (top.count >= 8) break;
+                [top addObject:[NSString stringWithFormat:@"%@ Δ+%.2f/千次Lua",
+                    entry[@"method"],[entry[@"rise"] doubleValue]]];
+            }
+            NSString *line = [NSString stringWithFormat:
+                @"[体力/对照差异 · 观察相关非因果]\n对照 #%@ → 体力 #%@\n%@",
+                cmp[@"controlStartSequence"] ?: @0,
+                cmp[@"targetStartSequence"] ?: @0,
+                top.count ? [top componentsJoinedByString:@"\n"] :
+                            @"未发现归一化增量为正的方法"];
             [self appendTraceLine:line to:lines query:query];
         }
         if (lines.count == 1 && query.length)
