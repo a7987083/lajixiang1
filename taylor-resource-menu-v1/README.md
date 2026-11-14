@@ -30,4 +30,12 @@ Run `sh build_macos.sh` in this directory on macOS. Source test: `python3 test_o
 
 ## Current build status
 
-Source/mock checks passed. User explicitly approved publishing source and offsets to this public repository. CI build/signature verification pending. Local Linux host has no Apple SDK; game/device verification remains pending.
+Source/mock checks passed. User explicitly approved publishing source and offsets to this public repository. CI build/signature verification succeeded. Local Linux host has no Apple SDK; game/device verification remains pending.
+
+
+### Taylor V1 completed build — 2026-11-14
+- Built source: a4e7537d2975e6bddb82d364f47d129f806ac2b5. Actions Run 43574080410: success. Artifact 14106015108.
+- Initial link failure `_DobbySymbolResolver` fixed by enabling Dobby's required Darwin symbol-resolver component; pinned dependency and SDK unchanged.
+- iOS arm64 compile, ad-hoc signing and `codesign --verify --strict` passed. No dynamic Dobby/Substrate dependency.
+- Dylib SHA-256: 2650d6b3df218fcc2e258f93b8a12c85af673f1fa984359384b38962c6fb6da8. Downloaded artifact hash matches CI output.
+- Delivered binary: TaylorResourceMenu-V1.dylib (142080 bytes). Device/runtime/scene reset/cloud acceptance still unverified.

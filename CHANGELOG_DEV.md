@@ -52,5 +52,13 @@
 - Source: taylor-resource-menu-v1/README.md covers ABI/RVAs, lifecycle and build steps.
 - Tick hook uses the live LuaEnv only on the game main thread; explicit one-shot GM.AddItem for IDs 1/2/3, balance verification, input and feedback. Embedded pinned Dobby.
 - Local checks: Lua 5.3 mock behavior harness, shell syntax and diff checks passed. These do not prove game behavior.
-- Public source publication explicitly approved by user. CI build/signature verification pending; local host has no Apple SDK; real device and cloud persistence unverified.
+- Public source publication explicitly approved by user. CI build/signature verification completed; see latest completed-build section. Real device and cloud persistence unverified.
 - Next: inspect Actions result, deliver dylib, verify device hook installation and before/after resource values, then scene/reset/relaunch persistence.
+
+
+### Taylor V1 completed build — 2026-11-14
+- Built source: a4e7537d2975e6bddb82d364f47d129f806ac2b5. Actions Run 43574080410: success. Artifact 14106015108.
+- Initial link failure `_DobbySymbolResolver` fixed by enabling Dobby's required Darwin symbol-resolver component; pinned dependency and SDK unchanged.
+- iOS arm64 compile, ad-hoc signing and `codesign --verify --strict` passed. No dynamic Dobby/Substrate dependency.
+- Dylib SHA-256: 2650d6b3df218fcc2e258f93b8a12c85af673f1fa984359384b38962c6fb6da8. Downloaded artifact hash matches CI output.
+- Delivered binary: TaylorResourceMenu-V1.dylib (142080 bytes). Device/runtime/scene reset/cloud acceptance still unverified.

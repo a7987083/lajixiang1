@@ -30,9 +30,13 @@
     "baseline": "67935a7a996ee0c996f278ca2103f029755bd3e5",
     "source": "taylor-resource-menu-v1",
     "local_checks": "Lua 5.3 mock operations + shell syntax + diff check passed",
-    "ci": "pending",
+    "ci": "success",
     "device": "unverified",
-    "next_task": "publish approved source and inspect Actions build/signature checks",
-    "build": "not compiled: no local xcrun/iPhoneOS SDK"
+    "next_task": "device test T bubble, balance refresh, +10 each resource, scene reset, relaunch persistence; inspect log if hook unavailable",
+    "build": "compiled iOS arm64; ad-hoc signature verified in macOS CI",
+    "built_commit": "a4e7537d2975e6bddb82d364f47d129f806ac2b5",
+    "run_id": 43574080410,
+    "artifact_id": 14106015108,
+    "artifact_sha256": "2650d6b3df218fcc2e258f93b8a12c85af673f1fa984359384b38962c6fb6da8"
   }
 }
