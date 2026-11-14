@@ -1,0 +1,31 @@
+name: Build Taylor Lua Loader Probe
+on:
+  push:
+    branches:
+      - feature/taylor-lua-loader-probe
+    paths:
+      - 'taylor-lua-loader-probe/**'
+      - '.github/workflows/build-taylor-lua-loader-probe.yml'
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: taylor-lua-loader-probe
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build read-only iOS arm64 probe
+        run: sh build_macos.sh
+      - name: Write integrity info
+        run: shasum -a 256 TaylorLuaLoaderProbe.dylib > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Taylor-LuaLoaderProbe-ReadOnly
+          path: |
+            taylor-lua-loader-probe/TaylorLuaLoaderProbe.dylib
+            taylor-lua-loader-probe/TaylorLuaLoaderProbe.c
+            taylor-lua-loader-probe/build_macos.sh
+            taylor-lua-loader-probe/README.md
+            taylor-lua-loader-probe/SHA256SUMS.txt
+          if-no-files-found: error
