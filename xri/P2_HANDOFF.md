@@ -70,3 +70,26 @@
   instrumentation strategy with device-level evidence.
 - P2.2 detailed Hook inspection is deliberately skipped at user request;
   existing diagnostic fields remain in JSON. P2.4 and P2.5 not started.
+
+## P2.4 — conservative Lua / IL2CPP correlation
+
+- Observes the real exported `il2cpp_runtime_invoke` entry, only if the
+  four public metadata exports also resolve from the **same image**:
+  `il2cpp_method_get_name`, `il2cpp_method_get_class`,
+  `il2cpp_class_get_name`, `il2cpp_class_get_namespace`.
+- A TLS context is opened before `lua_pcallk` calls its original trampoline
+  and closed when it returns. `callId` in `executions` pairs with
+  `protectedCallId` in `bridges`; method records are collected only for
+  `il2cpp_runtime_invoke` calls occurring during the same-thread Lua scope.
+- The correlation is labelled `same_thread_nested`, **not** an asserted
+  wrapper/function identity. Thread-switching and generated direct C# wrappers
+  are not observed. Zero bridge events does not prove no Lua->C# activity.
+- No method arguments or returned values are dereferenced, no game resources
+  are mutated, and no `MethodInfo` or `Il2CppClass` field offsets are assumed.
+  Public metadata getter APIs provide class/namespace/method strings.
+- The existing single Hook installer owns this additional hook; there is no
+  second engine, polling thread, or fallback-to-guessed-offset path.
+- `trace.json` adds `bridges`, `bridgeStats` (last 256 and total/evicted
+  counts), and `executions[].callId`. Existing export paths are unchanged.
+- Runtime/dylib load/injection and real-device event capture are **unverified**.
+  P2.5 resource-operation validation has not started.
