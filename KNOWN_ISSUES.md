@@ -31,3 +31,9 @@ Status: controlled by exact baseline tracking.
 - Quantity 1–100 is a test UI range, not a guarantee against game validation. Original validation remains active.
 - No forced saves/cloud sync; normal game save lifecycle applies.
 - Disable export leaves an inert trampoline until process exit; remove injection and restart to uninstall.
+
+
+## Pets Harbor V1
+- No runtime app/version gates per user request; this does not prove cross-game compatibility.
+- New reflective IL2CPP/managed-DoString integration is device-unverified.
+- Inline Hook permissions, menu input/rotation, LuaEnv recreation and local/cloud persistence require real-device tests.

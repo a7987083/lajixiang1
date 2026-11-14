@@ -1,0 +1,27 @@
+name: Build Pets Harbor Resource Menu V1
+on:
+  push:
+    branches: [feature/petsharbor-resource-menu-v1]
+    paths: ['petsharbor-resource-menu-v1/**', '.github/workflows/build-petsharbor-resource-menu-v1.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: petsharbor-resource-menu-v1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build signed iOS arm64 dylib with embedded Dobby
+        run: sh build_macos.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PetsResourceMenu-V1-ios-arm64
+          path: |
+            petsharbor-resource-menu-v1/PetsResourceMenu-V1.dylib
+            petsharbor-resource-menu-v1/SHA256SUMS.txt
+            petsharbor-resource-menu-v1/README.md
+            petsharbor-resource-menu-v1/Dobby-LICENSE.txt
+          if-no-files-found: error

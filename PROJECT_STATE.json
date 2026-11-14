@@ -1,7 +1,7 @@
 {
   "version": "10.0-device-test",
   "repository": "a7987083/lajixiang1",
-  "branch": "main",
+  "branch": "feature/petsharbor-resource-menu-v1",
   "baseline": {
     "artifact": "VIPCrackPlugin.dylib",
     "arch": "arm64",
@@ -38,5 +38,17 @@
     "run_id": 43574080410,
     "artifact_id": 14106015108,
     "artifact_sha256": "2650d6b3df218fcc2e258f93b8a12c85af673f1fa984359384b38962c6fb6da8"
+  },
+  "active_project": "petsharbor-resource-menu-v1",
+  "petsharbor_resource_menu": {
+    "base": "25575afc37b892dea094d56e289027412b4e78d9",
+    "branch": "feature/petsharbor-resource-menu-v1",
+    "identity_gates": [],
+    "entry": "ModuleManager.PropertySystem:CheckChangeData",
+    "runtime": "IL2CPP method discovery + managed DoString on live Tick",
+    "local_checks": "Lua 5.3 mocks; gate audit; shell syntax; diff check passed",
+    "ci": "pending",
+    "device": "unverified",
+    "next_task": "CI compile/signature validation; deliver; real-device runtime and resource tests"
   }
 }

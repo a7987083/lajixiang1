@@ -38,3 +38,12 @@ Test v10 as one file. Expected: working replacement icon from v8, cyan theme fro
 - iOS arm64 compile, ad-hoc signing and `codesign --verify --strict` passed. No dynamic Dobby/Substrate dependency.
 - Dylib SHA-256: 2650d6b3df218fcc2e258f93b8a12c85af673f1fa984359384b38962c6fb6da8. Downloaded artifact hash matches CI output.
 - Delivered binary: TaylorResourceMenu-V1.dylib (142080 bytes). Device/runtime/scene reset/cloud acceptance still unverified.
+
+
+## Pets Harbor resource menu V1 — 2026-11-15
+- New branch feature/petsharbor-resource-menu-v1; base Taylor completed-build commit 25575afc37b892dea094d56e289027412b4e78d9. Taylor implementation preserved.
+- User explicitly requested no Bundle ID access, version/Build verification or UnityFramework UUID verification; new runtime has none of these gates and no instruction-signature gate.
+- Resolve IL2CPP exports and XLua.LuaEnv methods dynamically; hook live Tick; invoke managed DoString on the current main-thread instance. No game native function RVAs/raw Lua state offsets.
+- Actual Petsharbor script calls ModuleManager.PropertySystem:CheckChangeData(id, amount, nil, ECheckerboardType.Main, FunctionSource.GM). IDs 1/2/3. No Taylor GM.AddItem dependency.
+- Lua 5.3 mock behavior and source gate audit passed; shell syntax/diff checks passed. CI pending, real device unverified.
+- Implementation/ABI/evidence/build instructions: petsharbor-resource-menu-v1/README.md. Next: CI build, inspect signed dylib, deliver for device tests.

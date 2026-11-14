@@ -1,0 +1,6 @@
+.deps/
+*.o
+*.dylib
+ResourceOperation.h
+SHA256SUMS.txt
+Dobby-LICENSE.txt
