@@ -27,6 +27,8 @@ using XLuaLoadFn = int (*)(LuaState *, const char *, int, const char *);
 using LuaLoadFn = int (*)(LuaState *, const char *, size_t, const char *, const char *);
 using LuaKFunction = int (*)(LuaState *, int, intptr_t);
 using LuaPCallFn = int (*)(LuaState *, int, int, int, intptr_t, LuaKFunction);
+using LuaCFunction = int (*)(LuaState *);
+using LuaPushCClosureFn = void (*)(LuaState *, LuaCFunction, int);
 // Opaque IL2CPP types: method metadata is accessed only via public runtime APIs.
 using RuntimeInvokeFn = void *(*)(const void *, void *, void **, void **);
 using MethodNameFn = const char *(*)(const void *);
@@ -91,6 +93,7 @@ struct HookEntry {
     bool installed;
     int error;
 };
+constexpr size_t kMaxRegisteredCFunctions = 512;
 constexpr size_t kMaxResourceProbes = 24;
 constexpr size_t kMaxProbeMethods = 20;
 constexpr size_t kMaxDistinctMethods = 256;
@@ -119,6 +122,16 @@ std::atomic<uint64_t> g_bridgeDropped{0};
 std::atomic<uint64_t> g_callIds{0};
 std::atomic<uint64_t> g_executionTotal{0};
 std::atomic<uint64_t> g_executionDropped{0};
+struct CFunctionRegistration {
+    uint64_t count = 0;
+    uint64_t firstSequence = 0;
+    uint64_t lastSequence = 0;
+    uint64_t firstState = 0;
+    int lastUpvalues = 0;
+};
+std::map<uintptr_t, CFunctionRegistration> g_registeredCFunctions;
+std::atomic<uint64_t> g_registrationsTotal{0};
+std::atomic<uint64_t> g_registrationsOverflow{0};
 std::vector<HookEntry> g_hooks;
 std::string g_reason = "not started";
 thread_local unsigned g_loadingDepth = 0;
@@ -128,6 +141,7 @@ CloseFn origClose = nullptr;
 XLuaLoadFn origXLuaLoad = nullptr;
 LuaLoadFn origLuaLoad = nullptr;
 LuaPCallFn origPCall = nullptr;
+LuaPushCClosureFn origPushCClosure = nullptr;
 RuntimeInvokeFn origRuntimeInvoke = nullptr;
 MethodNameFn methodGetName = nullptr;
 MethodClassFn methodGetClass = nullptr;
@@ -327,6 +341,33 @@ void *runtimeInvokeHook(const void *method, void *object,
     return result;
 }
 
+// Verified on target ARM64 image: lua_pushcclosure(L, fn, n) uses x0,x1,w2.
+// Callback registration is NOT callback execution or C# method identity.
+void pushCClosureHook(LuaState *state, LuaCFunction fn, int upvalues) {
+    if (g_active.load(std::memory_order_relaxed) && state && fn) {
+        g_registrationsTotal.fetch_add(1, std::memory_order_relaxed);
+        const uintptr_t address = reinterpret_cast<uintptr_t>(fn);
+        std::lock_guard<std::mutex> lock(g_mu);
+        auto found = g_registeredCFunctions.find(address);
+        if (found != g_registeredCFunctions.end()) {
+            ++found->second.count;
+            found->second.lastSequence = ++g_seq;
+            found->second.lastUpvalues = upvalues;
+        } else if (g_registeredCFunctions.size() < kMaxRegisteredCFunctions) {
+            CFunctionRegistration entry;
+            entry.count = 1;
+            entry.firstSequence = ++g_seq;
+            entry.lastSequence = entry.firstSequence;
+            entry.firstState = reinterpret_cast<uintptr_t>(state);
+            entry.lastUpvalues = upvalues;
+            g_registeredCFunctions.emplace(address, entry);
+        } else {
+            g_registrationsOverflow.fetch_add(1, std::memory_order_relaxed);
+        }
+    }
+    if (origPushCClosure) origPushCClosure(state, fn, upvalues);
+}
+
 // Only resolve exact exports in their owning loaded image, never inferred offsets.
 // A hook is never installed unless the original trampoline is provided.
 void *resolve(const char *name) {
@@ -481,6 +522,35 @@ std::string jsonSnapshot() {
               std::to_string(g_bridgeTotal.load(std::memory_order_relaxed)) +
               ",\"dropped\":" + std::to_string(g_bridgeDropped.load(std::memory_order_relaxed)) +
               ",\"scope\":\"il2cpp_runtime_invoke_within_lua_pcallk_same_thread\"}";
+    result += ",\"cFunctionRegistrations\":[";
+    bool firstRegistration = true;
+    for (const auto &pair : g_registeredCFunctions) {
+        if (!firstRegistration) result += ",";
+        firstRegistration = false;
+        const auto &entry = pair.second;
+        Dl_info owner = {};
+        const bool resolved = dladdr(reinterpret_cast<void *>(pair.first), &owner) &&
+                              owner.dli_fbase != nullptr;
+        const uintptr_t offset = resolved ? pair.first -
+            reinterpret_cast<uintptr_t>(owner.dli_fbase) : 0;
+        result += "{\"callback\":\"" + hex(pair.first) +
+                  "\",\"count\":" + std::to_string(entry.count) +
+                  ",\"upvalues\":" + std::to_string(entry.lastUpvalues) +
+                  ",\"state\":\"" + hex(entry.firstState) +
+                  "\",\"firstSequence\":" + std::to_string(entry.firstSequence) +
+                  ",\"lastSequence\":" + std::to_string(entry.lastSequence) +
+                  ",\"ownerImage\":\"" +
+                  escape(resolved && owner.dli_fname ? owner.dli_fname : "") +
+                  "\",\"ownerImageOffset\":\"" +
+                  (resolved ? hex(offset) : "") + "\"}";
+    }
+    result += "],\"cFunctionRegistrationStats\":{\"total\":" +
+              std::to_string(g_registrationsTotal.load(std::memory_order_relaxed)) +
+              ",\"overflow\":" +
+              std::to_string(g_registrationsOverflow.load(std::memory_order_relaxed)) +
+              ",\"distinctRetained\":" +
+              std::to_string(g_registeredCFunctions.size()) +
+              ",\"scope\":\"lua_c_function_registration_only_not_execution\"}";
     result += ",\"executionStats\":{\"total\":" +
               std::to_string(g_executionTotal.load(std::memory_order_relaxed)) +
               ",\"dropped\":" +
@@ -551,6 +621,8 @@ void installAvailable() {
          reinterpret_cast<void **>(&origXLuaLoad)},
         {"luaL_loadbufferx", reinterpret_cast<void *>(&luaLoadHook),
          reinterpret_cast<void **>(&origLuaLoad)},
+        {"lua_pushcclosure", reinterpret_cast<void *>(&pushCClosureHook),
+         reinterpret_cast<void **>(&origPushCClosure)},
         {"lua_pcallk", reinterpret_cast<void *>(&pcallHook),
          reinterpret_cast<void **>(&origPCall)},
         {"il2cpp_runtime_invoke", reinterpret_cast<void *>(&runtimeInvokeHook),
@@ -590,7 +662,7 @@ void installAvailable() {
     } else {
         unsigned count = 0;
         for (const auto &h : g_hooks) if (h.installed) ++count;
-        g_reason = count == 6 ? "Recording (6/6 hooks)"
+        g_reason = count == 7 ? "Recording (7/7 hooks)"
                               : "Recording (partial hooks; earlier events not recoverable)";
     }
 }
@@ -651,6 +723,9 @@ extern "C" __attribute__((visibility("default"))) void xri_trace_clear(void) {
     g_executions.clear();
     g_bridges.clear();
     g_resourceProbes.clear();
+    g_registeredCFunctions.clear();
+    g_registrationsTotal = 0;
+    g_registrationsOverflow = 0;
     g_probeActive = false;
     g_pendingProbe = {};
     g_bridgeTotal = 0;
