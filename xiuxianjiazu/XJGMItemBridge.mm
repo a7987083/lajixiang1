@@ -223,99 +223,122 @@ __attribute__((constructor)) static void XJGMRegisterRealItemExecutor() {
 }
 
 
-// Fetch live game catalog via Dictionary<int,ItemTmpl>.Values -> CopyTo(ItemTmpl[]).
-// Limits output to 200 entries to avoid excessive UIKit allocations.
-// Returns matched count on success, 0 when none, -1 for unavailable/invalid runtime.
-extern "C" __attribute__((visibility("default"))) int XJGMSearchItems(const char* utf8Query) {
-  if (!utf8Query) return -1;
-  @autoreleasepool {
-    NSString *query=[NSString stringWithUTF8String:utf8Query];
-    if (!query || query.length>128) return -1;
-    Runtime r={};
-    int stage=resolve(r); if (stage!=1) return stage;
-    auto staticGet=(void (*)(void*,void*))sym(r.handle,"il2cpp_field_static_get_value");
-    auto objectClass=(void* (*)(void*))sym(r.handle,"il2cpp_object_get_class");
-    auto arrayNew=(void* (*)(void*,uintptr_t))sym(r.handle,"il2cpp_array_new");
-    auto arrayLength=(uintptr_t (*)(void*))sym(r.handle,"il2cpp_array_length");
-    if (!staticGet || !objectClass || !arrayNew || !arrayLength) return -101;
-    void* domain=r.domain(); if (!domain) return -205;
-    if (!r.current() && !r.attach(domain)) return -210;
-    void* assembly=r.assembly(domain,"Assembly-CSharp");
-    if (!assembly) assembly=r.assembly(domain,"Assembly-CSharp.dll");
-    if (!assembly) return -206;
-    void* image=r.image(assembly); if (!image) return -207;
-    void* cls=r.fromName(image,"config.export.excel","ItemTmpl");
-    if (!cls) return -208;
-    // Invoking IsConfigsEmpty ensures the class static constructor has run.
-    void* isEmpty=r.method(cls,"get_IsConfigsEmpty",0);
-    if (!isEmpty) return -209;
-    void* exception=nullptr;
-    void* boxed=r.invoke(isEmpty,nullptr,nullptr,&exception);
-    if (exception || !boxed) return -105;
-    auto unbox=(void* (*)(void*))sym(r.handle,"il2cpp_object_unbox");
-    if (!unbox) return -106;
-    bool empty=(*(uint8_t*)unbox(boxed))!=0;
-    if (empty) return -102;
-    void* field=r.field(cls,"configs"); if (!field) return -1;
-    void* dict=nullptr; staticGet(field,&dict);
-    if (!dict) return -103;
-    void* dictCls=objectClass(dict); if (!dictCls) return -1;
-    void* valuesMethod=r.method(dictCls,"get_Values",0);
-    if (!valuesMethod) return -104;
-    exception=nullptr;
-    void* values=r.invoke(valuesMethod,dict,nullptr,&exception);
-    if (exception || !values) return -105;
-    void* valuesCls=objectClass(values);
-    if (!valuesCls) return -1;
-    void* countMethod=r.method(valuesCls,"get_Count",0);
-    void* copyMethod=r.method(valuesCls,"CopyTo",2);
-    if (!countMethod || !copyMethod) return -104;
-    exception=nullptr;
-    void* countBox=r.invoke(countMethod,values,nullptr,&exception);
-    if (exception || !countBox) return -105;
-    // il2cpp_object_unbox provides the value-type payload without hardcoding object layout.
-    int32_t count=*(int32_t*)unbox(countBox);
-    if (count<0 || count>250000) return -1;
-    if (count==0) { XJGMSetEntries("item","[]"); return 0; }
-    void* array=arrayNew(cls,(uintptr_t)count); if (!array) return -1;
-    int32_t start=0;
-    void* args[]={array,&start};
-    exception=nullptr;
-    r.invoke(copyMethod,values,args,&exception);
-    if (exception || arrayLength(array)!=(uintptr_t)count) return -107;
-    void* idField=r.field(cls,"id"); void* nameField=r.field(cls,"name");
-    if (!idField || !nameField) return -108;
-    // IL2CPP reference arrays: 16-byte Il2CppObject, max_length at +0x18,
-    // reference vector begins at +0x20 on target 64-bit Unity IL2CPP.
-    void* const* vector=(void* const*)((uintptr_t)array+0x20);
-    NSString *lower=query.lowercaseString;
-    NSMutableArray *matches=[NSMutableArray arrayWithCapacity:MIN((NSUInteger)count,(NSUInteger)200)];
-    int matched=0;
-    for (int32_t i=0;i<count;i++) {
-      void* item=vector[i]; if (!item) continue;
-      int32_t id=0; void* nameObj=nullptr;
-      r.fieldValue(idField,item,&id);
-      r.fieldValue(nameField,item,&nameObj);
-      if (id<=0 || !nameObj) continue;
-      int32_t length=r.stringLength(nameObj);
+// Full, read-only IL2CPP configuration export. Each table remains independent.
+// A dictionary's runtime Values collection is copied into a managed typed array.
+// No artificial item IDs; JSON persistence is in the application's own Documents.
+namespace {
+static int exportTable(Runtime &r,void *image,const char *typeName,const char *category,const char *fileName) {
+  auto staticGet=(void (*)(void*,void*))sym(r.handle,"il2cpp_field_static_get_value");
+  auto objectClass=(void* (*)(void*))sym(r.handle,"il2cpp_object_get_class");
+  auto arrayNew=(void* (*)(void*,uintptr_t))sym(r.handle,"il2cpp_array_new");
+  auto arrayLength=(uintptr_t (*)(void*))sym(r.handle,"il2cpp_array_length");
+  auto unbox=(void* (*)(void*))sym(r.handle,"il2cpp_object_unbox");
+  if (!staticGet || !objectClass || !arrayNew || !arrayLength || !unbox) return -101;
+  void* cls=r.fromName(image,"config.export.excel",typeName);
+  if (!cls) return -208;
+  void* getEmpty=r.method(cls,"get_IsConfigsEmpty",0);
+  if (!getEmpty) return -209;
+  void* exc=nullptr;
+  void* boxed=r.invoke(getEmpty,nullptr,nullptr,&exc);
+  if (exc || !boxed) return -105;
+  if (*(uint8_t*)unbox(boxed)) return -102;
+  void* f=r.field(cls,"configs");
+  if (!f) return -108;
+  void* dict=nullptr;
+  staticGet(f,&dict);
+  if (!dict) return -103;
+  void* dictClass=objectClass(dict);
+  if (!dictClass) return -104;
+  void* getValues=r.method(dictClass,"get_Values",0);
+  if (!getValues) return -104;
+  exc=nullptr;
+  void* values=r.invoke(getValues,dict,nullptr,&exc);
+  if (exc || !values) return -105;
+  void* valuesClass=objectClass(values);
+  if (!valuesClass) return -104;
+  void* getCount=r.method(valuesClass,"get_Count",0);
+  void* copyTo=r.method(valuesClass,"CopyTo",2);
+  if (!getCount || !copyTo) return -104;
+  exc=nullptr;
+  void* boxCount=r.invoke(getCount,values,nullptr,&exc);
+  if (exc || !boxCount) return -105;
+  int32_t count=*(int32_t*)unbox(boxCount);
+  if (count<0 || count>250000) return -107;
+  void* idField=r.field(cls,"id");
+  void* nameField=r.field(cls,"name");
+  if (!idField || !nameField) return -108;
+  NSMutableArray *entries=[NSMutableArray arrayWithCapacity:(NSUInteger)count];
+  if (count) {
+    void* array=arrayNew(cls,(uintptr_t)count);
+    if (!array) return -107;
+    int32_t zero=0;
+    void* params[]={array,&zero}; // object pointer, not pointer-to-pointer
+    exc=nullptr;
+    r.invoke(copyTo,values,params,&exc);
+    if (exc || arrayLength(array)!=(uintptr_t)count) return -107;
+    // Target is arm64 Unity IL2CPP managed reference array.
+    void* const* elements=(void* const*)((uintptr_t)array+0x20);
+    for (int32_t n=0;n<count;n++) {
+      void* item=elements[n];
+      if (!item) continue;
+      int32_t ident=0;
+      void* managedName=nullptr;
+      r.fieldValue(idField,item,&ident);
+      r.fieldValue(nameField,item,&managedName);
+      if (ident<=0 || !managedName) continue;
+      int32_t length=r.stringLength(managedName);
       if (length<0 || length>4096) continue;
-      const uint16_t* chars=r.stringChars(nameObj);
+      const uint16_t* chars=r.stringChars(managedName);
       if (length && !chars) continue;
-      NSString *name=[[NSString alloc] initWithCharacters:(const unichar*)chars length:(NSUInteger)length];
+      NSString* name=[[NSString alloc] initWithCharacters:(const unichar*)chars length:(NSUInteger)length];
       if (!name) continue;
-      if (lower.length && [name.lowercaseString rangeOfString:lower].location==NSNotFound &&
-          [[@(id) stringValue] rangeOfString:lower].location==NSNotFound) continue;
-      matched++;
-      if (matches.count<200) [matches addObject:@{@"id":@(id),@"name":name}];
+      [entries addObject:@{@"id":@(ident),@"name":name}];
     }
-    [matches sortUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
-      return [a[@"id"] compare:b[@"id"]];
-    }];
-    NSData* json=[NSJSONSerialization dataWithJSONObject:matches options:0 error:nil];
-    if (!json) return -1;
-    NSMutableData* terminated=[json mutableCopy];
-    uint8_t zero=0; [terminated appendBytes:&zero length:1];
-    if (!XJGMSetEntries("item",(const char*)terminated.bytes)) return -1;
-    return matched;
   }
+  [entries sortUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
+    return [a[@"id"] compare:b[@"id"]];
+  }];
+  NSData* json=[NSJSONSerialization dataWithJSONObject:entries options:0 error:nil];
+  if (!json || json.length>8*1024*1024) return -107;
+  NSArray *documents=NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask,YES);
+  if (documents.count) {
+    NSString *directory=[documents[0] stringByAppendingPathComponent:@"XiuxianjiazuGM"];
+    NSError *error=nil;
+    [[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:&error];
+    NSString *path=[directory stringByAppendingPathComponent:[NSString stringWithUTF8String:fileName]];
+    if (!error && ![json writeToFile:path options:NSDataWritingAtomic error:&error])
+      NSLog(@"[XJGM] failed to save %@: %@",path,error);
+  }
+  NSMutableData *terminated=[json mutableCopy];
+  uint8_t nilByte=0; [terminated appendBytes:&nilByte length:1];
+  if (!XJGMSetEntries(category,(const char*)terminated.bytes)) return -107;
+  return (int)entries.count;
+}
+static int prepareExport(Runtime &r,void **image) {
+  int status=resolve(r);
+  if (status!=1) return status;
+  void *domain=r.domain();
+  if (!domain) return -205;
+  if (!r.current() && !r.attach(domain)) return -210;
+  void *assembly=r.assembly(domain,"Assembly-CSharp");
+  if (!assembly) assembly=r.assembly(domain,"Assembly-CSharp.dll");
+  if (!assembly) return -206;
+  *image=r.image(assembly);
+  return *image?1:-207;
+}
+}
+extern "C" __attribute__((visibility("default"))) int XJGMExportCatalog(const char* category) {
+  if (!category) return -1;
+  @autoreleasepool {
+    Runtime r={}; void* image=nullptr;
+    int stage=prepareExport(r,&image);
+    if (stage!=1) return stage;
+    if (!strcmp(category,"item")) return exportTable(r,image,"ItemTmpl","item","items.json");
+    if (!strcmp(category,"skill")) return exportTable(r,image,"SkillInfo","skill","skills.json");
+    return -1;
+  }
+}
+// Compatibility for older hosts. Local name filtering is now done by the UI.
+extern "C" __attribute__((visibility("default"))) int XJGMSearchItems(const char* query) {
+  return XJGMExportCatalog("item");
 }
