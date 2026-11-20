@@ -30,3 +30,13 @@ The caller must inspect the **target version**'s real IL2CPP object lifecycle, m
 ## Verification
 
 Requires GitHub Actions iOS/macOS build. Real-device injection, rendering and game-side GM effects are not yet verified.
+
+
+## Item ID and original GM request (current phase)
+
+- The '查物品ID' control accepts a decimal positive ID and queries \`config.export.excel.ItemTmpl.Find(int)\` using the original IL2CPP runtime. A matching name and actual ID are returned from the game, never from a hardcoded sample.
+- Select the returned item, set quantity, and press Execute. The adapter instantiates \`xxjz.game.C2S_GMComand\` and calls its original setters and \`GameApp.Send\`.
+- The request type string and route are taken from the exact target Mach-O's original metadata slots, after validating UUID \`316950d2-5cd5-32b9-a2df-ffbf3d3b8d11\`. The binary is limited to the uploaded game version.
+- The executor returns local submission status only. Whether the game server accepts GM commands requires device-side verification; no client-side bypass of server authorization is implemented.
+- Skill/attribute/command actions remain deliberately unavailable until their payload semantics are verified.
+- **Test order**: verify GM window visible, look up a known item ID and a deliberately invalid ID, select a valid item, request quantity 1, then verify both in-game inventory and server response before claiming success.
