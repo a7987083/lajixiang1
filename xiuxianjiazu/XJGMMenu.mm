@@ -195,9 +195,19 @@ static UITextField *Input(NSString *placeholder) {
     long long number=0;
     BOOL exact=value.length>0 && [scanner scanLongLong:&number] && scanner.isAtEnd && number>0 && number<=INT32_MAX;
     int result=exact?XJGMQueryItemById((int32_t)number):XJGMSearchItems(value.UTF8String);
-    if (result<0) self.status.text=@"游戏物品表读取失败或尚未加载";
-    else if (result==0) self.status.text=@"没有匹配的物品（或配置尚未加载）";
-    else self.status.text=[NSString stringWithFormat:@"找到 %d 项真实物品（列表最多显示200项）",result];
+    switch (result) {
+        case -101: self.status.text=@"E101：IL2CPP 枚举 API 缺失"; break;
+        case -102: self.status.text=@"E102：物品配置尚未加载（进入游戏后重试）"; break;
+        case -103: self.status.text=@"E103：物品字典为空"; break;
+        case -104: self.status.text=@"E104：物品集合方法未找到"; break;
+        case -105: self.status.text=@"E105：调用物品集合方法失败"; break;
+        case -106: self.status.text=@"E106：IL2CPP 解箱 API 缺失"; break;
+        case -107: self.status.text=@"E107：物品数组复制失败"; break;
+        case -108: self.status.text=@"E108：物品字段未找到"; break;
+        case -1: self.status.text=@"E100：UnityFramework 未就绪或接口异常"; break;
+        case 0: self.status.text=@"没有匹配条目；请换名称或 ID"; break;
+        default: self.status.text=[NSString stringWithFormat:@"找到 %d 项真实物品（最多显示200项）",result]; break;
+    }
 }
 - (void)execute:(id)sender {
     if (!sExecutor) { self.status.text=@"执行失败：游戏执行桥未连接"; return; }
