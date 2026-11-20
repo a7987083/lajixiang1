@@ -23,3 +23,7 @@ Status: unchanged.
 ## KI-005 — Exact supplied-build offsets are version-specific
 All offsets documented here apply to UUID `BA5FE867-6E15-3EC5-A68F-AE847E92EF26`.
 Status: controlled by exact baseline tracking.
+
+
+## KI-010 — Native GM window switch is not device-verified
+The switch invokes the original `GameUI.OpenGMView` / `GameUI.CloseView("GMView")` through the IL2CPP runtime in `gameCore.dll`, guarded by the uploaded UnityFramework UUID and main-thread check. A successful invoke only confirms local method submission; prefab loading, visible open/close behavior, and device stability remain unverified.

@@ -24,5 +24,15 @@
     "v10_sha256": "7825c5511e9f36306e5726f37a2944bc783e08262d6223e0cf6f0d605e57b9cf"
   },
   "phase": "phase10-title-replacement",
-  "next_task": "real-device verify v10 keeps icon/color behavior and changes title to taobaozonoe"
+  "next_task": "real-device verify v10 keeps icon/color behavior and changes title to taobaozonoe",
+  "xiuxianjiazu_gm_window_toggle": {
+    "repository": "a7987083/lajixiang1",
+    "branch": "xiuxianjiazu-gm-window-toggle",
+    "baseline_branch": "xiuxianjiazu",
+    "baseline_commit": "c00f81e86af8fb49359bd491fd824b0f98411b54",
+    "feature": "Native GameUI GMView switch via gameCore.dll IL2CPP runtime invocation",
+    "build_status": "pending",
+    "device_verification": "pending",
+    "notes": "Later branch tip 42187ca7d7b326834c67e5503c7f5d70681bc5bb was intentionally excluded per user direction."
+  }
 }

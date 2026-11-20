@@ -21,3 +21,11 @@
 
 ## Current acceptance
 Test v10 as one file. Expected: working replacement icon from v8, cyan theme from v9, and title `taobaozonoe`. If one item fails, isolate that chain without changing the already verified icon/MD5 path.
+
+
+## Phase 11 — Original GM window toggle
+- [x] Add a native GM switch to the overlay header.
+- [x] Resolve `GameUI.OpenGMView` / `CloseView("GMView")` through IL2CPP metadata instead of a fixed RVA.
+- [x] Hide the large overlay panel after opening so it does not cover the game's GMView.
+- [ ] Confirm the arm64 iOS Actions build on the isolated feature branch.
+- [ ] Verify open, close, and no-crash behavior on the target iPhone and exact game build.

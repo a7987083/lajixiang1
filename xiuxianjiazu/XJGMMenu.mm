@@ -10,6 +10,7 @@
 extern "C" int XJGMQueryItemById(int32_t id);
 extern "C" int XJGMSearchItems(const char *query);
 extern "C" int XJGMExportCatalog(const char *category);
+extern "C" int XJGMSwitchNativeGMWindow(int enabled);
 typedef int (*XJGMExecutor)(const char *kind, int32_t itemId, int32_t count, const char *argument);
 static XJGMExecutor sExecutor = NULL;
 static NSArray<NSDictionary *> *sItems = nil;
@@ -68,6 +69,7 @@ static UITextField *Input(NSString *placeholder) {
 @property(nonatomic,strong) UITableView *table;
 @property(nonatomic,strong) UIButton *dropdown;
 @property(nonatomic,strong) UIButton *retryExportButton;
+@property(nonatomic,strong) UISwitch *nativeGMSwitch;
 @property(nonatomic,assign) BOOL dropdownExpanded;
 @property(nonatomic,strong) UITextField *search;
 @property(nonatomic,strong) UITextField *quantity;
@@ -105,11 +107,19 @@ static UITextField *Input(NSString *placeholder) {
     CGFloat h = MIN(470, MAX(300, b.size.height-40));
     self.panel.frame = CGRectMake((b.size.width-w)/2,(b.size.height-h)/2,w,h);
     CGFloat margin=12, inner=w-2*margin;
+    UILabel *title=(UILabel *)[self.panel viewWithTag:810];
+    UILabel *nativeLabel=(UILabel *)[self.panel viewWithTag:814];
+    UIButton *close=(UIButton *)[self.panel viewWithTag:811];
+    CGFloat closeX=w-66, switchX=closeX-51;
+    title.frame=CGRectMake(margin,9,MAX(80,switchX-margin-80),28);
+    nativeLabel.frame=CGRectMake(switchX-72,8,68,29);
+    self.nativeGMSwitch.frame=CGRectMake(switchX,7,51,31);
+    close.frame=CGRectMake(closeX,8,54,29);
     self.tabs.frame=CGRectMake(margin,48,inner,30);
     self.search.frame=CGRectMake(margin,88,inner-78,30);
     UIView *lookup=[self.panel viewWithTag:813]; lookup.frame=CGRectMake(w-margin-72,88,72,30);
-    self.dropdown.frame=CGRectMake(margin,125,inner,30);
-    self.retryExportButton.frame=CGRectMake(w-158,8,82,29);
+    self.dropdown.frame=CGRectMake(margin,125,inner-86,30);
+    self.retryExportButton.frame=CGRectMake(w-margin-78,125,78,30);
     self.table.frame=CGRectMake(margin,161,inner,h-266);
     self.selection.frame=CGRectMake(margin,h-97,inner,20);
     self.quantity.frame=CGRectMake(margin,h-71,70,32);
@@ -123,8 +133,13 @@ static UITextField *Input(NSString *placeholder) {
     p.layer.cornerRadius=9; p.layer.borderWidth=1.2; p.layer.borderColor=Tan().CGColor;
     p.layer.shadowOpacity=.20; p.layer.shadowRadius=10; p.layer.shadowOffset=CGSizeMake(0,3);
     p.hidden=YES; self.panel=p; [self.view addSubview:p];
-    UILabel *title=Label(@"修仙家族 · GM 管理",15);
-    title.font=[UIFont boldSystemFontOfSize:15]; title.frame=CGRectMake(12,9,240,28); [p addSubview:title];
+    UILabel *title=Label(@"GM 管理",15);
+    title.tag=810; title.font=[UIFont boldSystemFontOfSize:15]; title.frame=CGRectMake(12,9,80,28); [p addSubview:title];
+    UILabel *nativeLabel=Label(@"原生 GM",11);
+    nativeLabel.tag=814; nativeLabel.textAlignment=NSTextAlignmentRight; [p addSubview:nativeLabel];
+    self.nativeGMSwitch=[UISwitch new]; self.nativeGMSwitch.onTintColor=Tan();
+    [self.nativeGMSwitch addTarget:self action:@selector(nativeGMChanged:) forControlEvents:UIControlEventValueChanged];
+    [p addSubview:self.nativeGMSwitch];
     UIButton *close=Button(@"收起",self,@selector(toggle:));
     close.autoresizingMask=UIViewAutoresizingFlexibleLeftMargin; close.frame=CGRectMake(0,8,54,29);
     close.tag=811; [p addSubview:close];
@@ -156,8 +171,6 @@ static UITextField *Input(NSString *placeholder) {
     self.bubble.hidden = !self.panel.hidden;
     if (!self.panel.hidden) {
         [self adjustPanel];
-        UIView *close=[self.panel viewWithTag:811];
-        close.frame=CGRectMake(self.panel.bounds.size.width-66,8,54,29);
         [self refresh];
     } else { [self.view endEditing:YES]; }
 }
@@ -176,7 +189,8 @@ static UITextField *Input(NSString *placeholder) {
 - (void)changeTab:(UISegmentedControl *)tab {
     self.tab=tab.selectedSegmentIndex; self.selected=nil; self.page=0;
     self.search.hidden=self.tab==3; [self.panel viewWithTag:813].hidden=self.tab>1;
-    self.dropdown.hidden=self.tab==3; self.table.hidden=self.tab==3 || !self.dropdownExpanded;
+    self.dropdown.hidden=self.tab==3; self.retryExportButton.hidden=self.tab>1;
+    self.table.hidden=self.tab==3 || !self.dropdownExpanded;
     self.quantity.hidden=self.tab==3; self.command.placeholder=self.tab==3?@"输入 GM 命令":@"可选参数";
     [self refresh];
 }
@@ -238,6 +252,23 @@ static UITextField *Input(NSString *placeholder) {
     int result=XJGMExportCatalog(category);
     self.retryExportButton.enabled=YES;
     NSLog(@"[XJGM] manual export %s: %d",category,result);
+}
+- (void)nativeGMChanged:(UISwitch *)sender {
+    int result=XJGMSwitchNativeGMWindow(sender.isOn?1:0);
+    if (result!=1) {
+        [sender setOn:NO animated:YES];
+        self.status.text=[NSString stringWithFormat:@"调用原生 GM 失败：E%03d",-result];
+        return;
+    }
+    if (sender.isOn) {
+        self.status.text=@"已请求打开原生 GM 窗口";
+        [self.view endEditing:YES];
+        // Hide the overlay panel so the native game window is not covered.
+        self.panel.hidden=YES;
+        self.bubble.hidden=NO;
+    } else {
+        self.status.text=@"已请求关闭原生 GM 窗口";
+    }
 }
 - (void)execute:(id)sender {
     if (!sExecutor) { self.status.text=@"执行失败：游戏执行桥未连接"; return; }
