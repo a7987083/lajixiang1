@@ -1,7 +1,7 @@
 name: Build Xiuxianjiazu GM UI
 on:
   push:
-    branches: [xiuxianjiazu]
+    branches: [xiuxianjiazu, feat/xiuxianjiazu-native-item-search]
     paths:
       - 'xiuxianjiazu/**'
       - '.github/workflows/xiuxianjiazu.yml'
@@ -20,7 +20,7 @@ jobs:
             -isysroot "$SDK" -miphoneos-version-min=13.0 \
             -framework UIKit -framework Foundation -framework QuartzCore -framework CoreGraphics \
             -Wl,-install_name,@rpath/XiuxianjiazuGM.dylib \
-            xiuxianjiazu/XJGMMenu.mm xiuxianjiazu/XJGMItemBridge.mm -o dist/XiuxianjiazuGM.dylib
+            xiuxianjiazu/XJGMMenu.mm xiuxianjiazu/XJGMNativeSearch.mm -o dist/XiuxianjiazuGM.dylib
           codesign --force --sign - --timestamp=none dist/XiuxianjiazuGM.dylib
           file dist/XiuxianjiazuGM.dylib
           shasum -a 256 dist/XiuxianjiazuGM.dylib > dist/SHA256SUMS.txt
