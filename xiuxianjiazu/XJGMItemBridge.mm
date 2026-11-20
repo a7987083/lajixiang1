@@ -205,3 +205,99 @@ static int execute(const char* kind,int32_t id,int32_t count,const char* argumen
 __attribute__((constructor)) static void XJGMRegisterRealItemExecutor() {
   XJGMSetExecutor(&execute);
 }
+
+
+// Fetch live game catalog via Dictionary<int,ItemTmpl>.Values -> CopyTo(ItemTmpl[]).
+// Limits output to 200 entries to avoid excessive UIKit allocations.
+// Returns matched count on success, 0 when none, -1 for unavailable/invalid runtime.
+extern "C" __attribute__((visibility("default"))) int XJGMSearchItems(const char* utf8Query) {
+  if (!utf8Query) return -1;
+  @autoreleasepool {
+    NSString *query=[NSString stringWithUTF8String:utf8Query];
+    if (!query || query.length>128) return -1;
+    Runtime r={};
+    if (!resolve(r)) return -1;
+    auto staticGet=(void (*)(void*,void*))sym(r.handle,"il2cpp_field_static_get_value");
+    auto objectClass=(void* (*)(void*))sym(r.handle,"il2cpp_object_get_class");
+    auto arrayNew=(void* (*)(void*,uintptr_t))sym(r.handle,"il2cpp_array_new");
+    auto arrayLength=(uintptr_t (*)(void*))sym(r.handle,"il2cpp_array_length");
+    if (!staticGet || !objectClass || !arrayNew || !arrayLength) return -1;
+    void* domain=r.domain(); if (!domain) return -1;
+    if (!r.current()) r.attach(domain);
+    void* assembly=r.assembly(domain,"Assembly-CSharp");
+    if (!assembly) assembly=r.assembly(domain,"Assembly-CSharp.dll");
+    if (!assembly) return -1;
+    void* image=r.image(assembly); if (!image) return -1;
+    void* cls=r.fromName(image,"config.export.excel","ItemTmpl");
+    if (!cls) return -1;
+    // Invoking IsConfigsEmpty ensures the class static constructor has run.
+    void* isEmpty=r.method(cls,"get_IsConfigsEmpty",0);
+    if (!isEmpty) return -1;
+    void* exception=nullptr;
+    void* boxed=r.invoke(isEmpty,nullptr,nullptr,&exception);
+    if (exception || !boxed) return -1;
+    void* field=r.field(cls,"configs"); if (!field) return -1;
+    void* dict=nullptr; staticGet(field,&dict);
+    if (!dict) return -1;
+    void* dictCls=objectClass(dict); if (!dictCls) return -1;
+    void* valuesMethod=r.method(dictCls,"get_Values",0);
+    if (!valuesMethod) return -1;
+    exception=nullptr;
+    void* values=r.invoke(valuesMethod,dict,nullptr,&exception);
+    if (exception || !values) return -1;
+    void* valuesCls=objectClass(values);
+    if (!valuesCls) return -1;
+    void* countMethod=r.method(valuesCls,"get_Count",0);
+    void* copyMethod=r.method(valuesCls,"CopyTo",2);
+    if (!countMethod || !copyMethod) return -1;
+    exception=nullptr;
+    void* countBox=r.invoke(countMethod,values,nullptr,&exception);
+    if (exception || !countBox) return -1;
+    // il2cpp_object_unbox provides the value-type payload without hardcoding object layout.
+    auto unbox=(void* (*)(void*))sym(r.handle,"il2cpp_object_unbox");
+    if (!unbox) return -1;
+    int32_t count=*(int32_t*)unbox(countBox);
+    if (count<0 || count>250000) return -1;
+    if (count==0) { XJGMSetEntries("item","[]"); return 0; }
+    void* array=arrayNew(cls,(uintptr_t)count); if (!array) return -1;
+    int32_t start=0;
+    void* args[]={&array,&start};
+    exception=nullptr;
+    r.invoke(copyMethod,values,args,&exception);
+    if (exception || arrayLength(array)!=(uintptr_t)count) return -1;
+    void* idField=r.field(cls,"id"); void* nameField=r.field(cls,"name");
+    if (!idField || !nameField) return -1;
+    // IL2CPP reference arrays: 16-byte Il2CppObject, max_length at +0x18,
+    // reference vector begins at +0x20 on target 64-bit Unity IL2CPP.
+    void* const* vector=(void* const*)((uintptr_t)array+0x20);
+    NSString *lower=query.lowercaseString;
+    NSMutableArray *matches=[NSMutableArray arrayWithCapacity:MIN((NSUInteger)count,(NSUInteger)200)];
+    int matched=0;
+    for (int32_t i=0;i<count;i++) {
+      void* item=vector[i]; if (!item) continue;
+      int32_t id=0; void* nameObj=nullptr;
+      r.fieldValue(idField,item,&id);
+      r.fieldValue(nameField,item,&nameObj);
+      if (id<=0 || !nameObj) continue;
+      int32_t length=r.stringLength(nameObj);
+      if (length<0 || length>4096) continue;
+      const uint16_t* chars=r.stringChars(nameObj);
+      if (length && !chars) continue;
+      NSString *name=[[NSString alloc] initWithCharacters:(const unichar*)chars length:(NSUInteger)length];
+      if (!name) continue;
+      if (lower.length && [name.lowercaseString rangeOfString:lower].location==NSNotFound &&
+          [[@(id) stringValue] rangeOfString:lower].location==NSNotFound) continue;
+      matched++;
+      if (matches.count<200) [matches addObject:@{@"id":@(id),@"name":name}];
+    }
+    [matches sortUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
+      return [a[@"id"] compare:b[@"id"]];
+    }];
+    NSData* json=[NSJSONSerialization dataWithJSONObject:matches options:0 error:nil];
+    if (!json) return -1;
+    NSMutableData* terminated=[json mutableCopy];
+    uint8_t zero=0; [terminated appendBytes:&zero length:1];
+    if (!XJGMSetEntries("item",(const char*)terminated.bytes)) return -1;
+    return matched;
+  }
+}
