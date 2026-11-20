@@ -69,4 +69,4 @@ Requires GitHub Actions iOS/macOS build. Real-device injection, rendering and ga
 
 - The overlay header includes an **原生 GM** switch. ON resolves `GameUI.get_Instance()` from `gameCore.dll` and invokes the original `GameUI.OpenGMView()`; OFF invokes `GameUI.CloseView("GMView")`.
 - The call uses IL2CPP method lookup and `il2cpp_runtime_invoke`, runs on the UIKit/Unity main thread, and requires the exact uploaded UnityFramework UUID. It does not use the hard-coded `OpenGMView` RVA.
-- When ON succeeds locally, the large overlay panel hides while the floating bubble remains, so it does not cover the game's GMView. This reports request submission only; the actual view appearance and close behavior require device verification.
+- When ON succeeds locally, the large overlay panel hides while the floating bubble remains, so it does not cover the game's GMView. The request is submitted locally; actual view appearance and close behavior still require device verification. The isolated arm64 Actions build completed successfully (run 44816231515).

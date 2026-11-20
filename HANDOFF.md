@@ -28,4 +28,4 @@ Verify on device that v10 keeps the working replacement icon, preserves v9 color
 - Feature branch: `xiuxianjiazu-gm-window-toggle`.
 - Stable source baseline: `c00f81e86af8fb49359bd491fd824b0f98411b54` on `xiuxianjiazu`. The repository branch tip had moved to `42187ca7d7b326834c67e5503c7f5d70681bc5bb`; this feature branch intentionally does not include that later code change.
 - Toggle ON resolves `GameUI.get_Instance` and invokes `OpenGMView`; OFF invokes `CloseView("GMView")`. Runtime lookup is restricted to `gameCore.dll`, main thread, and the matching UnityFramework UUID.
-- Current acceptance: source review complete; macOS Actions build and iPhone UI behavior pending. Opening hides the standalone panel to avoid obscuring the original GM view; the bubble remains to reopen controls.
+- Current acceptance: source review complete; GitHub Actions run 44816231515 passed for source commit 7880a711c1cd7ca84f032655ed586a0929256f4f and produced artifact 14670370303. iPhone UI behavior remains pending. Opening hides the standalone panel to avoid obscuring the original GM view; the bubble remains to reopen controls.

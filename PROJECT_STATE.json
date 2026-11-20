@@ -31,8 +31,12 @@
     "baseline_branch": "xiuxianjiazu",
     "baseline_commit": "c00f81e86af8fb49359bd491fd824b0f98411b54",
     "feature": "Native GameUI GMView switch via gameCore.dll IL2CPP runtime invocation",
-    "build_status": "pending",
+    "build_status": "success: arm64 iOS dylib compiled, signed, and artifact packaged",
     "device_verification": "pending",
-    "notes": "Later branch tip 42187ca7d7b326834c67e5503c7f5d70681bc5bb was intentionally excluded per user direction."
+    "notes": "Later branch tip 42187ca7d7b326834c67e5503c7f5d70681bc5bb was intentionally excluded per user direction.",
+    "source_commit": "7880a711c1cd7ca84f032655ed586a0929256f4f",
+    "actions_run": 44816231515,
+    "artifact_id": 14670370303,
+    "dylib_sha256": "c6537b5b4a66e64c3b9ffaeb7c8858b59dcf626d3dd7e4a97f4bb986459cd7a3"
   }
 }

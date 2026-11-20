@@ -27,5 +27,5 @@ Test v10 as one file. Expected: working replacement icon from v8, cyan theme fro
 - [x] Add a native GM switch to the overlay header.
 - [x] Resolve `GameUI.OpenGMView` / `CloseView("GMView")` through IL2CPP metadata instead of a fixed RVA.
 - [x] Hide the large overlay panel after opening so it does not cover the game's GMView.
-- [ ] Confirm the arm64 iOS Actions build on the isolated feature branch.
+- [x] Confirm the arm64 iOS Actions build on the isolated feature branch (run 44816231515; source commit 7880a711c1cd7ca84f032655ed586a0929256f4f).
 - [ ] Verify open, close, and no-crash behavior on the target iPhone and exact game build.

@@ -51,4 +51,4 @@
 - Based the feature branch on the requested stable commit `c00f81e86af8fb49359bd491fd824b0f98411b54`; did not apply later branch-head changes.
 - Added a header UISwitch that resolves `GameUI.OpenGMView` / `GameUI.CloseView("GMView")` through IL2CPP runtime metadata in `gameCore.dll`.
 - The adapter is limited to the uploaded UnityFramework UUID and main thread. Opening hides the standalone panel but leaves its floating bubble available.
-- Build/device verification status is recorded in the feature branch handoff; server behavior is not claimed.
+- GitHub Actions run 44816231515 succeeded for source commit 7880a711c1cd7ca84f032655ed586a0929256f4f; artifact 14670370303 was packaged. Device behavior remains unverified.
