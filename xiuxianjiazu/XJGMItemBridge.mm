@@ -178,7 +178,7 @@ static int sendOriginalItem(int32_t id,int32_t count) {
   uintptr_t base=exactImageBase();
   if (!base) return 0;
   Runtime r={};
-  if (!resolve(r)) return 0;
+  if (resolve(r)!=1) return 0;
   void* domain=r.domain(); if (!domain) return 0;
   if (!r.current()) r.attach(domain);
   void* assembly=r.assembly(domain,"Assembly-CSharp");
