@@ -8,6 +8,7 @@
 // UI module only. Game-specific IL2CPP adapter must provide real entries and executor.
 // Executor returns 0 on rejection, 1 on accepted request (not server-side success).
 extern "C" int XJGMQueryItemById(int32_t id);
+extern "C" int XJGMSearchItems(const char *query);
 typedef int (*XJGMExecutor)(const char *kind, int32_t itemId, int32_t count, const char *argument);
 static XJGMExecutor sExecutor = NULL;
 static NSArray<NSDictionary *> *sItems = nil;
@@ -113,9 +114,9 @@ static UITextField *Input(NSString *placeholder) {
     self.tabs=[[UISegmentedControl alloc] initWithItems:@[@"物品",@"功法",@"属性",@"GM 命令"]];
     self.tabs.selectedSegmentIndex=0; self.tabs.selectedSegmentTintColor=Tan();
     [self.tabs addTarget:self action:@selector(changeTab:) forControlEvents:UIControlEventValueChanged]; [p addSubview:self.tabs];
-    self.search=Input(@"输入名称 / 物品 ID"); self.search.delegate=self;
+    self.search=Input(@"输入物品名称或 ID（留空列出前200项）"); self.search.delegate=self;
     [self.search addTarget:self action:@selector(refresh) forControlEvents:UIControlEventEditingChanged]; [p addSubview:self.search];
-    UIButton *lookup=Button(@"查物品ID",self,@selector(lookupItem:)); lookup.tag=813; [p addSubview:lookup];
+    UIButton *lookup=Button(@"搜索物品",self,@selector(lookupItem:)); lookup.tag=813; [p addSubview:lookup];
     self.table=[[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStylePlain];
     self.table.dataSource=self; self.table.delegate=self; self.table.rowHeight=35;
     self.table.backgroundColor=UIColor.clearColor;
@@ -125,7 +126,7 @@ static UITextField *Input(NSString *placeholder) {
     self.quantity.text=@"1"; [p addSubview:self.quantity];
     self.command=Input(@"参数（GM 命令时输入完整命令）"); [p addSubview:self.command];
     UIButton *apply=Button(@"执行",self,@selector(execute:)); apply.tag=812; [p addSubview:apply];
-    self.status=Label(@"等待游戏数据适配器连接",11); [p addSubview:self.status];
+    self.status=Label(@"输入物品名称或ID后点击搜索物品",11); [p addSubview:self.status];
     [self adjustPanel];
 }
 - (void)toggle:(id)sender {
@@ -189,14 +190,14 @@ static UITextField *Input(NSString *placeholder) {
 - (void)lookupItem:(id)sender {
     if (self.tab!=0) return;
     NSString *value=[self.search.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    [self.view endEditing:YES];
     NSScanner *scanner=[NSScanner scannerWithString:value];
     long long number=0;
-    if (![scanner scanLongLong:&number] || !scanner.isAtEnd || number<=0 || number>INT32_MAX) {
-        self.status.text=@"请输入有效的十进制物品 ID"; return;
-    }
-    int result=XJGMQueryItemById((int32_t)number);
-    self.status.text=result==1?@"物品 ID 已在游戏配置中找到（尚未发放）":
-        result==0?@"游戏配置中没有这个物品 ID":@"IL2CPP 未就绪或读取失败";
+    BOOL exact=value.length>0 && [scanner scanLongLong:&number] && scanner.isAtEnd && number>0 && number<=INT32_MAX;
+    int result=exact?XJGMQueryItemById((int32_t)number):XJGMSearchItems(value.UTF8String);
+    if (result<0) self.status.text=@"游戏物品表读取失败或尚未加载";
+    else if (result==0) self.status.text=@"没有匹配的物品（或配置尚未加载）";
+    else self.status.text=[NSString stringWithFormat:@"找到 %d 项真实物品（列表最多显示200项）",result];
 }
 - (void)execute:(id)sender {
     if (!sExecutor) { self.status.text=@"执行失败：游戏执行桥未连接"; return; }
