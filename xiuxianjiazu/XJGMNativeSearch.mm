@@ -21,7 +21,7 @@ extern "C" __attribute__((visibility("default"))) int XJGMNativeItemSearch(const
     if (!imagePath) return -302;
     void *h=dlopen(imagePath,RTLD_NOW|RTLD_NOLOAD);
     if (!h) return -302;
-#define API(NAME,TYPE) TYPE NAME=(TYPE)dlsym(h,"il2cpp_" #NAME)
+#define API(NAME,TYPE) using NAME##_t = TYPE; NAME##_t NAME = reinterpret_cast<NAME##_t>(dlsym(h,"il2cpp_" #NAME))
     API(domain_get,void*(*)());
     API(domain_assembly_open,void*(*)(void*,const char*));
     API(assembly_get_image,void*(*)(void*));
