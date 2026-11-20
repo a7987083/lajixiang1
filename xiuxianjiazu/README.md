@@ -47,3 +47,11 @@ Requires GitHub Actions iOS/macOS build. Real-device injection, rendering and ga
 - Fixed IL2CPP `runtime_invoke` reference arguments: managed object references must be passed as object pointers, not the address of local object-pointer variables. Applies to the `ValueCollection.CopyTo` array argument and original GM command's object/string arguments.
 - Now unboxes and checks `ItemTmpl.get_IsConfigsEmpty()`. Error E102 means the game catalog is not loaded. UI displays distinct E101-E108 error phases instead of the earlier ambiguous generic message.
 - Build success establishes only compilation/link/signing. Live IL2CPP enumeration and server-side GM authorization remain **unverified on device**.
+
+
+## Automatic catalog export and dropdown (current version)
+- During normal gameplay, the menu retries loading **both** \`ItemTmpl.configs\` and \`SkillInfo.configs\` every three seconds until loaded (up to 60 attempts); no fake IDs or fabricated catalog entries.
+- Complete valid catalog rows are persisted atomically to \`Documents/XiuxianjiazuGM/items.json\` and \`Documents/XiuxianjiazuGM/skills.json\` in the game's app sandbox. Each contains \`[{"id":123,"name":"..."}]\`.
+- "搜索物品" text field filters the **already exported** list; directly beneath it is a collapsible selector. Only the first 200 matching entries are rendered, while the full catalog is retained in memory and JSON. Switching to the 功法 tab uses the separate \`SkillInfo\` list.
+- Selecting an entry displays its real numeric ID and keeps the GM action surface unchanged. The game server's acceptance of any GM command remains unverified.
+- Runtime catalog enumeration and UI interaction still need **device testing**. The build pipeline checks arm64 compilation, signing, and artifact packaging only.
