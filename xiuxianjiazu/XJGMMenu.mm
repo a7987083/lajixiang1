@@ -134,7 +134,7 @@ static UITextField *Input(NSString *placeholder) {
     self.tabs.selectedSegmentIndex=0; self.tabs.selectedSegmentTintColor=Tan();
     [self.tabs addTarget:self action:@selector(changeTab:) forControlEvents:UIControlEventValueChanged]; [p addSubview:self.tabs];
     self.search=Input(@"输入物品名称或 ID；唯一精确匹配可直接执行"); self.search.delegate=self;
-    [self.search addTarget:self action:@selector(refresh) forControlEvents:UIControlEventEditingChanged]; [p addSubview:self.search];
+    [self.search addTarget:self action:@selector(searchChanged:) forControlEvents:UIControlEventEditingChanged]; [p addSubview:self.search];
     UIButton *lookup=Button(@"搜索物品",self,@selector(lookupItem:)); lookup.tag=813; [p addSubview:lookup];
     self.dropdown=Button(@"选择列表 ▼（自动导出后可选）",self,@selector(toggleDropdown:));
     self.dropdown.contentHorizontalAlignment=UIControlContentHorizontalAlignmentLeft;
@@ -178,6 +178,11 @@ static UITextField *Input(NSString *placeholder) {
     self.search.hidden=self.tab==3; [self.panel viewWithTag:813].hidden=self.tab>1;
     self.dropdown.hidden=self.tab==3; self.table.hidden=self.tab==3 || !self.dropdownExpanded;
     self.quantity.hidden=self.tab==3; self.command.placeholder=self.tab==3?@"输入 GM 命令":@"可选参数";
+    [self refresh];
+}
+- (void)searchChanged:(id)sender {
+    // Any changed query invalidates a prior selection, preventing a stale-ID GM request.
+    self.selected=nil;
     [self refresh];
 }
 - (void)toggleDropdown:(id)sender {
