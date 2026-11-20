@@ -40,6 +40,10 @@ struct Runtime {
   ThreadAttach attach;
 };
 static void* sym(void *h,const char* name) { return dlsym(h,name); }
+static void* managedImage(Runtime &r,void* domain,const char* assemblyName) {
+  void* assembly=r.assembly(domain,assemblyName);
+  return assembly ? r.image(assembly) : nullptr;
+}
 static int resolve(Runtime& r) {
   memset(&r,0,sizeof(r));
   bool seen=false, invalid=false;
@@ -92,11 +96,8 @@ extern "C" __attribute__((visibility("default"))) int XJGMQueryItemById(int32_t 
   void *domain=r.domain();
   if (!domain) return -205;
   if (!r.current() && !r.attach(domain)) return -210;
-  void *assembly=r.assembly(domain,"Assembly-CSharp");
-  if (!assembly) assembly=r.assembly(domain,"Assembly-CSharp.dll");
-  if (!assembly) return -206;
-  void *image=r.image(assembly);
-  if (!image) return -207;
+  void *image=managedImage(r,domain,"gameConfigs.dll");
+  if (!image) return -206;
   void *cls=r.fromName(image,"config.export.excel","ItemTmpl");
   if (!cls) return -208;
   void *find=r.method(cls,"Find",1);
@@ -182,13 +183,13 @@ static int sendOriginalItem(int32_t id,int32_t count) {
   if (resolve(r)!=1) return 0;
   void* domain=r.domain(); if (!domain) return 0;
   if (!r.current()) r.attach(domain);
-  void* assembly=r.assembly(domain,"Assembly-CSharp");
-  if (!assembly) assembly=r.assembly(domain,"Assembly-CSharp.dll");
-  if (!assembly) return 0;
-  void* image=r.image(assembly);
-  void* itemCls=r.fromName(image,"config.export.excel","ItemTmpl");
-  void* cmdCls=r.fromName(image,"xxjz.game","C2S_GMComand");
-  void* appCls=r.fromName(image,"","GameApp");
+  void* configImage=managedImage(r,domain,"gameConfigs.dll");
+  void* protocolImage=managedImage(r,domain,"gameProtocal.dll");
+  void* coreImage=managedImage(r,domain,"gameCore.dll");
+  if (!configImage || !protocolImage || !coreImage) return 0;
+  void* itemCls=r.fromName(configImage,"config.export.excel","ItemTmpl");
+  void* cmdCls=r.fromName(protocolImage,"xxjz.game","C2S_GMComand");
+  void* appCls=r.fromName(coreImage,"","GameApp");
   if (!itemCls || !cmdCls || !appCls) return 0;
   // Require the ID to exist in game's original catalog, not just the UI.
   void* find=r.method(itemCls,"Find",1);
@@ -325,11 +326,8 @@ static int prepareExport(Runtime &r,void **image) {
   void *domain=r.domain();
   if (!domain) return -205;
   if (!r.current() && !r.attach(domain)) return -210;
-  void *assembly=r.assembly(domain,"Assembly-CSharp");
-  if (!assembly) assembly=r.assembly(domain,"Assembly-CSharp.dll");
-  if (!assembly) return -206;
-  *image=r.image(assembly);
-  return *image?1:-207;
+  *image=managedImage(r,domain,"gameConfigs.dll");
+  return *image?1:-206;
 }
 }
 extern "C" __attribute__((visibility("default"))) int XJGMExportCatalog(const char* category) {
