@@ -196,6 +196,16 @@ static UITextField *Input(NSString *placeholder) {
     BOOL exact=value.length>0 && [scanner scanLongLong:&number] && scanner.isAtEnd && number>0 && number<=INT32_MAX;
     int result=exact?XJGMQueryItemById((int32_t)number):XJGMSearchItems(value.UTF8String);
     switch (result) {
+        case -201: self.status.text=@"E201：dyld 未找到 UnityFramework"; break;
+        case -202: self.status.text=@"E202：UnityFramework Mach-O 架构异常"; break;
+        case -203: self.status.text=@"E203：UnityFramework 句柄获取失败"; break;
+        case -204: self.status.text=@"E204：IL2CPP 导出符号缺失（查日志）"; break;
+        case -205: self.status.text=@"E205：IL2CPP Domain 未初始化"; break;
+        case -206: self.status.text=@"E206：Assembly-CSharp 未找到"; break;
+        case -207: self.status.text=@"E207：Assembly Image 不可用"; break;
+        case -208: self.status.text=@"E208：ItemTmpl 类未找到"; break;
+        case -209: self.status.text=@"E209：ItemTmpl 方法未找到"; break;
+        case -210: self.status.text=@"E210：IL2CPP 线程附加失败"; break;
         case -101: self.status.text=@"E101：IL2CPP 枚举 API 缺失"; break;
         case -102: self.status.text=@"E102：物品配置尚未加载（进入游戏后重试）"; break;
         case -103: self.status.text=@"E103：物品字典为空"; break;
