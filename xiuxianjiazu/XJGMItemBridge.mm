@@ -39,32 +39,47 @@ struct Runtime {
   ThreadAttach attach;
 };
 static void* sym(void *h,const char* name) { return dlsym(h,name); }
-static bool resolve(Runtime& r) {
+static int resolve(Runtime& r) {
   memset(&r,0,sizeof(r));
-  // UnityFramework is usually loaded through dyld before the menu is opened.
+  bool seen=false, invalid=false;
+  const char* fullPath=nullptr;
   for (uint32_t i=0;i<_dyld_image_count();++i) {
-    const char* name=_dyld_get_image_name(i);
-    if (name && strstr(name,"UnityFramework")) {
-      r.handle=dlopen(name,RTLD_NOW|RTLD_NOLOAD);
-      if (r.handle) break;
+    const char* raw=_dyld_get_image_name(i);
+    const struct mach_header* header=_dyld_get_image_header(i);
+    if (!raw || !header) continue;
+    NSString* path=[NSString stringWithUTF8String:raw];
+    if (!path || ![path.lastPathComponent isEqualToString:@"UnityFramework"]) continue;
+    seen=true;
+    if (header->magic!=MH_MAGIC_64 || header->cputype!=CPU_TYPE_ARM64) {
+      invalid=true; continue;
     }
+    fullPath=raw; break;
   }
-  if (!r.handle) return false;
-  r.domain=(DomainGet)sym(r.handle,"il2cpp_domain_get");
-  r.assembly=(DomainAssemblyOpen)sym(r.handle,"il2cpp_domain_assembly_open");
-  r.image=(AssemblyGetImage)sym(r.handle,"il2cpp_assembly_get_image");
-  r.fromName=(ClassFromName)sym(r.handle,"il2cpp_class_from_name");
-  r.method=(ClassGetMethod)sym(r.handle,"il2cpp_class_get_method_from_name");
-  r.invoke=(RuntimeInvoke)sym(r.handle,"il2cpp_runtime_invoke");
-  r.field=(ClassGetField)sym(r.handle,"il2cpp_class_get_field_from_name");
-  r.fieldValue=(FieldGetValue)sym(r.handle,"il2cpp_field_get_value");
-  r.stringLength=(StringLength)sym(r.handle,"il2cpp_string_length");
-  r.stringChars=(StringChars)sym(r.handle,"il2cpp_string_chars");
-  r.current=(ThreadCurrent)sym(r.handle,"il2cpp_thread_current");
-  r.attach=(ThreadAttach)sym(r.handle,"il2cpp_thread_attach");
-  return r.domain && r.assembly && r.image && r.fromName && r.method &&
-         r.invoke && r.field && r.fieldValue && r.stringLength && r.stringChars &&
-         r.current && r.attach;
+  if (!fullPath) return (seen && invalid) ? -202 : -201;
+  r.handle=dlopen(fullPath,RTLD_NOW|RTLD_NOLOAD);
+  if (!r.handle) r.handle=dlopen(fullPath,RTLD_NOW|RTLD_LOCAL);
+  if (!r.handle) {
+    NSLog(@"[XJGM] E203 dlopen failed: %s",dlerror() ?: "unknown");
+    return -203;
+  }
+#define LOAD_API(fieldName,symbolName) do { \
+    r.fieldName=(decltype(r.fieldName))sym(r.handle,symbolName); \
+    if (!r.fieldName) { NSLog(@"[XJGM] E204 missing symbol: %s",symbolName); return -204; } \
+  } while(0)
+  LOAD_API(domain,"il2cpp_domain_get");
+  LOAD_API(assembly,"il2cpp_domain_assembly_open");
+  LOAD_API(image,"il2cpp_assembly_get_image");
+  LOAD_API(fromName,"il2cpp_class_from_name");
+  LOAD_API(method,"il2cpp_class_get_method_from_name");
+  LOAD_API(invoke,"il2cpp_runtime_invoke");
+  LOAD_API(field,"il2cpp_class_get_field_from_name");
+  LOAD_API(fieldValue,"il2cpp_field_get_value");
+  LOAD_API(stringLength,"il2cpp_string_length");
+  LOAD_API(stringChars,"il2cpp_string_chars");
+  LOAD_API(current,"il2cpp_thread_current");
+  LOAD_API(attach,"il2cpp_thread_attach");
+#undef LOAD_API
+  return 1;
 }
 }
 // return 1 when an exact ID was found; 0 if absent; -1 when runtime unavailable.
@@ -72,18 +87,19 @@ static bool resolve(Runtime& r) {
 extern "C" __attribute__((visibility("default"))) int XJGMQueryItemById(int32_t id) {
   if (id<=0) return 0;
   Runtime r={};
-  if (!resolve(r)) return -1;
+  int stage=resolve(r); if (stage!=1) return stage;
   void *domain=r.domain();
-  if (!domain) return -1;
-  if (!r.current()) r.attach(domain);
+  if (!domain) return -205;
+  if (!r.current() && !r.attach(domain)) return -210;
   void *assembly=r.assembly(domain,"Assembly-CSharp");
   if (!assembly) assembly=r.assembly(domain,"Assembly-CSharp.dll");
-  if (!assembly) return -1;
+  if (!assembly) return -206;
   void *image=r.image(assembly);
+  if (!image) return -207;
   void *cls=r.fromName(image,"config.export.excel","ItemTmpl");
-  if (!cls) return -1;
+  if (!cls) return -208;
   void *find=r.method(cls,"Find",1);
-  if (!find) return -1;
+  if (!find) return -209;
   void *args[]={&id};
   void *exception=nullptr;
   void *item=r.invoke(find,nullptr,args,&exception);
@@ -216,23 +232,23 @@ extern "C" __attribute__((visibility("default"))) int XJGMSearchItems(const char
     NSString *query=[NSString stringWithUTF8String:utf8Query];
     if (!query || query.length>128) return -1;
     Runtime r={};
-    if (!resolve(r)) return -1;
+    int stage=resolve(r); if (stage!=1) return stage;
     auto staticGet=(void (*)(void*,void*))sym(r.handle,"il2cpp_field_static_get_value");
     auto objectClass=(void* (*)(void*))sym(r.handle,"il2cpp_object_get_class");
     auto arrayNew=(void* (*)(void*,uintptr_t))sym(r.handle,"il2cpp_array_new");
     auto arrayLength=(uintptr_t (*)(void*))sym(r.handle,"il2cpp_array_length");
     if (!staticGet || !objectClass || !arrayNew || !arrayLength) return -101;
-    void* domain=r.domain(); if (!domain) return -1;
-    if (!r.current()) r.attach(domain);
+    void* domain=r.domain(); if (!domain) return -205;
+    if (!r.current() && !r.attach(domain)) return -210;
     void* assembly=r.assembly(domain,"Assembly-CSharp");
     if (!assembly) assembly=r.assembly(domain,"Assembly-CSharp.dll");
-    if (!assembly) return -1;
-    void* image=r.image(assembly); if (!image) return -1;
+    if (!assembly) return -206;
+    void* image=r.image(assembly); if (!image) return -207;
     void* cls=r.fromName(image,"config.export.excel","ItemTmpl");
-    if (!cls) return -1;
+    if (!cls) return -208;
     // Invoking IsConfigsEmpty ensures the class static constructor has run.
     void* isEmpty=r.method(cls,"get_IsConfigsEmpty",0);
-    if (!isEmpty) return -1;
+    if (!isEmpty) return -209;
     void* exception=nullptr;
     void* boxed=r.invoke(isEmpty,nullptr,nullptr,&exception);
     if (exception || !boxed) return -105;
