@@ -10,7 +10,6 @@
 extern "C" int XJGMQueryItemById(int32_t id);
 extern "C" int XJGMSearchItems(const char *query);
 extern "C" int XJGMExportCatalog(const char *category);
-extern "C" int XJGMSwitchNativeGMWindow(int enabled);
 typedef int (*XJGMExecutor)(const char *kind, int32_t itemId, int32_t count, const char *argument);
 static XJGMExecutor sExecutor = NULL;
 static NSArray<NSDictionary *> *sItems = nil;
@@ -69,11 +68,9 @@ static UITextField *Input(NSString *placeholder) {
 @property(nonatomic,strong) UITableView *table;
 @property(nonatomic,strong) UIButton *dropdown;
 @property(nonatomic,strong) UIButton *retryExportButton;
-@property(nonatomic,strong) UISwitch *nativeGMSwitch;
 @property(nonatomic,assign) BOOL dropdownExpanded;
 @property(nonatomic,strong) UITextField *search;
 @property(nonatomic,strong) UITextField *quantity;
-@property(nonatomic,strong) UITextField *command;
 @property(nonatomic,strong) UILabel *status;
 @property(nonatomic,strong) UILabel *selection;
 @property(nonatomic,strong) UISegmentedControl *tabs;
@@ -108,12 +105,9 @@ static UITextField *Input(NSString *placeholder) {
     self.panel.frame = CGRectMake((b.size.width-w)/2,(b.size.height-h)/2,w,h);
     CGFloat margin=12, inner=w-2*margin;
     UILabel *title=(UILabel *)[self.panel viewWithTag:810];
-    UILabel *nativeLabel=(UILabel *)[self.panel viewWithTag:814];
     UIButton *close=(UIButton *)[self.panel viewWithTag:811];
-    CGFloat closeX=w-66, switchX=closeX-51;
-    title.frame=CGRectMake(margin,9,MAX(80,switchX-margin-80),28);
-    nativeLabel.frame=CGRectMake(switchX-72,8,68,29);
-    self.nativeGMSwitch.frame=CGRectMake(switchX,7,51,31);
+    CGFloat closeX=w-66;
+    title.frame=CGRectMake(margin,9,closeX-margin-10,28);
     close.frame=CGRectMake(closeX,8,54,29);
     self.tabs.frame=CGRectMake(margin,48,inner,30);
     self.search.frame=CGRectMake(margin,88,inner-78,30);
@@ -123,9 +117,8 @@ static UITextField *Input(NSString *placeholder) {
     self.table.frame=CGRectMake(margin,161,inner,h-266);
     self.selection.frame=CGRectMake(margin,h-97,inner,20);
     self.quantity.frame=CGRectMake(margin,h-71,70,32);
-    self.command.frame=CGRectMake(margin+76,h-71,inner-186,32);
     UIView *footer=[self.panel viewWithTag:812];
-    footer.frame=CGRectMake(w-100,h-71,88,32);
+    footer.frame=CGRectMake(w-margin-88,h-71,88,32);
     self.status.frame=CGRectMake(margin,h-39,inner,34);
 }
 - (void)makePanel {
@@ -133,19 +126,14 @@ static UITextField *Input(NSString *placeholder) {
     p.layer.cornerRadius=9; p.layer.borderWidth=1.2; p.layer.borderColor=Tan().CGColor;
     p.layer.shadowOpacity=.20; p.layer.shadowRadius=10; p.layer.shadowOffset=CGSizeMake(0,3);
     p.hidden=YES; self.panel=p; [self.view addSubview:p];
-    UILabel *title=Label(@"GM 管理",15);
-    title.tag=810; title.font=[UIFont boldSystemFontOfSize:15]; title.frame=CGRectMake(12,9,80,28); [p addSubview:title];
-    UILabel *nativeLabel=Label(@"原生 GM",11);
-    nativeLabel.tag=814; nativeLabel.textAlignment=NSTextAlignmentRight; [p addSubview:nativeLabel];
-    self.nativeGMSwitch=[UISwitch new]; self.nativeGMSwitch.onTintColor=Tan();
-    [self.nativeGMSwitch addTarget:self action:@selector(nativeGMChanged:) forControlEvents:UIControlEventValueChanged];
-    [p addSubview:self.nativeGMSwitch];
+    UILabel *title=Label(@"GM 工具 · dylib 内置",15);
+    title.tag=810; title.font=[UIFont boldSystemFontOfSize:15]; title.frame=CGRectMake(12,9,180,28); [p addSubview:title];
     UIButton *close=Button(@"收起",self,@selector(toggle:));
     close.autoresizingMask=UIViewAutoresizingFlexibleLeftMargin; close.frame=CGRectMake(0,8,54,29);
     close.tag=811; [p addSubview:close];
     self.retryExportButton=Button(@"重新导出",self,@selector(retryCurrentExport:));
     [p addSubview:self.retryExportButton];
-    self.tabs=[[UISegmentedControl alloc] initWithItems:@[@"物品",@"功法",@"属性",@"GM 命令"]];
+    self.tabs=[[UISegmentedControl alloc] initWithItems:@[@"物品",@"功法（只读）"]];
     self.tabs.selectedSegmentIndex=0; self.tabs.selectedSegmentTintColor=Tan();
     [self.tabs addTarget:self action:@selector(changeTab:) forControlEvents:UIControlEventValueChanged]; [p addSubview:self.tabs];
     self.search=Input(@"搜索名称或 ID，留空显示全部"); self.search.delegate=self;
@@ -161,9 +149,8 @@ static UITextField *Input(NSString *placeholder) {
     self.selection=Label(@"未选择条目",12); [p addSubview:self.selection];
     self.quantity=Input(@"数量"); self.quantity.keyboardType=UIKeyboardTypeNumberPad;
     self.quantity.text=@"1"; [p addSubview:self.quantity];
-    self.command=Input(@"参数（GM 命令时输入完整命令）"); [p addSubview:self.command];
-    UIButton *apply=Button(@"执行",self,@selector(execute:)); apply.tag=812; [p addSubview:apply];
-    self.status=Label(@"配置自动导出后，下拉选择物品或功法",11); [p addSubview:self.status];
+    UIButton *apply=Button(@"添加物品",self,@selector(execute:)); apply.tag=812; [p addSubview:apply];
+    self.status=Label(@"使用悬浮 GM 按钮打开本面板；选择物品并设置数量后添加",11); [p addSubview:self.status];
     [self adjustPanel];
 }
 - (void)toggle:(id)sender {
@@ -188,10 +175,12 @@ static UITextField *Input(NSString *placeholder) {
 }
 - (void)changeTab:(UISegmentedControl *)tab {
     self.tab=tab.selectedSegmentIndex; self.selected=nil; self.page=0;
-    self.search.hidden=self.tab==3; [self.panel viewWithTag:813].hidden=self.tab>1;
-    self.dropdown.hidden=self.tab==3; self.retryExportButton.hidden=self.tab>1;
-    self.table.hidden=self.tab==3 || !self.dropdownExpanded;
-    self.quantity.hidden=self.tab==3; self.command.placeholder=self.tab==3?@"输入 GM 命令":@"可选参数";
+    self.search.hidden=NO; [self.panel viewWithTag:813].hidden=NO;
+    self.dropdown.hidden=NO; self.retryExportButton.hidden=NO;
+    self.quantity.hidden=self.tab!=0;
+    UIButton *apply=(UIButton *)[self.panel viewWithTag:812];
+    apply.enabled=self.tab==0;
+    [apply setTitle:self.tab==0?@"添加物品":@"仅查询" forState:UIControlStateNormal];
     [self refresh];
 }
 - (void)toggleDropdown:(id)sender {
@@ -210,14 +199,14 @@ static UITextField *Input(NSString *placeholder) {
         list=[list filteredArrayUsingPredicate:filter];
     }
     self.filtered=list; [self.table reloadData];
-    self.table.hidden=self.tab==3 || !self.dropdownExpanded;
-    NSString *caption=self.tab==1?@"功法":@"物品";
+    self.table.hidden=!self.dropdownExpanded;
+    NSString *caption=self.tab==1?@"功法（只读）":@"物品";
     [self.dropdown setTitle:[NSString stringWithFormat:@"%@列表 %@ · %lu 项（显示前200）",
         caption,self.dropdownExpanded?@"▲":@"▼",(unsigned long)list.count] forState:UIControlStateNormal];
     self.selection.text=self.selected? [NSString stringWithFormat:@"已选择：%@（ID：%@）",self.selected[@"name"],self.selected[@"id"]] : @"未选择条目";
     if (self.tab==0) self.status.text=ExportMessage(@"物品",sItemsReady,sItemExportCode,sItemExportCount,sItemSaved);
-    else if (self.tab==1) self.status.text=ExportMessage(@"功法",sSkillsReady,sSkillExportCode,sSkillExportCount,sSkillSaved);
-    else self.status.text=@"当前页面无可导出配置";
+    else self.status.text=[NSString stringWithFormat:@"%@；功法页当前只支持查询",
+        ExportMessage(@"功法",sSkillsReady,sSkillExportCode,sSkillExportCount,sSkillSaved)];
 }
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return MIN((NSUInteger)200,self.filtered.count); }
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)path {
@@ -253,42 +242,16 @@ static UITextField *Input(NSString *placeholder) {
     self.retryExportButton.enabled=YES;
     NSLog(@"[XJGM] manual export %s: %d",category,result);
 }
-- (void)nativeGMChanged:(UISwitch *)sender {
-    int result=XJGMSwitchNativeGMWindow(sender.isOn?1:0);
-    if (result!=1) {
-        [sender setOn:NO animated:YES];
-        self.status.text=[NSString stringWithFormat:@"调用原生 GM 失败：E%03d",-result];
-        return;
-    }
-    if (sender.isOn) {
-        self.status.text=@"已请求打开原生 GM 窗口";
-        [self.view endEditing:YES];
-        // Hide the overlay panel so the native game window is not covered.
-        self.panel.hidden=YES;
-        self.bubble.hidden=NO;
-    } else {
-        self.status.text=@"已请求关闭原生 GM 窗口";
-    }
-}
 - (void)execute:(id)sender {
+    if (self.tab!=0) { self.status.text=@"功法页只读；仅物品添加已接通"; return; }
     if (!sExecutor) { self.status.text=@"执行失败：游戏执行桥未连接"; return; }
-    int32_t itemId=0;
-    if (self.tab!=3) {
-        if (!self.selected) { self.status.text=@"请先选择条目"; return; }
-        itemId=[self.selected[@"id"] intValue];
-    }
-    int32_t n=1;
-    if (self.tab==0) {
-        NSInteger parsed=self.quantity.text.integerValue;
-        if (parsed<=0 || parsed>INT32_MAX) { self.status.text=@"数量必须在 1~2147483647 之间"; return; }
-        n=(int32_t)parsed;
-    }
-    NSString *arg=self.command.text ?: @"";
-    if (self.tab==3 && !arg.length) { self.status.text=@"请输入命令"; return; }
+    if (!self.selected) { self.status.text=@"请先选择物品"; return; }
+    int32_t itemId=[self.selected[@"id"] intValue];
+    NSInteger parsed=self.quantity.text.integerValue;
+    if (parsed<=0 || parsed>INT32_MAX) { self.status.text=@"数量必须在 1~2147483647 之间"; return; }
     [self.view endEditing:YES];
-    const char *kind=self.tab==0?"item":self.tab==1?"skill":self.tab==2?"attr":"command";
-    int result=sExecutor(kind,itemId,n,arg.UTF8String);
-    self.status.text=result?@"请求已交给游戏执行器；未确认服务端成功":@"执行器拒绝请求（未修改游戏数据）";
+    int result=sExecutor("item",itemId,(int32_t)parsed,"");
+    self.status.text=result?@"物品请求已交给游戏执行器；未确认服务端成功":@"执行器拒绝请求（未修改游戏数据）";
 }
 @end
 

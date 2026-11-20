@@ -8,7 +8,7 @@ Branch: \`xiuxianjiazu\`. Separate from the existing CyberSkin module and workfl
 - Searchable item, skill, attribute tabs; editable quantity; manual GM command tab
 - No invented catalog: data must be supplied by an IL2CPP adapter at runtime
 - No fake success: action cannot execute without an attached executor; successful executor return means request accepted locally, **not** server-side grant
-- The original game GM window is accessed only through the explicit **原生 GM** switch; all other overlay features remain separate from the game's prefab.
+- GM controls render in the dylib's own UIKit overlay; the implementation does not depend on the game's GMView prefab.
 - No off-target injection, SDK upgrade or changes to existing baseline files
 
 ## Adapter API
@@ -65,8 +65,8 @@ Requires GitHub Actions iOS/macOS build. Real-device injection, rendering and ga
 - The original game GM request sending path remains unchanged. iPhone runtime behavior and server-side outcomes are still unverified.
 
 
-## Original game GM window switch (2026-11-21)
+## Built-in GM overlay (2026-11-21)
 
-- The overlay header includes an **原生 GM** switch. ON resolves `GameUI.get_Instance()` from `gameCore.dll` and invokes the original `GameUI.OpenGMView()`; OFF invokes `GameUI.CloseView("GMView")`.
-- The call uses IL2CPP method lookup and `il2cpp_runtime_invoke`, runs on the UIKit/Unity main thread, and requires the exact uploaded UnityFramework UUID. It does not use the hard-coded `OpenGMView` RVA.
-- When ON succeeds locally, the large overlay panel hides while the floating bubble remains, so it does not cover the game's GMView. The request is submitted locally; actual view appearance and close behavior still require device verification. The isolated arm64 Actions build completed successfully (run 44816231515).
+- Removed the original-game OpenGMView switch after the native window failed to appear. Tapping the floating GM bubble opens the UIKit panel directly.
+- The panel supports item catalog search and item-add requests. The skill catalog is read-only; attribute and free-form command execution remain disabled until their handlers are independently verified.
+- Item-add uses the traced GMItemBlock.OnClickBtnAdd(int) request path. A returned success means the local executor accepted the request; it does not prove server-side acceptance or inventory change.

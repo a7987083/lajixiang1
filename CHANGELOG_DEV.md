@@ -1,3 +1,9 @@
+## 2026-11-21 — Use the built-in GM overlay
+
+- Removed the native GameUI.OpenGMView path that hid the dylib panel while waiting for an in-game window that did not appear.
+- The floating GM bubble now opens the custom UIKit menu directly. Item lookup/add remains active; skill catalog is query-only, and unverified attribute/raw-command execution is not exposed.
+- This keeps item actions independent of the native GM prefab. Real-device visibility and server acceptance still require user-side validation.
+
 # CHANGELOG_DEV
 
 ## 2026-09-24 — v10

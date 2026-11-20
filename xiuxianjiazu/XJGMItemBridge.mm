@@ -129,7 +129,7 @@ extern "C" __attribute__((visibility("default"))) int XJGMQueryItemById(int32_t 
 }
 
 
-// Exact-game, exact-build GM request bridge.
+// Exact-build game bridge helpers used by the built-in dylib menu.
 // Derived from OnClickBtnAdd(0x1B1D610) instruction data flow:
 // 0x448B310 = managed typeStr literal slot;
 // 0x4479768 = managed route literal slot;
@@ -174,38 +174,6 @@ static bool invoke(Runtime& r,void* method,void* object,void** args,void** outpu
   if (output) *output=value;
   return true;
 }
-}
-extern "C" __attribute__((visibility("default"))) int XJGMSwitchNativeGMWindow(int enabled) {
-  if (![NSThread isMainThread]) return -211;
-  if (!exactImageBase()) return -212; // exact uploaded UnityFramework UUID only
-  Runtime r={};
-  int status=resolve(r);
-  if (status!=1) return status;
-  void* domain=r.domain();
-  if (!domain) return -205;
-  if (!r.current() && !r.attach(domain)) return -210;
-  void* assembly=r.assembly(domain,"gameCore.dll");
-  if (!assembly) return -213;
-  void* image=r.image(assembly);
-  if (!image) return -214;
-  void* cls=r.fromName(image,"","GameUI");
-  if (!cls) return -215;
-  void* getter=r.method(cls,"get_Instance",0);
-  void* instance=nullptr;
-  if (!invoke(r,getter,nullptr,nullptr,&instance) || !instance) return -216;
-  if (enabled) {
-    void* open=r.method(cls,"OpenGMView",0);
-    return invoke(r,open,instance,nullptr) ? 1 : -217;
-  }
-  void* close=r.method(cls,"CloseView",1);
-  if (!close) return -218;
-  using StringNew=void*(*)(const char*);
-  auto stringNew=(StringNew)sym(r.handle,"il2cpp_string_new");
-  if (!stringNew) return -219;
-  void* viewName=stringNew("GMView");
-  if (!viewName) return -220;
-  void* args[]={viewName};
-  return invoke(r,close,instance,args) ? 1 : -221;
 }
 namespace {
 static int sendOriginalItem(int32_t id,int32_t count) {

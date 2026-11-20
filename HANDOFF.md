@@ -24,8 +24,8 @@ v10 replaces only file offsets `0x15190..0x1519D`; decoded result is `taobaozono
 Verify on device that v10 keeps the working replacement icon, preserves v9 color behavior, and shows `taobaozonoe` where the plugin previously showed `Check0ver Team`.
 
 
-## Xiuxianjiazu GM window toggle branch
-- Feature branch: `xiuxianjiazu-gm-window-toggle`.
-- Stable source baseline: `c00f81e86af8fb49359bd491fd824b0f98411b54` on `xiuxianjiazu`. The repository branch tip had moved to `42187ca7d7b326834c67e5503c7f5d70681bc5bb`; this feature branch intentionally does not include that later code change.
-- Toggle ON resolves `GameUI.get_Instance` and invokes `OpenGMView`; OFF invokes `CloseView("GMView")`. Runtime lookup is restricted to `gameCore.dll`, main thread, and the matching UnityFramework UUID.
-- Current acceptance: source review complete; GitHub Actions run 44816231515 passed for source commit 7880a711c1cd7ca84f032655ed586a0929256f4f and produced artifact 14670370303. iPhone UI behavior remains pending. Opening hides the standalone panel to avoid obscuring the original GM view; the bubble remains to reopen controls.
+## Xiuxianjiazu built-in GM overlay branch
+- Feature branch: xiuxianjiazu-gm-window-toggle, based on the user-requested c00f81e86af8fb49359bd491fd824b0f98411b54 baseline; later branch code that the user reported crashes on is excluded.
+- The first build called GameUI.OpenGMView and hid the overlay after the call. The user confirmed no native GM window appeared.
+- Follow-up removes the OpenGMView/CloseView dependency. The floating GM button opens the dylib's UIKit panel. Item catalog search and item-add request are active; skill catalog is read-only; attribute and free-form command execution are not exposed pending method-level verification.
+- Earlier successful build: Actions run 44816231515, source commit 7880a711c1cd7ca84f032655ed586a0929256f4f. This follow-up must be rebuilt; no device verification yet.
