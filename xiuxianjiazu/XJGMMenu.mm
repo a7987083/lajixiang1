@@ -7,6 +7,7 @@
 
 // UI module only. Game-specific IL2CPP adapter must provide real entries and executor.
 // Executor returns 0 on rejection, 1 on accepted request (not server-side success).
+extern "C" int XJGMQueryItemById(int32_t id);
 typedef int (*XJGMExecutor)(const char *kind, int32_t itemId, int32_t count, const char *argument);
 static XJGMExecutor sExecutor = NULL;
 static NSArray<NSDictionary *> *sItems = nil;
@@ -89,7 +90,8 @@ static UITextField *Input(NSString *placeholder) {
     self.panel.frame = CGRectMake((b.size.width-w)/2,(b.size.height-h)/2,w,h);
     CGFloat margin=12, inner=w-2*margin;
     self.tabs.frame=CGRectMake(margin,48,inner,30);
-    self.search.frame=CGRectMake(margin,88,inner,30);
+    self.search.frame=CGRectMake(margin,88,inner-78,30);
+    UIView *lookup=[self.panel viewWithTag:813]; lookup.frame=CGRectMake(w-margin-72,88,72,30);
     self.table.frame=CGRectMake(margin,125,inner,h-230);
     self.selection.frame=CGRectMake(margin,h-97,inner,20);
     self.quantity.frame=CGRectMake(margin,h-71,70,32);
@@ -111,8 +113,9 @@ static UITextField *Input(NSString *placeholder) {
     self.tabs=[[UISegmentedControl alloc] initWithItems:@[@"物品",@"功法",@"属性",@"GM 命令"]];
     self.tabs.selectedSegmentIndex=0; self.tabs.selectedSegmentTintColor=Tan();
     [self.tabs addTarget:self action:@selector(changeTab:) forControlEvents:UIControlEventValueChanged]; [p addSubview:self.tabs];
-    self.search=Input(@"搜索名称 / ID"); self.search.delegate=self;
+    self.search=Input(@"输入名称 / 物品 ID"); self.search.delegate=self;
     [self.search addTarget:self action:@selector(refresh) forControlEvents:UIControlEventEditingChanged]; [p addSubview:self.search];
+    UIButton *lookup=Button(@"查物品ID",self,@selector(lookupItem:)); lookup.tag=813; [p addSubview:lookup];
     self.table=[[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStylePlain];
     self.table.dataSource=self; self.table.delegate=self; self.table.rowHeight=35;
     self.table.backgroundColor=UIColor.clearColor;
@@ -149,7 +152,7 @@ static UITextField *Input(NSString *placeholder) {
 }
 - (void)changeTab:(UISegmentedControl *)tab {
     self.tab=tab.selectedSegmentIndex; self.selected=nil; self.page=0;
-    self.search.hidden=self.tab==3; self.table.hidden=self.tab==3;
+    self.search.hidden=self.tab==3; [self.panel viewWithTag:813].hidden=self.tab!=0; self.table.hidden=self.tab==3;
     self.quantity.hidden=self.tab==3; self.command.placeholder=self.tab==3?@"输入 GM 命令":@"可选参数";
     [self refresh];
 }
@@ -183,6 +186,18 @@ static UITextField *Input(NSString *placeholder) {
     self.selected=self.filtered[path.row]; [self refresh];
 }
 - (BOOL)textFieldShouldReturn:(UITextField *)textField { [textField resignFirstResponder]; return YES; }
+- (void)lookupItem:(id)sender {
+    if (self.tab!=0) return;
+    NSString *value=[self.search.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    NSScanner *scanner=[NSScanner scannerWithString:value];
+    long long number=0;
+    if (![scanner scanLongLong:&number] || !scanner.isAtEnd || number<=0 || number>INT32_MAX) {
+        self.status.text=@"请输入有效的十进制物品 ID"; return;
+    }
+    int result=XJGMQueryItemById((int32_t)number);
+    self.status.text=result==1?@"物品 ID 已在游戏配置中找到（尚未发放）":
+        result==0?@"游戏配置中没有这个物品 ID":@"IL2CPP 未就绪或读取失败";
+}
 - (void)execute:(id)sender {
     if (!sExecutor) { self.status.text=@"执行失败：游戏执行桥未连接"; return; }
     int32_t itemId=0;
