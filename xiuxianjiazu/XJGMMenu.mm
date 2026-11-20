@@ -1,0 +1,262 @@
+#import <UIKit/UIKit.h>
+#import <Foundation/Foundation.h>
+#import <dispatch/dispatch.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+
+// UI module only. Game-specific IL2CPP adapter must provide real entries and executor.
+// Executor returns 0 on rejection, 1 on accepted request (not server-side success).
+typedef int (*XJGMExecutor)(const char *kind, int32_t itemId, int32_t count, const char *argument);
+static XJGMExecutor sExecutor = NULL;
+static NSArray<NSDictionary *> *sItems = nil;
+static NSArray<NSDictionary *> *sSkills = nil;
+static NSArray<NSDictionary *> *sAttrs = nil;
+static UIWindow *sWindow = nil;
+
+static UIColor *BG(void) { return [UIColor colorWithRed:.97 green:.95 blue:.91 alpha:1]; }
+static UIColor *Tan(void) { return [UIColor colorWithRed:.82 green:.70 blue:.60 alpha:1]; }
+static UIColor *Ink(void) { return [UIColor colorWithRed:.30 green:.24 blue:.21 alpha:1]; }
+static UIButton *Button(NSString *title, id target, SEL action) {
+    UIButton *b = [UIButton buttonWithType:UIButtonTypeSystem];
+    [b setTitle:title forState:UIControlStateNormal];
+    [b setTitleColor:Ink() forState:UIControlStateNormal];
+    b.backgroundColor = [Tan() colorWithAlphaComponent:.68];
+    b.layer.cornerRadius = 6;
+    b.titleLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightMedium];
+    [b addTarget:target action:action forControlEvents:UIControlEventTouchUpInside];
+    return b;
+}
+static UILabel *Label(NSString *text, CGFloat size) {
+    UILabel *v = [UILabel new]; v.text = text; v.textColor = Ink();
+    v.font = [UIFont systemFontOfSize:size]; v.numberOfLines = 2; return v;
+}
+static UITextField *Input(NSString *placeholder) {
+    UITextField *v = [UITextField new]; v.placeholder = placeholder;
+    v.font = [UIFont systemFontOfSize:13]; v.textColor = Ink();
+    v.backgroundColor = [UIColor whiteColor]; v.layer.cornerRadius = 5;
+    v.layer.borderWidth = .5; v.layer.borderColor = Tan().CGColor;
+    v.leftView = [[UIView alloc] initWithFrame:CGRectMake(0,0,7,1)];
+    v.leftViewMode = UITextFieldViewModeAlways; return v;
+}
+
+@interface XJGMWindow : UIWindow @end
+@implementation XJGMWindow
+- (UIView *)hitTest:(CGPoint)p withEvent:(UIEvent *)event {
+    UIView *v = [super hitTest:p withEvent:event];
+    return v == self || v == self.rootViewController.view ? nil : v;
+}
+@end
+
+@interface XJGMController : UIViewController <UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate>
+@property(nonatomic,strong) UIView *panel;
+@property(nonatomic,strong) UIButton *bubble;
+@property(nonatomic,strong) UITableView *table;
+@property(nonatomic,strong) UITextField *search;
+@property(nonatomic,strong) UITextField *quantity;
+@property(nonatomic,strong) UITextField *command;
+@property(nonatomic,strong) UILabel *status;
+@property(nonatomic,strong) UILabel *selection;
+@property(nonatomic,strong) UISegmentedControl *tabs;
+@property(nonatomic,strong) NSArray<NSDictionary *> *filtered;
+@property(nonatomic,strong) NSDictionary *selected;
+@property(nonatomic,assign) NSInteger page;
+@property(nonatomic,assign) NSInteger tab;
+@end
+
+@implementation XJGMController
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.view.backgroundColor = UIColor.clearColor;
+    self.bubble = Button(@"GM", self, @selector(toggle:));
+    self.bubble.frame = CGRectMake(10,100,48,48);
+    self.bubble.layer.cornerRadius = 24;
+    self.bubble.layer.borderColor = Tan().CGColor;
+    self.bubble.layer.borderWidth = 1;
+    [self.view addSubview:self.bubble];
+    UIPanGestureRecognizer *move = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(drag:)];
+    [self.bubble addGestureRecognizer:move];
+    [self makePanel];
+}
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    if (!self.panel.hidden) [self adjustPanel];
+}
+- (void)adjustPanel {
+    CGRect b = self.view.bounds;
+    CGFloat w = MIN(540, MAX(290, b.size.width-20));
+    CGFloat h = MIN(470, MAX(300, b.size.height-40));
+    self.panel.frame = CGRectMake((b.size.width-w)/2,(b.size.height-h)/2,w,h);
+    CGFloat margin=12, inner=w-2*margin;
+    self.tabs.frame=CGRectMake(margin,48,inner,30);
+    self.search.frame=CGRectMake(margin,88,inner,30);
+    self.table.frame=CGRectMake(margin,125,inner,h-230);
+    self.selection.frame=CGRectMake(margin,h-97,inner,20);
+    self.quantity.frame=CGRectMake(margin,h-71,70,32);
+    self.command.frame=CGRectMake(margin+76,h-71,inner-186,32);
+    UIView *footer=[self.panel viewWithTag:812];
+    footer.frame=CGRectMake(w-100,h-71,88,32);
+    self.status.frame=CGRectMake(margin,h-34,inner,25);
+}
+- (void)makePanel {
+    UIView *p = [UIView new]; p.backgroundColor=BG();
+    p.layer.cornerRadius=9; p.layer.borderWidth=1.2; p.layer.borderColor=Tan().CGColor;
+    p.layer.shadowOpacity=.20; p.layer.shadowRadius=10; p.layer.shadowOffset=CGSizeMake(0,3);
+    p.hidden=YES; self.panel=p; [self.view addSubview:p];
+    UILabel *title=Label(@"修仙家族 · GM 管理",15);
+    title.font=[UIFont boldSystemFontOfSize:15]; title.frame=CGRectMake(12,9,240,28); [p addSubview:title];
+    UIButton *close=Button(@"收起",self,@selector(toggle:));
+    close.autoresizingMask=UIViewAutoresizingFlexibleLeftMargin; close.frame=CGRectMake(0,8,54,29);
+    close.tag=811; [p addSubview:close];
+    self.tabs=[[UISegmentedControl alloc] initWithItems:@[@"物品",@"功法",@"属性",@"GM 命令"]];
+    self.tabs.selectedSegmentIndex=0; self.tabs.selectedSegmentTintColor=Tan();
+    [self.tabs addTarget:self action:@selector(changeTab:) forControlEvents:UIControlEventValueChanged]; [p addSubview:self.tabs];
+    self.search=Input(@"搜索名称 / ID"); self.search.delegate=self;
+    [self.search addTarget:self action:@selector(refresh) forControlEvents:UIControlEventEditingChanged]; [p addSubview:self.search];
+    self.table=[[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStylePlain];
+    self.table.dataSource=self; self.table.delegate=self; self.table.rowHeight=35;
+    self.table.backgroundColor=UIColor.clearColor;
+    [self.table registerClass:UITableViewCell.class forCellReuseIdentifier:@"row"]; [p addSubview:self.table];
+    self.selection=Label(@"未选择条目",12); [p addSubview:self.selection];
+    self.quantity=Input(@"数量"); self.quantity.keyboardType=UIKeyboardTypeNumberPad;
+    self.quantity.text=@"1"; [p addSubview:self.quantity];
+    self.command=Input(@"参数（GM 命令时输入完整命令）"); [p addSubview:self.command];
+    UIButton *apply=Button(@"执行",self,@selector(execute:)); apply.tag=812; [p addSubview:apply];
+    self.status=Label(@"等待游戏数据适配器连接",11); [p addSubview:self.status];
+    [self adjustPanel];
+}
+- (void)toggle:(id)sender {
+    self.panel.hidden = !self.panel.hidden;
+    self.bubble.hidden = !self.panel.hidden;
+    if (!self.panel.hidden) {
+        [self adjustPanel];
+        UIView *close=[self.panel viewWithTag:811];
+        close.frame=CGRectMake(self.panel.bounds.size.width-66,8,54,29);
+        [self refresh];
+    } else { [self.view endEditing:YES]; }
+}
+- (void)drag:(UIPanGestureRecognizer *)g {
+    CGPoint delta=[g translationInView:self.view];
+    CGPoint c=self.bubble.center;
+    CGFloat hw=self.bubble.bounds.size.width/2, hh=self.bubble.bounds.size.height/2;
+    self.bubble.center=CGPointMake(MAX(hw,MIN(self.view.bounds.size.width-hw,c.x+delta.x)),
+        MAX(hh,MIN(self.view.bounds.size.height-hh,c.y+delta.y)));
+    [g setTranslation:CGPointZero inView:self.view];
+}
+- (NSArray *)source {
+    switch (self.tab) { case 0: return sItems ?: @[]; case 1: return sSkills ?: @[];
+        case 2: return sAttrs ?: @[]; default: return @[]; }
+}
+- (void)changeTab:(UISegmentedControl *)tab {
+    self.tab=tab.selectedSegmentIndex; self.selected=nil; self.page=0;
+    self.search.hidden=self.tab==3; self.table.hidden=self.tab==3;
+    self.quantity.hidden=self.tab==3; self.command.placeholder=self.tab==3?@"输入 GM 命令":@"可选参数";
+    [self refresh];
+}
+- (void)refresh {
+    NSString *query=[self.search.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet].lowercaseString;
+    NSArray *list=[self source];
+    if (query.length) {
+        NSPredicate *filter=[NSPredicate predicateWithBlock:^BOOL(NSDictionary *entry, NSDictionary *bindings) {
+            NSString *name=[entry[@"name"] description] ?: @"";
+            NSString *ident=[entry[@"id"] description] ?: @"";
+            return [name.lowercaseString containsString:query] || [ident containsString:query];
+        }];
+        list=[list filteredArrayUsingPredicate:filter];
+    }
+    self.filtered=list; [self.table reloadData];
+    self.selection.text=self.selected? [NSString stringWithFormat:@"已选择：%@（ID：%@）",self.selected[@"name"],self.selected[@"id"]] : @"未选择条目";
+    if (!sExecutor) self.status.text=@"未连接执行器：仅支持浏览，不会发送 GM 请求";
+    else self.status.text=[NSString stringWithFormat:@"数据 %lu 项 · 执行器已连接（结果需服务端确认）",(unsigned long)list.count];
+}
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return self.filtered.count; }
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)path {
+    UITableViewCell *cell=[tableView dequeueReusableCellWithIdentifier:@"row" forIndexPath:path];
+    NSDictionary *data=self.filtered[path.row];
+    cell.textLabel.text=[NSString stringWithFormat:@"%@     ID：%@",data[@"name"] ?: @"",data[@"id"] ?: @""];
+    cell.textLabel.font=[UIFont systemFontOfSize:13];
+    cell.backgroundColor=UIColor.clearColor;
+    cell.accessoryType=[data[@"id"] isEqual:self.selected[@"id"]]?UITableViewCellAccessoryCheckmark:UITableViewCellAccessoryNone;
+    return cell;
+}
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)path {
+    self.selected=self.filtered[path.row]; [self refresh];
+}
+- (BOOL)textFieldShouldReturn:(UITextField *)textField { [textField resignFirstResponder]; return YES; }
+- (void)execute:(id)sender {
+    if (!sExecutor) { self.status.text=@"执行失败：游戏执行桥未连接"; return; }
+    int32_t itemId=0;
+    if (self.tab!=3) {
+        if (!self.selected) { self.status.text=@"请先选择条目"; return; }
+        itemId=[self.selected[@"id"] intValue];
+    }
+    int32_t n=1;
+    if (self.tab==0) {
+        NSInteger parsed=self.quantity.text.integerValue;
+        if (parsed<=0 || parsed>INT32_MAX) { self.status.text=@"数量必须在 1~2147483647 之间"; return; }
+        n=(int32_t)parsed;
+    }
+    NSString *arg=self.command.text ?: @"";
+    if (self.tab==3 && !arg.length) { self.status.text=@"请输入命令"; return; }
+    [self.view endEditing:YES];
+    const char *kind=self.tab==0?"item":self.tab==1?"skill":self.tab==2?"attr":"command";
+    int result=sExecutor(kind,itemId,n,arg.UTF8String);
+    self.status.text=result?@"请求已交给游戏执行器；未确认服务端成功":@"执行器拒绝请求（未修改游戏数据）";
+}
+@end
+
+static XJGMController *sController=nil;
+static void XJGMInstall(void) {
+    if (sWindow || !UIApplication.sharedApplication) return;
+    UIWindowScene *scene=nil;
+    if (@available(iOS 13.0,*)) {
+        for (UIScene *s in UIApplication.sharedApplication.connectedScenes) {
+            if ([s isKindOfClass:UIWindowScene.class] && s.activationState==UISceneActivationStateForegroundActive) {
+                scene=(UIWindowScene *)s; break;
+            }
+        }
+    }
+    if (@available(iOS 13.0,*)) {
+        if (!scene) return;
+        sWindow=[[XJGMWindow alloc] initWithWindowScene:scene];
+    } else sWindow=[[XJGMWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
+    sWindow.frame=UIScreen.mainScreen.bounds;
+    sWindow.windowLevel=UIWindowLevelAlert+1;
+    sWindow.backgroundColor=UIColor.clearColor;
+    sController=[XJGMController new]; sWindow.rootViewController=sController;
+    sWindow.hidden=NO;
+    // Do not make the overlay key: preserve game input and first responder.
+}
+__attribute__((visibility("default"))) void XJGMSetExecutor(XJGMExecutor executor) {
+    dispatch_async(dispatch_get_main_queue(), ^{ sExecutor=executor; [sController refresh]; });
+}
+__attribute__((visibility("default"))) int XJGMSetEntries(const char *category, const char *json) {
+    if (!category || !json) return 0;
+    NSString *key=[NSString stringWithUTF8String:category];
+    NSData *data=[[NSString stringWithUTF8String:json] dataUsingEncoding:NSUTF8StringEncoding];
+    if (!data || data.length>8*1024*1024) return 0;
+    NSArray *entries=[NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+    if (![entries isKindOfClass:NSArray.class]) return 0;
+    NSMutableArray *valid=[NSMutableArray array];
+    for (id entry in entries) {
+        if (![entry isKindOfClass:NSDictionary.class] || ![entry[@"id"] isKindOfClass:NSNumber.class] ||
+            ![entry[@"name"] isKindOfClass:NSString.class]) return 0;
+        [valid addObject:@{@"id":entry[@"id"],@"name":entry[@"name"]}];
+    }
+    if (![@[@"item",@"skill",@"attr"] containsObject:key]) return 0;
+    NSArray *snapshot=[valid copy];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if ([key isEqualToString:@"item"]) sItems=snapshot;
+        else if ([key isEqualToString:@"skill"]) sSkills=snapshot;
+        else sAttrs=snapshot;
+        [sController refresh];
+    });
+    return 1;
+}
+__attribute__((constructor)) static void XJGMStart(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        XJGMInstall();
+        [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidBecomeActiveNotification object:nil
+            queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) { XJGMInstall(); }];
+    });
+}
