@@ -18,7 +18,7 @@ jobs:
           mkdir -p dist
           xcrun clang++ -std=c++17 -fobjc-arc -arch arm64 -dynamiclib \
             -isysroot "$SDK" -miphoneos-version-min=13.0 \
-            -framework UIKit -framework Foundation -framework QuartzCore \
+            -framework UIKit -framework Foundation -framework QuartzCore -framework CoreGraphics \
             -Wl,-install_name,@rpath/XiuxianjiazuGM.dylib \
             xiuxianjiazu/XJGMMenu.mm -o dist/XiuxianjiazuGM.dylib
           codesign --force --sign - --timestamp=none dist/XiuxianjiazuGM.dylib
