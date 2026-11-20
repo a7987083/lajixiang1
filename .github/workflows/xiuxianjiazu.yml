@@ -1,7 +1,7 @@
 name: Build Xiuxianjiazu GM UI
 on:
   push:
-    branches: [xiuxianjiazu]
+    branches: [xiuxianjiazu, feat/xiuxianjiazu-gmitem-name]
     paths:
       - 'xiuxianjiazu/**'
       - '.github/workflows/xiuxianjiazu.yml'
