@@ -9,6 +9,7 @@
 // Read-only IL2CPP catalog adapter for the exact game represented by dump.cs.
 // Never synthesizes items, never creates GM messages and never edits game data.
 extern "C" int XJGMSetEntries(const char *category,const char *json);
+extern "C" void XJGMReportExport(const char *category,int result,int saved);
 namespace {
 typedef void* (*DomainGet)();
 typedef void* (*DomainAssemblyOpen)(void*,const char*);
@@ -227,7 +228,7 @@ __attribute__((constructor)) static void XJGMRegisterRealItemExecutor() {
 // A dictionary's runtime Values collection is copied into a managed typed array.
 // No artificial item IDs; JSON persistence is in the application's own Documents.
 namespace {
-static int exportTable(Runtime &r,void *image,const char *typeName,const char *category,const char *fileName) {
+static int exportTable(Runtime &r,void *image,const char *typeName,const char *category,const char *fileName,bool *saved) {
   auto staticGet=(void (*)(void*,void*))sym(r.handle,"il2cpp_field_static_get_value");
   auto objectClass=(void* (*)(void*))sym(r.handle,"il2cpp_object_get_class");
   auto arrayNew=(void* (*)(void*,uintptr_t))sym(r.handle,"il2cpp_array_new");
@@ -301,13 +302,17 @@ static int exportTable(Runtime &r,void *image,const char *typeName,const char *c
   NSData* json=[NSJSONSerialization dataWithJSONObject:entries options:0 error:nil];
   if (!json || json.length>8*1024*1024) return -107;
   NSArray *documents=NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask,YES);
+  *saved=false;
   if (documents.count) {
     NSString *directory=[documents[0] stringByAppendingPathComponent:@"XiuxianjiazuGM"];
     NSError *error=nil;
-    [[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:&error];
+    BOOL directoryOK=[[NSFileManager defaultManager] createDirectoryAtPath:directory
+                                           withIntermediateDirectories:YES attributes:nil error:&error];
     NSString *path=[directory stringByAppendingPathComponent:[NSString stringWithUTF8String:fileName]];
-    if (!error && ![json writeToFile:path options:NSDataWritingAtomic error:&error])
-      NSLog(@"[XJGM] failed to save %@: %@",path,error);
+    if (directoryOK) *saved=[json writeToFile:path options:NSDataWritingAtomic error:&error];
+    if (!*saved) NSLog(@"[XJGM] E109 catalog save failed for %@: %@",path,error);
+  } else {
+    NSLog(@"[XJGM] E109 documents directory unavailable for %s",category);
   }
   NSMutableData *terminated=[json mutableCopy];
   uint8_t nilByte=0; [terminated appendBytes:&nilByte length:1];
@@ -331,11 +336,17 @@ extern "C" __attribute__((visibility("default"))) int XJGMExportCatalog(const ch
   if (!category) return -1;
   @autoreleasepool {
     Runtime r={}; void* image=nullptr;
-    int stage=prepareExport(r,&image);
-    if (stage!=1) return stage;
-    if (!strcmp(category,"item")) return exportTable(r,image,"ItemTmpl","item","items.json");
-    if (!strcmp(category,"skill")) return exportTable(r,image,"SkillInfo","skill","skills.json");
-    return -1;
+    bool saved=false;
+    int result=prepareExport(r,&image);
+    if (result==1) {
+      if (!strcmp(category,"item")) result=exportTable(r,image,"ItemTmpl","item","items.json",&saved);
+      else if (!strcmp(category,"skill")) result=exportTable(r,image,"SkillInfo","skill","skills.json",&saved);
+      else return -1;
+    }
+    // Publish every attempt. UI should not need access to NSLog to see failure.
+    NSLog(@"[XJGM] catalog=%s result=%d saved=%d",category,result,saved?1:0);
+    XJGMReportExport(category,result,saved?1:0);
+    return result;
   }
 }
 // Compatibility for older hosts. Local name filtering is now done by the UI.
