@@ -88,7 +88,9 @@ extern "C" __attribute__((visibility("default"))) int XJGMNativeItemSearch(const
     }
     if (!validCount) return -312;
     if (validCount!=1) return -313;
-    void *managedQuery=string_new_utf16((const uint16_t*)query.UTF16String,(int32_t)query.length);
+    NSData *utf16=[query dataUsingEncoding:NSUTF16LittleEndianStringEncoding];
+    if (!utf16 || utf16.length/2 > INT32_MAX) return -314;
+    void *managedQuery=string_new_utf16((const uint16_t*)utf16.bytes,(int32_t)(utf16.length/2));
     if (!managedQuery) return -314;
     void *textArgs[]={managedQuery};
     exception=nullptr;
