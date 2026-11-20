@@ -55,3 +55,11 @@ Requires GitHub Actions iOS/macOS build. Real-device injection, rendering and ga
 - "搜索物品" text field filters the **already exported** list; directly beneath it is a collapsible selector. Only the first 200 matching entries are rendered, while the full catalog is retained in memory and JSON. Switching to the 功法 tab uses the separate \`SkillInfo\` list.
 - Selecting an entry displays its real numeric ID and keeps the GM action surface unchanged. The game server's acceptance of any GM command remains unverified.
 - Runtime catalog enumeration and UI interaction still need **device testing**. The build pipeline checks arm64 compilation, signing, and artifact packaging only.
+
+
+## Export diagnostics and manual retry (2026-11-21)
+- Added per-catalog UI state: item and skill export results are recorded separately. E101-E210 are surfaced directly in the overlay instead of a generic "not loaded" status.
+- Added a **重新导出** action on the item/skill panels; it remains functional even when the 60 automatic startup retries are exhausted.
+- The export bridge now publishes each attempt via `XJGMReportExport(category, result, saved)`. A successful runtime catalog read and successful JSON persistence are separately reported; failed sandbox writes show E109 without falsely claiming a saved file.
+- The UI no longer overwrites a failed export code with a generic waiting message after reload. Empty catalogs are not marked as ready.
+- The original game GM request sending path remains unchanged. iPhone runtime behavior and server-side outcomes are still unverified.
