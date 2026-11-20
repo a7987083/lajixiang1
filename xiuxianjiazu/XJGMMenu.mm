@@ -9,12 +9,15 @@
 // Executor returns 0 on rejection, 1 on accepted request (not server-side success).
 extern "C" int XJGMQueryItemById(int32_t id);
 extern "C" int XJGMSearchItems(const char *query);
+extern "C" int XJGMExportCatalog(const char *category);
 typedef int (*XJGMExecutor)(const char *kind, int32_t itemId, int32_t count, const char *argument);
 static XJGMExecutor sExecutor = NULL;
 static NSArray<NSDictionary *> *sItems = nil;
 static NSArray<NSDictionary *> *sSkills = nil;
 static NSArray<NSDictionary *> *sAttrs = nil;
 static UIWindow *sWindow = nil;
+static BOOL sItemsReady=NO, sSkillsReady=NO;
+static NSUInteger sExportAttempts=0;
 
 static UIColor *BG(void) { return [UIColor colorWithRed:.97 green:.95 blue:.91 alpha:1]; }
 static UIColor *Tan(void) { return [UIColor colorWithRed:.82 green:.70 blue:.60 alpha:1]; }
@@ -54,6 +57,8 @@ static UITextField *Input(NSString *placeholder) {
 @property(nonatomic,strong) UIView *panel;
 @property(nonatomic,strong) UIButton *bubble;
 @property(nonatomic,strong) UITableView *table;
+@property(nonatomic,strong) UIButton *dropdown;
+@property(nonatomic,assign) BOOL dropdownExpanded;
 @property(nonatomic,strong) UITextField *search;
 @property(nonatomic,strong) UITextField *quantity;
 @property(nonatomic,strong) UITextField *command;
@@ -93,7 +98,8 @@ static UITextField *Input(NSString *placeholder) {
     self.tabs.frame=CGRectMake(margin,48,inner,30);
     self.search.frame=CGRectMake(margin,88,inner-78,30);
     UIView *lookup=[self.panel viewWithTag:813]; lookup.frame=CGRectMake(w-margin-72,88,72,30);
-    self.table.frame=CGRectMake(margin,125,inner,h-230);
+    self.dropdown.frame=CGRectMake(margin,125,inner,30);
+    self.table.frame=CGRectMake(margin,161,inner,h-266);
     self.selection.frame=CGRectMake(margin,h-97,inner,20);
     self.quantity.frame=CGRectMake(margin,h-71,70,32);
     self.command.frame=CGRectMake(margin+76,h-71,inner-186,32);
@@ -114,9 +120,12 @@ static UITextField *Input(NSString *placeholder) {
     self.tabs=[[UISegmentedControl alloc] initWithItems:@[@"物品",@"功法",@"属性",@"GM 命令"]];
     self.tabs.selectedSegmentIndex=0; self.tabs.selectedSegmentTintColor=Tan();
     [self.tabs addTarget:self action:@selector(changeTab:) forControlEvents:UIControlEventValueChanged]; [p addSubview:self.tabs];
-    self.search=Input(@"输入物品名称或 ID（留空列出前200项）"); self.search.delegate=self;
+    self.search=Input(@"搜索名称或 ID，留空显示全部"); self.search.delegate=self;
     [self.search addTarget:self action:@selector(refresh) forControlEvents:UIControlEventEditingChanged]; [p addSubview:self.search];
     UIButton *lookup=Button(@"搜索物品",self,@selector(lookupItem:)); lookup.tag=813; [p addSubview:lookup];
+    self.dropdown=Button(@"选择列表 ▼（自动导出后可选）",self,@selector(toggleDropdown:));
+    self.dropdown.contentHorizontalAlignment=UIControlContentHorizontalAlignmentLeft;
+    [p addSubview:self.dropdown]; self.dropdownExpanded=YES;
     self.table=[[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStylePlain];
     self.table.dataSource=self; self.table.delegate=self; self.table.rowHeight=35;
     self.table.backgroundColor=UIColor.clearColor;
@@ -126,7 +135,7 @@ static UITextField *Input(NSString *placeholder) {
     self.quantity.text=@"1"; [p addSubview:self.quantity];
     self.command=Input(@"参数（GM 命令时输入完整命令）"); [p addSubview:self.command];
     UIButton *apply=Button(@"执行",self,@selector(execute:)); apply.tag=812; [p addSubview:apply];
-    self.status=Label(@"输入物品名称或ID后点击搜索物品",11); [p addSubview:self.status];
+    self.status=Label(@"配置自动导出后，下拉选择物品或功法",11); [p addSubview:self.status];
     [self adjustPanel];
 }
 - (void)toggle:(id)sender {
@@ -153,8 +162,13 @@ static UITextField *Input(NSString *placeholder) {
 }
 - (void)changeTab:(UISegmentedControl *)tab {
     self.tab=tab.selectedSegmentIndex; self.selected=nil; self.page=0;
-    self.search.hidden=self.tab==3; [self.panel viewWithTag:813].hidden=self.tab!=0; self.table.hidden=self.tab==3;
+    self.search.hidden=self.tab==3; [self.panel viewWithTag:813].hidden=self.tab>1;
+    self.dropdown.hidden=self.tab==3; self.table.hidden=self.tab==3 || !self.dropdownExpanded;
     self.quantity.hidden=self.tab==3; self.command.placeholder=self.tab==3?@"输入 GM 命令":@"可选参数";
+    [self refresh];
+}
+- (void)toggleDropdown:(id)sender {
+    self.dropdownExpanded=!self.dropdownExpanded;
     [self refresh];
 }
 - (void)refresh {
@@ -169,11 +183,16 @@ static UITextField *Input(NSString *placeholder) {
         list=[list filteredArrayUsingPredicate:filter];
     }
     self.filtered=list; [self.table reloadData];
+    self.table.hidden=self.tab==3 || !self.dropdownExpanded;
+    NSString *caption=self.tab==1?@"功法":@"物品";
+    [self.dropdown setTitle:[NSString stringWithFormat:@"%@列表 %@ · %lu 项（显示前200）",
+        caption,self.dropdownExpanded?@"▲":@"▼",(unsigned long)list.count] forState:UIControlStateNormal];
     self.selection.text=self.selected? [NSString stringWithFormat:@"已选择：%@（ID：%@）",self.selected[@"name"],self.selected[@"id"]] : @"未选择条目";
-    if (!sExecutor) self.status.text=@"未连接执行器：仅支持浏览，不会发送 GM 请求";
-    else self.status.text=[NSString stringWithFormat:@"数据 %lu 项 · 执行器已连接（结果需服务端确认）",(unsigned long)list.count];
+    if (self.tab==0 && !sItemsReady) self.status.text=@"物品列表尚未加载；进入游戏后自动重试";
+    else if (self.tab==1 && !sSkillsReady) self.status.text=@"功法列表尚未加载；进入游戏后自动重试";
+    else self.status.text=[NSString stringWithFormat:@"已加载 %lu 项 · 选择后显示 ID",(unsigned long)list.count];
 }
-- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return self.filtered.count; }
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return MIN((NSUInteger)200,self.filtered.count); }
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)path {
     UITableViewCell *cell=[tableView dequeueReusableCellWithIdentifier:@"row" forIndexPath:path];
     NSDictionary *data=self.filtered[path.row];
@@ -184,40 +203,18 @@ static UITextField *Input(NSString *placeholder) {
     return cell;
 }
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)path {
-    self.selected=self.filtered[path.row]; [self refresh];
+    self.selected=self.filtered[path.row]; self.dropdownExpanded=NO; [self refresh];
 }
 - (BOOL)textFieldShouldReturn:(UITextField *)textField { [textField resignFirstResponder]; return YES; }
 - (void)lookupItem:(id)sender {
-    if (self.tab!=0) return;
-    NSString *value=[self.search.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (self.tab>1) return;
     [self.view endEditing:YES];
-    NSScanner *scanner=[NSScanner scannerWithString:value];
-    long long number=0;
-    BOOL exact=value.length>0 && [scanner scanLongLong:&number] && scanner.isAtEnd && number>0 && number<=INT32_MAX;
-    int result=exact?XJGMQueryItemById((int32_t)number):XJGMSearchItems(value.UTF8String);
-    switch (result) {
-        case -201: self.status.text=@"E201：dyld 未找到 UnityFramework"; break;
-        case -202: self.status.text=@"E202：UnityFramework Mach-O 架构异常"; break;
-        case -203: self.status.text=@"E203：UnityFramework 句柄获取失败"; break;
-        case -204: self.status.text=@"E204：IL2CPP 导出符号缺失（查日志）"; break;
-        case -205: self.status.text=@"E205：IL2CPP Domain 未初始化"; break;
-        case -206: self.status.text=@"E206：Assembly-CSharp 未找到"; break;
-        case -207: self.status.text=@"E207：Assembly Image 不可用"; break;
-        case -208: self.status.text=@"E208：ItemTmpl 类未找到"; break;
-        case -209: self.status.text=@"E209：ItemTmpl 方法未找到"; break;
-        case -210: self.status.text=@"E210：IL2CPP 线程附加失败"; break;
-        case -101: self.status.text=@"E101：IL2CPP 枚举 API 缺失"; break;
-        case -102: self.status.text=@"E102：物品配置尚未加载（进入游戏后重试）"; break;
-        case -103: self.status.text=@"E103：物品字典为空"; break;
-        case -104: self.status.text=@"E104：物品集合方法未找到"; break;
-        case -105: self.status.text=@"E105：调用物品集合方法失败"; break;
-        case -106: self.status.text=@"E106：IL2CPP 解箱 API 缺失"; break;
-        case -107: self.status.text=@"E107：物品数组复制失败"; break;
-        case -108: self.status.text=@"E108：物品字段未找到"; break;
-        case -1: self.status.text=@"E100：UnityFramework 未就绪或接口异常"; break;
-        case 0: self.status.text=@"没有匹配条目；请换名称或 ID"; break;
-        default: self.status.text=[NSString stringWithFormat:@"找到 %d 项真实物品（最多显示200项）",result]; break;
-    }
+    // All searches use previously exported live config, not a runtime invocation per tap.
+    [self refresh];
+    self.dropdownExpanded=YES;
+    self.table.hidden=NO;
+    self.status.text=self.filtered.count?[NSString stringWithFormat:@"搜索到 %lu 项，展开列表选择",(unsigned long)self.filtered.count]:
+      @"没有匹配条目；请检查自动导出状态";
 }
 - (void)execute:(id)sender {
     if (!sExecutor) { self.status.text=@"执行失败：游戏执行桥未连接"; return; }
@@ -282,16 +279,44 @@ extern "C" __attribute__((visibility("default"))) int XJGMSetEntries(const char 
     if (![@[@"item",@"skill",@"attr"] containsObject:key]) return 0;
     NSArray *snapshot=[valid copy];
     dispatch_async(dispatch_get_main_queue(), ^{
-        if ([key isEqualToString:@"item"]) sItems=snapshot;
-        else if ([key isEqualToString:@"skill"]) sSkills=snapshot;
+        if ([key isEqualToString:@"item"]) { sItems=snapshot; sItemsReady=YES; }
+        else if ([key isEqualToString:@"skill"]) { sSkills=snapshot; sSkillsReady=YES; }
         else sAttrs=snapshot;
         [sController refresh];
     });
     return 1;
 }
+// Retry only while the game's managed config is still unavailable.
+// Timer runs on main queue to preserve the game's lifecycle assumptions.
+static void XJGMStartExport(void) {
+    static dispatch_source_t source=nil;
+    if (source) return;
+    source=dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER,0,0,dispatch_get_main_queue());
+    dispatch_source_set_timer(source,dispatch_time(DISPATCH_TIME_NOW,3*NSEC_PER_SEC),
+                              3*NSEC_PER_SEC,250*NSEC_PER_MSEC);
+    dispatch_source_set_event_handler(source,^{
+        if (sItemsReady && sSkillsReady) {
+            dispatch_source_cancel(source); return;
+        }
+        if (++sExportAttempts>60) {
+            NSLog(@"[XJGM] auto catalog export retry exhausted");
+            dispatch_source_cancel(source); return;
+        }
+        if (!sItemsReady) {
+            int status=XJGMExportCatalog("item");
+            if (status<0 && (sExportAttempts%5)==1) NSLog(@"[XJGM] item export error %d",status);
+        }
+        if (!sSkillsReady) {
+            int status=XJGMExportCatalog("skill");
+            if (status<0 && (sExportAttempts%5)==1) NSLog(@"[XJGM] skill export error %d",status);
+        }
+    });
+    dispatch_resume(source);
+}
 __attribute__((constructor)) static void XJGMStart(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
         XJGMInstall();
+        XJGMStartExport();
         [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidBecomeActiveNotification object:nil
             queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) { XJGMInstall(); }];
     });
