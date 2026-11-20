@@ -133,7 +133,7 @@ static UITextField *Input(NSString *placeholder) {
     self.tabs=[[UISegmentedControl alloc] initWithItems:@[@"物品",@"功法",@"属性",@"GM 命令"]];
     self.tabs.selectedSegmentIndex=0; self.tabs.selectedSegmentTintColor=Tan();
     [self.tabs addTarget:self action:@selector(changeTab:) forControlEvents:UIControlEventValueChanged]; [p addSubview:self.tabs];
-    self.search=Input(@"搜索名称或 ID，留空显示全部"); self.search.delegate=self;
+    self.search=Input(@"输入物品名称或 ID；唯一精确匹配可直接执行"); self.search.delegate=self;
     [self.search addTarget:self action:@selector(refresh) forControlEvents:UIControlEventEditingChanged]; [p addSubview:self.search];
     UIButton *lookup=Button(@"搜索物品",self,@selector(lookupItem:)); lookup.tag=813; [p addSubview:lookup];
     self.dropdown=Button(@"选择列表 ▼（自动导出后可选）",self,@selector(toggleDropdown:));
@@ -242,9 +242,30 @@ static UITextField *Input(NSString *placeholder) {
 - (void)execute:(id)sender {
     if (!sExecutor) { self.status.text=@"执行失败：游戏执行桥未连接"; return; }
     int32_t itemId=0;
+    if (self.tab==0 && !self.selected) {
+        // Accept an exact item name or decimal ID only when it uniquely identifies a live catalog entry.
+        // Never silently grant the first fuzzy match or fabricate an ID.
+        if (!sItemsReady) { self.status.text=@"物品配置未就绪，请先导出列表"; return; }
+        NSString *query=[self.search.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        if (!query.length) { self.status.text=@"请输入物品名称或选择列表条目"; return; }
+        NSMutableArray<NSDictionary *> *matches=[NSMutableArray array];
+        for (NSDictionary *entry in sItems) {
+            NSString *name=entry[@"name"];
+            NSString *ident=[entry[@"id"] stringValue];
+            if ([name compare:query options:NSCaseInsensitiveSearch]==NSOrderedSame || [ident isEqualToString:query])
+                [matches addObject:entry];
+        }
+        if (matches.count!=1) {
+            self.status.text=matches.count?@"名称对应多个物品，请从列表选择":@"没有精确匹配的物品，请从列表选择";
+            return;
+        }
+        self.selected=matches.firstObject;
+        [self refresh];
+    }
     if (self.tab!=3) {
         if (!self.selected) { self.status.text=@"请先选择条目"; return; }
         itemId=[self.selected[@"id"] intValue];
+        if (itemId<=0) { self.status.text=@"物品 ID 无效"; return; }
     }
     int32_t n=1;
     if (self.tab==0) {
