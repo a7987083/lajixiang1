@@ -28,4 +28,4 @@ Verify on device that v10 keeps the working replacement icon, preserves v9 color
 - Feature branch: xiuxianjiazu-gm-window-toggle, based on the user-requested c00f81e86af8fb49359bd491fd824b0f98411b54 baseline; later branch code that the user reported crashes on is excluded.
 - The first build called GameUI.OpenGMView and hid the overlay after the call. The user confirmed no native GM window appeared.
 - Follow-up removes the OpenGMView/CloseView dependency. The floating GM button opens the dylib's UIKit panel. Item catalog search and item-add request are active; skill catalog is read-only; attribute and free-form command execution are not exposed pending method-level verification.
-- Earlier successful build: Actions run 44816231515, source commit 7880a711c1cd7ca84f032655ed586a0929256f4f. This follow-up must be rebuilt; no device verification yet.
+- Built-in overlay follow-up source commit: 2140140a5e4f40dc5ba8e2577fa029a3ebc4abf7. GitHub Actions run 44818283109 completed successfully; arm64 artifact 14670213105 (SHA-256 377423605449d926b3a5e1ea00de5202c0e817c6c66a1e8380e0d1ca8d20a663). Device visibility and server acceptance remain unverified.
