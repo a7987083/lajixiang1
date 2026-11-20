@@ -242,10 +242,10 @@ static void XJGMInstall(void) {
     sWindow.hidden=NO;
     // Do not make the overlay key: preserve game input and first responder.
 }
-__attribute__((visibility("default"))) void XJGMSetExecutor(XJGMExecutor executor) {
+extern "C" __attribute__((visibility("default"))) void XJGMSetExecutor(XJGMExecutor executor) {
     dispatch_async(dispatch_get_main_queue(), ^{ sExecutor=executor; [sController refresh]; });
 }
-__attribute__((visibility("default"))) int XJGMSetEntries(const char *category, const char *json) {
+extern "C" __attribute__((visibility("default"))) int XJGMSetEntries(const char *category, const char *json) {
     if (!category || !json) return 0;
     NSString *key=[NSString stringWithUTF8String:category];
     NSData *data=[[NSString stringWithUTF8String:json] dataUsingEncoding:NSUTF8StringEncoding];
