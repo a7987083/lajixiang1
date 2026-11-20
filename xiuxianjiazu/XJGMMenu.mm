@@ -18,7 +18,16 @@ static NSArray<NSDictionary *> *sAttrs = nil;
 static UIWindow *sWindow = nil;
 static BOOL sItemsReady=NO, sSkillsReady=NO;
 static NSUInteger sExportAttempts=0;
+static int sItemExportCode=-299,sSkillExportCode=-299;
+static int sItemExportCount=0,sSkillExportCount=0;
+static BOOL sItemSaved=NO,sSkillSaved=NO;
 
+static NSString *ExportMessage(NSString *name,BOOL ready,int code,int count,BOOL saved) {
+    if (code==-299) return [NSString stringWithFormat:@"%@：等待自动导出",name];
+    if (code<0) return [NSString stringWithFormat:@"%@：E%03d 导出失败，点击重新导出",name,-code];
+    if (!ready) return [NSString stringWithFormat:@"%@：读取 %d 项，列表尚未就绪",name,count];
+    return [NSString stringWithFormat:@"%@：%d 项，%@",name,count,saved?@"JSON 已保存":@"E109 JSON 保存失败，列表可用"];
+}
 static UIColor *BG(void) { return [UIColor colorWithRed:.97 green:.95 blue:.91 alpha:1]; }
 static UIColor *Tan(void) { return [UIColor colorWithRed:.82 green:.70 blue:.60 alpha:1]; }
 static UIColor *Ink(void) { return [UIColor colorWithRed:.30 green:.24 blue:.21 alpha:1]; }
@@ -58,6 +67,7 @@ static UITextField *Input(NSString *placeholder) {
 @property(nonatomic,strong) UIButton *bubble;
 @property(nonatomic,strong) UITableView *table;
 @property(nonatomic,strong) UIButton *dropdown;
+@property(nonatomic,strong) UIButton *retryExportButton;
 @property(nonatomic,assign) BOOL dropdownExpanded;
 @property(nonatomic,strong) UITextField *search;
 @property(nonatomic,strong) UITextField *quantity;
@@ -99,13 +109,14 @@ static UITextField *Input(NSString *placeholder) {
     self.search.frame=CGRectMake(margin,88,inner-78,30);
     UIView *lookup=[self.panel viewWithTag:813]; lookup.frame=CGRectMake(w-margin-72,88,72,30);
     self.dropdown.frame=CGRectMake(margin,125,inner,30);
+    self.retryExportButton.frame=CGRectMake(w-158,8,82,29);
     self.table.frame=CGRectMake(margin,161,inner,h-266);
     self.selection.frame=CGRectMake(margin,h-97,inner,20);
     self.quantity.frame=CGRectMake(margin,h-71,70,32);
     self.command.frame=CGRectMake(margin+76,h-71,inner-186,32);
     UIView *footer=[self.panel viewWithTag:812];
     footer.frame=CGRectMake(w-100,h-71,88,32);
-    self.status.frame=CGRectMake(margin,h-34,inner,25);
+    self.status.frame=CGRectMake(margin,h-39,inner,34);
 }
 - (void)makePanel {
     UIView *p = [UIView new]; p.backgroundColor=BG();
@@ -117,6 +128,8 @@ static UITextField *Input(NSString *placeholder) {
     UIButton *close=Button(@"收起",self,@selector(toggle:));
     close.autoresizingMask=UIViewAutoresizingFlexibleLeftMargin; close.frame=CGRectMake(0,8,54,29);
     close.tag=811; [p addSubview:close];
+    self.retryExportButton=Button(@"重新导出",self,@selector(retryCurrentExport:));
+    [p addSubview:self.retryExportButton];
     self.tabs=[[UISegmentedControl alloc] initWithItems:@[@"物品",@"功法",@"属性",@"GM 命令"]];
     self.tabs.selectedSegmentIndex=0; self.tabs.selectedSegmentTintColor=Tan();
     [self.tabs addTarget:self action:@selector(changeTab:) forControlEvents:UIControlEventValueChanged]; [p addSubview:self.tabs];
@@ -188,9 +201,9 @@ static UITextField *Input(NSString *placeholder) {
     [self.dropdown setTitle:[NSString stringWithFormat:@"%@列表 %@ · %lu 项（显示前200）",
         caption,self.dropdownExpanded?@"▲":@"▼",(unsigned long)list.count] forState:UIControlStateNormal];
     self.selection.text=self.selected? [NSString stringWithFormat:@"已选择：%@（ID：%@）",self.selected[@"name"],self.selected[@"id"]] : @"未选择条目";
-    if (self.tab==0 && !sItemsReady) self.status.text=@"物品列表尚未加载；进入游戏后自动重试";
-    else if (self.tab==1 && !sSkillsReady) self.status.text=@"功法列表尚未加载；进入游戏后自动重试";
-    else self.status.text=[NSString stringWithFormat:@"已加载 %lu 项 · 选择后显示 ID",(unsigned long)list.count];
+    if (self.tab==0) self.status.text=ExportMessage(@"物品",sItemsReady,sItemExportCode,sItemExportCount,sItemSaved);
+    else if (self.tab==1) self.status.text=ExportMessage(@"功法",sSkillsReady,sSkillExportCode,sSkillExportCount,sSkillSaved);
+    else self.status.text=@"当前页面无可导出配置";
 }
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return MIN((NSUInteger)200,self.filtered.count); }
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)path {
@@ -213,8 +226,18 @@ static UITextField *Input(NSString *placeholder) {
     [self refresh];
     self.dropdownExpanded=YES;
     self.table.hidden=NO;
-    self.status.text=self.filtered.count?[NSString stringWithFormat:@"搜索到 %lu 项，展开列表选择",(unsigned long)self.filtered.count]:
-      @"没有匹配条目；请检查自动导出状态";
+    if ((self.tab==0 && sItemsReady) || (self.tab==1 && sSkillsReady))
+        self.status.text=self.filtered.count?[NSString stringWithFormat:@"搜索到 %lu 项，展开列表选择",(unsigned long)self.filtered.count]:
+          @"无匹配结果，请修改关键词";
+}
+- (void)retryCurrentExport:(id)sender {
+    if (self.tab!=0 && self.tab!=1) { self.status.text=@"请切换物品或功法页面"; return; }
+    [self.view endEditing:YES];
+    const char* category=self.tab==0?"item":"skill";
+    self.retryExportButton.enabled=NO;
+    int result=XJGMExportCatalog(category);
+    self.retryExportButton.enabled=YES;
+    NSLog(@"[XJGM] manual export %s: %d",category,result);
 }
 - (void)execute:(id)sender {
     if (!sExecutor) { self.status.text=@"执行失败：游戏执行桥未连接"; return; }
@@ -279,8 +302,8 @@ extern "C" __attribute__((visibility("default"))) int XJGMSetEntries(const char 
     if (![@[@"item",@"skill",@"attr"] containsObject:key]) return 0;
     NSArray *snapshot=[valid copy];
     dispatch_async(dispatch_get_main_queue(), ^{
-        if ([key isEqualToString:@"item"]) { sItems=snapshot; sItemsReady=YES; }
-        else if ([key isEqualToString:@"skill"]) { sSkills=snapshot; sSkillsReady=YES; }
+        if ([key isEqualToString:@"item"]) { sItems=snapshot; sItemsReady=(snapshot.count>0); }
+        else if ([key isEqualToString:@"skill"]) { sSkills=snapshot; sSkillsReady=(snapshot.count>0); }
         else sAttrs=snapshot;
         [sController refresh];
     });
@@ -288,6 +311,21 @@ extern "C" __attribute__((visibility("default"))) int XJGMSetEntries(const char 
 }
 // Retry only while the game's managed config is still unavailable.
 // Timer runs on main queue to preserve the game's lifecycle assumptions.
+extern "C" __attribute__((visibility("default"))) void XJGMReportExport(const char *category,int result,int saved) {
+    if (!category) return;
+    NSString *key=[NSString stringWithUTF8String:category];
+    if (![@[@"item",@"skill"] containsObject:key]) return;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if ([key isEqualToString:@"item"]) {
+            sItemExportCode=result; sItemSaved=saved!=0;
+            if (result>=0) sItemExportCount=result;
+        } else {
+            sSkillExportCode=result; sSkillSaved=saved!=0;
+            if (result>=0) sSkillExportCount=result;
+        }
+        [sController refresh];
+    });
+}
 static void XJGMStartExport(void) {
     static dispatch_source_t source=nil;
     if (source) return;
@@ -299,7 +337,7 @@ static void XJGMStartExport(void) {
             dispatch_source_cancel(source); return;
         }
         if (++sExportAttempts>60) {
-            NSLog(@"[XJGM] auto catalog export retry exhausted");
+            NSLog(@"[XJGM] automatic retries exhausted; manual retry remains available");
             dispatch_source_cancel(source); return;
         }
         if (!sItemsReady) {
