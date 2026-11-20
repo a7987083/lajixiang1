@@ -187,14 +187,14 @@ static int sendOriginalItem(int32_t id,int32_t count) {
   void* typeLiteral=managedLiteral(base,0x448B310);
   void* routeLiteral=managedLiteral(base,0x4479768);
   if (!typeLiteral || !routeLiteral) return 0;
-  void* setArgs[]={&typeLiteral};
+  void* setArgs[]={typeLiteral};
   if (!invoke(r,r.method(cmdCls,"set_typeStr",1),cmd,setArgs)) return 0;
   void* idArgs[]={&id}; void* countArgs[]={&count};
   auto add=r.method(cmdCls,"AddToParams1",1);
   if (!invoke(r,add,cmd,idArgs) || !invoke(r,add,cmd,countArgs)) return 0;
   void* app=nullptr;
   if (!invoke(r,r.method(appCls,"get_Instance",0),nullptr,nullptr,&app) || !app) return 0;
-  void* sendArgs[]={&routeLiteral,&cmd};
+  void* sendArgs[]={routeLiteral,cmd};
   return invoke(r,r.method(appCls,"Send",2),app,sendArgs) ? 1 : 0;
 }
 static int execute(const char* kind,int32_t id,int32_t count,const char* argument) {
@@ -221,7 +221,7 @@ extern "C" __attribute__((visibility("default"))) int XJGMSearchItems(const char
     auto objectClass=(void* (*)(void*))sym(r.handle,"il2cpp_object_get_class");
     auto arrayNew=(void* (*)(void*,uintptr_t))sym(r.handle,"il2cpp_array_new");
     auto arrayLength=(uintptr_t (*)(void*))sym(r.handle,"il2cpp_array_length");
-    if (!staticGet || !objectClass || !arrayNew || !arrayLength) return -1;
+    if (!staticGet || !objectClass || !arrayNew || !arrayLength) return -101;
     void* domain=r.domain(); if (!domain) return -1;
     if (!r.current()) r.attach(domain);
     void* assembly=r.assembly(domain,"Assembly-CSharp");
@@ -235,38 +235,40 @@ extern "C" __attribute__((visibility("default"))) int XJGMSearchItems(const char
     if (!isEmpty) return -1;
     void* exception=nullptr;
     void* boxed=r.invoke(isEmpty,nullptr,nullptr,&exception);
-    if (exception || !boxed) return -1;
+    if (exception || !boxed) return -105;
+    auto unbox=(void* (*)(void*))sym(r.handle,"il2cpp_object_unbox");
+    if (!unbox) return -106;
+    bool empty=(*(uint8_t*)unbox(boxed))!=0;
+    if (empty) return -102;
     void* field=r.field(cls,"configs"); if (!field) return -1;
     void* dict=nullptr; staticGet(field,&dict);
-    if (!dict) return -1;
+    if (!dict) return -103;
     void* dictCls=objectClass(dict); if (!dictCls) return -1;
     void* valuesMethod=r.method(dictCls,"get_Values",0);
-    if (!valuesMethod) return -1;
+    if (!valuesMethod) return -104;
     exception=nullptr;
     void* values=r.invoke(valuesMethod,dict,nullptr,&exception);
-    if (exception || !values) return -1;
+    if (exception || !values) return -105;
     void* valuesCls=objectClass(values);
     if (!valuesCls) return -1;
     void* countMethod=r.method(valuesCls,"get_Count",0);
     void* copyMethod=r.method(valuesCls,"CopyTo",2);
-    if (!countMethod || !copyMethod) return -1;
+    if (!countMethod || !copyMethod) return -104;
     exception=nullptr;
     void* countBox=r.invoke(countMethod,values,nullptr,&exception);
-    if (exception || !countBox) return -1;
+    if (exception || !countBox) return -105;
     // il2cpp_object_unbox provides the value-type payload without hardcoding object layout.
-    auto unbox=(void* (*)(void*))sym(r.handle,"il2cpp_object_unbox");
-    if (!unbox) return -1;
     int32_t count=*(int32_t*)unbox(countBox);
     if (count<0 || count>250000) return -1;
     if (count==0) { XJGMSetEntries("item","[]"); return 0; }
     void* array=arrayNew(cls,(uintptr_t)count); if (!array) return -1;
     int32_t start=0;
-    void* args[]={&array,&start};
+    void* args[]={array,&start};
     exception=nullptr;
     r.invoke(copyMethod,values,args,&exception);
-    if (exception || arrayLength(array)!=(uintptr_t)count) return -1;
+    if (exception || arrayLength(array)!=(uintptr_t)count) return -107;
     void* idField=r.field(cls,"id"); void* nameField=r.field(cls,"name");
-    if (!idField || !nameField) return -1;
+    if (!idField || !nameField) return -108;
     // IL2CPP reference arrays: 16-byte Il2CppObject, max_length at +0x18,
     // reference vector begins at +0x20 on target 64-bit Unity IL2CPP.
     void* const* vector=(void* const*)((uintptr_t)array+0x20);
