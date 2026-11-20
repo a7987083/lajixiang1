@@ -40,3 +40,10 @@ Requires GitHub Actions iOS/macOS build. Real-device injection, rendering and ga
 - The executor returns local submission status only. Whether the game server accepts GM commands requires device-side verification; no client-side bypass of server authorization is implemented.
 - Skill/attribute/command actions remain deliberately unavailable until their payload semantics are verified.
 - **Test order**: verify GM window visible, look up a known item ID and a deliberately invalid ID, select a valid item, request quantity 1, then verify both in-game inventory and server response before claiming success.
+
+
+## Catalog read failure fix (2026-11-20)
+
+- Fixed IL2CPP `runtime_invoke` reference arguments: managed object references must be passed as object pointers, not the address of local object-pointer variables. Applies to the `ValueCollection.CopyTo` array argument and original GM command's object/string arguments.
+- Now unboxes and checks `ItemTmpl.get_IsConfigsEmpty()`. Error E102 means the game catalog is not loaded. UI displays distinct E101-E108 error phases instead of the earlier ambiguous generic message.
+- Build success establishes only compilation/link/signing. Live IL2CPP enumeration and server-side GM authorization remain **unverified on device**.
