@@ -14,6 +14,8 @@ extern "C" int XJGMReadActorAttributeLive(int32_t actorId,int32_t attrIndex,cons
 extern "C" NSString* XJGMCurrentWorldToken(void);
 extern "C" int XJGMExportBloodCatalog(void);
 extern "C" int XJGMExportActorBloods(int32_t actorId,const char* expectedName,int32_t expectedForceId);
+extern "C" int XJGMWriteActorBlood(int32_t actorId,const char* expectedName,int32_t forceId,
+                                   int32_t bloodId,int32_t target,int32_t mode);
 static UIWindow *sWindow=nil;
 static UIColor *Paper(void) { return [UIColor colorWithRed:.92 green:.88 blue:.80 alpha:1]; }
 static UIColor *Panel(void) { return [UIColor colorWithRed:.97 green:.95 blue:.89 alpha:1]; }
@@ -65,6 +67,10 @@ static NSArray<NSString *> *CategoryNames(void) {
 @property(nonatomic,strong) UITextField *bloodSearch;
 @property(nonatomic,strong) UITableView *bloodTable;
 @property(nonatomic,strong) UITextView *bloodDetail;
+@property(nonatomic,strong) UITextField *bloodValueField;
+@property(nonatomic,strong) UIButton *bloodSetButton;
+@property(nonatomic,strong) UIButton *bloodAddButton;
+@property(nonatomic,strong) UIButton *bloodRemoveButton;
 @property(nonatomic,strong) NSArray<NSDictionary *> *allBloods;
 @property(nonatomic,strong) NSArray<NSDictionary *> *filteredBloods;
 @property(nonatomic,strong) NSDictionary *selectedBlood;
@@ -299,6 +305,29 @@ static NSArray<NSString *> *CategoryNames(void) {
     self.bloodDetail.backgroundColor=Panel();self.bloodDetail.layer.cornerRadius=5;
     self.bloodDetail.text=@"选择弟子与血脉查看实际浓度。\n本阶段为只读查询；写入协议仍需目标二进制验证。";
     [self.bloodPanel addSubview:self.bloodDetail];
+    self.bloodValueField=[UITextField new];
+    self.bloodValueField.placeholder=@"浓度 1–120";
+    self.bloodValueField.keyboardType=UIKeyboardTypeNumberPad;
+    self.bloodValueField.textAlignment=NSTextAlignmentCenter;
+    self.bloodValueField.font=[UIFont systemFontOfSize:12];
+    self.bloodValueField.textColor=Ink();
+    self.bloodValueField.backgroundColor=Panel();
+    self.bloodValueField.layer.borderWidth=1;
+    self.bloodValueField.layer.borderColor=Border().CGColor;
+    self.bloodValueField.delegate=self;
+    UIToolbar *bloodBar=[[UIToolbar alloc] initWithFrame:CGRectMake(0,0,320,44)];
+    UIBarButtonItem *bloodDone=[[UIBarButtonItem alloc] initWithTitle:@"完成"
+        style:UIBarButtonItemStyleDone target:self action:@selector(finishAttributeInput:)];
+    bloodBar.items=@[[[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace
+        target:nil action:nil],bloodDone];
+    self.bloodValueField.inputAccessoryView=bloodBar;
+    [self.bloodPanel addSubview:self.bloodValueField];
+    self.bloodSetButton=Btn(@"应用浓度",self,@selector(setBloodPurity:));
+    self.bloodAddButton=Btn(@"添加血脉",self,@selector(addBlood:));
+    self.bloodRemoveButton=Btn(@"移除血脉",self,@selector(removeBlood:));
+    for(UIButton *button in @[self.bloodSetButton,self.bloodAddButton,self.bloodRemoveButton])
+        [self.bloodPanel addSubview:button];
+    [self updateBloodActionState];
     [self adjustPanel];
 }
 - (void)viewDidLayoutSubviews {
@@ -370,8 +399,14 @@ static NSArray<NSString *> *CategoryNames(void) {
     self.bloodPanel.contentSize=CGSizeMake(bw,bloodContentH);
     self.bloodActorButton.frame=CGRectMake(5,4,bw-10,33);
     self.bloodSearch.frame=CGRectMake(5,45,bw-10,33);
-    self.bloodTable.frame=CGRectMake(5,85,bw-10,MAX(90,bloodContentH-246));
-    self.bloodDetail.frame=CGRectMake(5,bloodContentH-153,bw-10,148);
+    self.bloodTable.frame=CGRectMake(5,85,bw-10,MAX(90,bloodContentH-330));
+    self.bloodValueField.frame=CGRectMake(5,bloodContentH-238,bw-10,32);
+    CGFloat bloodButtonW=floor((bw-20)/3);
+    self.bloodSetButton.frame=CGRectMake(5,bloodContentH-198,bloodButtonW,33);
+    self.bloodAddButton.frame=CGRectMake(10+bloodButtonW,bloodContentH-198,bloodButtonW,33);
+    self.bloodRemoveButton.frame=CGRectMake(15+bloodButtonW*2,bloodContentH-198,
+        bw-20-bloodButtonW*2,33);
+    self.bloodDetail.frame=CGRectMake(5,bloodContentH-158,bw-10,153);
     self.statusLabel.frame=CGRectMake(m,bottom+68,inner,40);
 }
 - (void)toggle:(id)sender {
@@ -493,7 +528,66 @@ static NSArray<NSString *> *CategoryNames(void) {
     self.actorBloodValues=[owned copy];
     [self.bloodActorButton setTitle:[NSString stringWithFormat:@"弟子：%@",actor[@"name"]]
                           forState:UIControlStateNormal];
-    [self.bloodTable reloadData];[self showSelectedBlood];
+    [self.bloodTable reloadData];[self showSelectedBlood];[self updateBloodActionState];
+}
+
+- (void)updateBloodActionState {
+    BOOL selected=self.selectedBlood!=nil && self.selectedActor!=nil;
+    BOOL exists=selected && self.actorBloodValues[self.selectedBlood[@"id"]]!=nil;
+    self.bloodSetButton.enabled=exists;
+    self.bloodRemoveButton.enabled=exists;
+    self.bloodAddButton.enabled=selected&&!exists;
+    for(UIButton *button in @[self.bloodSetButton,self.bloodRemoveButton,self.bloodAddButton])
+        button.alpha=button.enabled?1.0:0.45;
+}
+- (void)setBloodPurity:(id)sender {
+    [self performBloodOperation:0];
+}
+- (void)addBlood:(id)sender {
+    [self performBloodOperation:1];
+}
+- (void)removeBlood:(id)sender {
+    [self performBloodOperation:2];
+}
+- (void)performBloodOperation:(int)mode {
+    [self.view endEditing:YES];
+    NSDictionary *actor=self.selectedActor,*blood=self.selectedBlood;
+    if(!actor||!blood){
+        self.bloodDetail.text=@"请选择弟子和血脉。";return;
+    }
+    NSString *entered=[self.bloodValueField.text stringByTrimmingCharactersInSet:
+        NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    int32_t target=0;
+    if(mode!=2){
+        NSRegularExpression *re=[NSRegularExpression regularExpressionWithPattern:@"^[0-9]{1,3}$"
+            options:0 error:nil];
+        if([re numberOfMatchesInString:entered options:0
+                               range:NSMakeRange(0,entered.length)]!=1 ||
+           entered.intValue<1||entered.intValue>120){
+            self.bloodDetail.text=@"请输入 1–120 之间的整数浓度。";return;
+        }
+        target=entered.intValue;
+    }
+    NSString *world=XJGMCurrentWorldToken();
+    if(!world.length){
+        self.bloodDetail.text=@"世界尚未就绪，未执行修改。";return;
+    }
+    // No unchecked saved snapshots or direct offsets; writer checks live actor,
+    // current world UUID and current blood before performing any mutation.
+    int rc=XJGMWriteActorBlood([actor[@"id"] intValue],[actor[@"name"] UTF8String],
+       [actor[@"forceId"] intValue],[blood[@"id"] intValue],target,mode);
+    // Always reload live state, including on partial failures.
+    if(self.bloodMode &&
+       [self.selectedActor[@"id"] isEqual:actor[@"id"]] &&
+       [self.selectedActor[@"name"] isEqual:actor[@"name"]]){
+        [self reloadActorBloods];
+    }
+    NSString *verb=mode==0?@"修改浓度":(mode==1?@"添加血脉":@"移除血脉");
+    NSString *message=rc==1?
+        [NSString stringWithFormat:@"%@：%@（实时读数符合目标；存档后需复测）",verb,blood[@"name"]]:
+        (rc==2?@"目标浓度与当前相同，无需修改。":
+        [NSString stringWithFormat:@"%@ E%03d，可能已部分修改；请检查刷新后的实际数值。",verb,-rc]);
+    self.bloodDetail.text=[NSString stringWithFormat:@"%@\n%@",message,self.bloodDetail.text?:@""];
 }
 - (void)showSelectedBlood {
     NSDictionary *blood=self.selectedBlood;
@@ -507,9 +601,10 @@ static NSArray<NSString *> *CategoryNames(void) {
     NSString *purity=owned?[owned[@"purity"] description]:@"未拥有";
     NSString *active=owned?([owned[@"active"] boolValue]?@"已激活":@"未激活"):@"—";
     self.bloodDetail.text=[NSString stringWithFormat:
-        @"%@  ID：%@\n品质：%@ · 类型：%@\n弟子：%@ · 浓度：%@ · %@\n%@\n修改浓度、添加及移除：尚未验证安全写入链。",
+        @"%@  ID：%@\n品质：%@ · 类型：%@\n弟子：%@ · 浓度：%@ · %@\n%@",
         blood[@"name"],blood[@"id"],blood[@"quality"],blood[@"bloodType"],
         self.selectedActor[@"name"]?:@"未选择",purity,active,blood[@"description"]?:@""];
+    [self updateBloodActionState];
 }
 - (void)showAttributes:(id)sender {
     [self.view endEditing:YES];
@@ -1162,6 +1257,7 @@ static NSArray<NSString *> *CategoryNames(void) {
         self.selectedBlood=self.filteredBloods[(NSUInteger)indexPath.row];
         [self showSelectedBlood];
         [self.bloodTable reloadData];
+        [self updateBloodActionState];
     } else if(tableView==self.attributeTable){
         if((NSUInteger)indexPath.row>=self.attributeFiltered.count)return;
         self.selectedAttribute=self.attributeFiltered[(NSUInteger)indexPath.row];
