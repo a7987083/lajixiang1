@@ -253,17 +253,22 @@ static NSArray<NSString *> *CategoryNames(void) {
 - (void)rebuildFilter {
     NSString *text=[self.query.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
     NSMutableArray *a=[NSMutableArray array];
-    for(NSDictionary *item in self.allItems){
-        NSInteger type=[item[@"type"] integerValue];
-        if(self.selectedCategory && type!=self.selectedCategory)continue;
+    NSArray *source=self.skillsMode?self.allSkills:self.allItems;
+    for(NSDictionary *item in source){
+        if(self.skillsMode) {
+            if(self.selectedCategory>=1 && self.selectedCategory<=9 &&
+               [item[@"skillQuality"] integerValue]!=self.selectedCategory)continue;
+            if(self.selectedCategory==10 && [item[@"isSelfCreation"] integerValue]!=1)continue;
+        } else if(self.selectedCategory &&
+                  [item[@"type"] integerValue]!=self.selectedCategory)continue;
         NSString *name=item[@"name"],*ident=[item[@"id"] stringValue];
         if(text.length && [name rangeOfString:text options:NSCaseInsensitiveSearch].location==NSNotFound
                 && [ident rangeOfString:text].location==NSNotFound)continue;
         [a addObject:item];
     }
     self.filtered=[a copy];self.page=0;[self updatePage];
-    self.statusLabel.text=[NSString stringWithFormat:@"外部 JSON：%lu 条 · 当前匹配 %lu 条",
-        (unsigned long)self.allItems.count,(unsigned long)self.filtered.count];
+    self.statusLabel.text=[NSString stringWithFormat:@"%@：%lu 条 · 当前匹配 %lu 条",
+        self.skillsMode?@"功法配置":@"物品配置",(unsigned long)source.count,(unsigned long)self.filtered.count];
 }
 - (NSUInteger)pageSize {return 9;}
 - (NSUInteger)pageCount {return MAX((NSUInteger)1,(self.filtered.count+[self pageSize]-1)/[self pageSize]);}
@@ -278,15 +283,23 @@ static NSArray<NSString *> *CategoryNames(void) {
 - (void)next:(id)sender {if((NSUInteger)(self.page+1)<[self pageCount]){self.page++;[self updatePage];}}
 - (void)showSelected {
     NSDictionary *o=self.selected;
-    self.sendButton.enabled=(o!=nil);self.sendButton.alpha=o?1:.5;
+    self.sendButton.enabled=(o!=nil && !self.skillsMode);self.sendButton.alpha=(o && !self.skillsMode)?1:.5;
+    self.quantity.hidden=self.skillsMode;self.minusButton.hidden=self.skillsMode;self.plusButton.hidden=self.skillsMode;
+    [self.sendButton setTitle:self.skillsMode?@"功法操作（待审计）":@"发放物品" forState:UIControlStateNormal];
     if(!o){
-        self.pickedLabel.text=@"未选择物品";
-        self.detailLabel.text=@"物品说明\n\n选择分类和物品后，在这里查看 ID 与类型字段。";
+        self.pickedLabel.text=self.skillsMode?@"未选择功法":@"未选择物品";
+        self.detailLabel.text=self.skillsMode?@"功法说明\n\n选择阶位和功法查看详细配置。":@"物品说明\n\n选择分类和物品后，在这里查看 ID 与类型字段。";
         return;
     }
     self.pickedLabel.text=[NSString stringWithFormat:@"已选：%@  ID %@",o[@"name"],o[@"id"]];
-    self.detailLabel.text=[NSString stringWithFormat:@"物品说明\n\n%@\n\nID：%@\ntype：%@\nchildType：%@\nsearchType：%@",
-        o[@"name"],o[@"id"],o[@"type"],o[@"childType"],o[@"searchType"]];
+    if(self.skillsMode) {
+        self.detailLabel.text=[NSString stringWithFormat:@"功法说明\n%@\nID：%@\n阶位：%@\n类别：%@ 类型：%@\n自创：%@\n层数：%@\n\n%@",
+            o[@"name"],o[@"id"],o[@"skillQuality"],o[@"skillCategory"],o[@"skillType"],
+            o[@"isSelfCreation"],o[@"lvtext"],o[@"skillDescribe"]];
+    } else {
+        self.detailLabel.text=[NSString stringWithFormat:@"物品说明\n\n%@\n\nID：%@\ntype：%@\nchildType：%@\nsearchType：%@",
+            o[@"name"],o[@"id"],o[@"type"],o[@"childType"],o[@"searchType"]];
+    }
 }
 - (void)decrease:(id)sender {
     NSInteger n=MAX(1,MIN(9999,self.quantity.text.integerValue-1));
@@ -302,6 +315,7 @@ static NSArray<NSString *> *CategoryNames(void) {
 - (void)sendItem:(id)sender {
     // Do not send twice during keyboard dismissal or multiple taps.
     [self.view endEditing:YES];
+    if(self.skillsMode){self.statusLabel.text=@"功法 GM 命令尚未验证，禁止发送";return;}
     NSDictionary *selected=self.selected;
     if(!selected || ![self.allItems containsObject:selected]) {
         self.statusLabel.text=@"未选择有效物品，未发送";return;
@@ -323,7 +337,7 @@ static NSArray<NSString *> *CategoryNames(void) {
 }
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView{return 1;}
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    if(tableView==self.categoryTable)return CategoryNames().count;
+    if(tableView==self.categoryTable)return self.skillsMode?11:CategoryNames().count;
     NSInteger start=self.page*(NSInteger)[self pageSize];
     return MAX(0,MIN((NSInteger)[self pageSize],(NSInteger)self.filtered.count-start));
 }
@@ -333,7 +347,8 @@ static NSArray<NSString *> *CategoryNames(void) {
     cell.textLabel.font=[UIFont systemFontOfSize:11 weight:UIFontWeightRegular];
     cell.textLabel.numberOfLines=2;
     if(tableView==self.categoryTable){
-        cell.textLabel.text=CategoryNames()[(NSUInteger)indexPath.row];
+        NSArray *names=self.skillsMode?@[@"全部",@"一阶",@"二阶",@"三阶",@"四阶",@"五阶",@"六阶",@"七阶",@"八阶",@"九阶",@"自创"]:CategoryNames();
+        cell.textLabel.text=names[(NSUInteger)indexPath.row];
         cell.backgroundColor=self.selectedCategory==indexPath.row?Tan():Panel();
     } else {
         NSUInteger index=(NSUInteger)self.page*[self pageSize]+(NSUInteger)indexPath.row;
