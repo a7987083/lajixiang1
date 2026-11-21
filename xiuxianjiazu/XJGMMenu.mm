@@ -126,6 +126,13 @@ static NSArray<NSString *> *CategoryNames(void) {
     self.plusButton=Btn(@"＋",self,@selector(increase:));
     self.quantity=[UITextField new];self.quantity.text=@"1";self.quantity.keyboardType=UIKeyboardTypeNumberPad;
     self.quantity.textAlignment=NSTextAlignmentCenter;self.quantity.delegate=self;
+    // Number pad has no built-in Done key on iPhone; provide a dedicated accessory bar.
+    UIToolbar *quantityBar=[[UIToolbar alloc] initWithFrame:CGRectMake(0,0,320,44)];
+    quantityBar.barStyle=UIBarStyleDefault;
+    UIBarButtonItem *flex=[[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace target:nil action:NULL];
+    UIBarButtonItem *done=[[UIBarButtonItem alloc] initWithTitle:@"完成" style:UIBarButtonItemStyleDone target:self action:@selector(finishQuantity:)];
+    quantityBar.items=@[flex,done];
+    self.quantity.inputAccessoryView=quantityBar;
     self.quantity.font=[UIFont systemFontOfSize:13];self.quantity.textColor=Ink();
     self.quantity.backgroundColor=Panel();self.quantity.layer.borderWidth=.8;
     self.quantity.layer.borderColor=Border().CGColor;
@@ -260,7 +267,12 @@ static NSArray<NSString *> *CategoryNames(void) {
     NSInteger n=MAX(1,MIN(9999,self.quantity.text.integerValue+1));
     self.quantity.text=[NSString stringWithFormat:@"%ld",(long)n];
 }
+- (void)finishQuantity:(id)sender {
+    [self.quantity resignFirstResponder];
+}
 - (void)sendItem:(id)sender {
+    // Do not send twice during keyboard dismissal or multiple taps.
+    [self.view endEditing:YES];
     NSDictionary *selected=self.selected;
     if(!selected || ![self.allItems containsObject:selected]) {
         self.statusLabel.text=@"未选择有效物品，未发送";return;
@@ -273,21 +285,12 @@ static NSArray<NSString *> *CategoryNames(void) {
         self.statusLabel.text=@"ID 或数量无效，数量范围为 1～9999";return;
     }
     int32_t ident=(int32_t)itemId, count=(int32_t)qty.integerValue;
-    UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"确认发送 GM 请求"
-        message:[NSString stringWithFormat:@"%@\nID：%d  数量：%d\n仅确认发送请求，不能保证实际到账。",selected[@"name"],ident,count]
-        preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    __weak XJGMController *weakSelf=self;
-    [alert addAction:[UIAlertAction actionWithTitle:@"确认发放" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
-        XJGMController *strongSelf=weakSelf;if(!strongSelf)return;
-        strongSelf.sendButton.enabled=NO;
-        int rc=XJGMSendItem(ident,count);
-        strongSelf.sendButton.enabled=(strongSelf.selected!=nil);
-        if(rc==1)strongSelf.statusLabel.text=[NSString stringWithFormat:@"GM 请求已调用发送接口：ID %d × %d；到账未验证",ident,count];
-        else strongSelf.statusLabel.text=[NSString stringWithFormat:@"E%03d：GM 请求未发送，检查 gm-send-stage.txt",-rc];
-        NSLog(@"[XJGM] send ID=%d count=%d result=%d",ident,count,rc);
-    }]];
-    [self presentViewController:alert animated:YES completion:nil];
+    self.sendButton.enabled=NO;
+    int rc=XJGMSendItem(ident,count);
+    self.sendButton.enabled=(self.selected!=nil);
+    if(rc==1)self.statusLabel.text=[NSString stringWithFormat:@"请求已发送：ID %d × %d；请以背包实际到账为准",ident,count];
+    else self.statusLabel.text=[NSString stringWithFormat:@"E%03d：GM 请求未发送，检查 gm-send-stage.txt",-rc];
+    NSLog(@"[XJGM] send ID=%d count=%d result=%d",ident,count,rc);
 }
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView{return 1;}
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
