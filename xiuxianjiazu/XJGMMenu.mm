@@ -184,7 +184,7 @@ static NSArray<NSString *> *CategoryNames(void) {
     self.actorTable=[[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStylePlain];
     self.actorTable.dataSource=self;self.actorTable.delegate=self;
     self.actorTable.rowHeight=44;self.actorTable.backgroundColor=Panel();
-    [self.actorTable registerClass:UITableViewCell.class forCellReuseIdentifier:@"actor"];
+    [self.actorTable registerClass:UITableViewCell.class forCellReuseIdentifier:@"cell"];
     [self.actorPicker addSubview:self.actorTable];
     self.actorStatus=Txt(@"进入游戏后刷新弟子列表",11);
     [self.actorPicker addSubview:self.actorStatus];
