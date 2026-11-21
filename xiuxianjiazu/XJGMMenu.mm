@@ -349,17 +349,6 @@ static NSArray<NSString *> *CategoryNames(void) {
         MAX(ry,MIN(self.view.bounds.size.height-ry,c.y+d.y)));
     [g setTranslation:CGPointZero inView:self.view];
 }
-- (void)exportAttributes:(id)sender {
-    [self.view endEditing:YES];
-    self.attributesTab.enabled=NO;
-    self.statusLabel.text=@"正在只读导出属性配置…";
-    int count=XJGMExportAttributes();
-    self.attributesTab.enabled=YES;
-    if(count>=0)self.statusLabel.text=[NSString stringWithFormat:@"导出属性配置 %d 条：Documents/XiuxianjiazuGM/attributes.json",count];
-    else self.statusLabel.text=[NSString stringWithFormat:@"属性表导出 E%03d；检查 export-stage.txt",-count];
-    NSLog(@"[XJGM] attribute export count=%d",count);
-}
-
 - (void)updateModeViews {
     BOOL attr=self.attributesMode;
     // One shared root UI. Hide the item/skill content, not the common toolbar.
