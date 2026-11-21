@@ -1,7 +1,10 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
 
-// GM menu shell: local external items.json only. No GM requests or IL2CPP invocation.
+// External items.json supplies the searchable catalog; GM request lives in a separate module.
+#include <stdint.h>
+#include <limits.h>
+extern "C" int XJGMSendItem(int32_t itemId,int32_t count);
 static UIWindow *sWindow=nil;
 static UIColor *Paper(void) { return [UIColor colorWithRed:.92 green:.88 blue:.80 alpha:1]; }
 static UIColor *Panel(void) { return [UIColor colorWithRed:.97 green:.95 blue:.89 alpha:1]; }
@@ -128,9 +131,9 @@ static NSArray<NSString *> *CategoryNames(void) {
     self.quantity.layer.borderColor=Border().CGColor;
     [self.panel addSubview:self.minusButton];[self.panel addSubview:self.plusButton];
     [self.panel addSubview:self.quantity];
-    self.sendButton=Btn(@"发放物品（未接入）",self,@selector(noSend:));
+    self.sendButton=Btn(@"发放物品",self,@selector(sendItem:));
     self.sendButton.enabled=NO;self.sendButton.alpha=.5;[self.panel addSubview:self.sendButton];
-    self.statusLabel=Txt(@"只读模式 · 等待加载外部 items.json",10);
+    self.statusLabel=Txt(@"加载外部 JSON 后选择物品并设置发放数量",10);
     self.statusLabel.textColor=Dim();[self.panel addSubview:self.statusLabel];
     [self adjustPanel];
 }
@@ -223,7 +226,7 @@ static NSArray<NSString *> *CategoryNames(void) {
         [a addObject:item];
     }
     self.filtered=[a copy];self.page=0;[self updatePage];
-    self.statusLabel.text=[NSString stringWithFormat:@"外部 JSON：%lu 条 · 当前匹配 %lu 条 · 未接入 GM",
+    self.statusLabel.text=[NSString stringWithFormat:@"外部 JSON：%lu 条 · 当前匹配 %lu 条",
         (unsigned long)self.allItems.count,(unsigned long)self.filtered.count];
 }
 - (NSUInteger)pageSize {return 9;}
@@ -239,6 +242,7 @@ static NSArray<NSString *> *CategoryNames(void) {
 - (void)next:(id)sender {if((NSUInteger)(self.page+1)<[self pageCount]){self.page++;[self updatePage];}}
 - (void)showSelected {
     NSDictionary *o=self.selected;
+    self.sendButton.enabled=(o!=nil);self.sendButton.alpha=o?1:.5;
     if(!o){
         self.pickedLabel.text=@"未选择物品";
         self.detailLabel.text=@"物品说明\n\n选择分类和物品后，在这里查看 ID 与类型字段。";
@@ -256,7 +260,35 @@ static NSArray<NSString *> *CategoryNames(void) {
     NSInteger n=MAX(1,MIN(9999,self.quantity.text.integerValue+1));
     self.quantity.text=[NSString stringWithFormat:@"%ld",(long)n];
 }
-- (void)noSend:(id)sender {} // Intentional: button disabled until verified GM execution is integrated.
+- (void)sendItem:(id)sender {
+    NSDictionary *selected=self.selected;
+    if(!selected || ![self.allItems containsObject:selected]) {
+        self.statusLabel.text=@"未选择有效物品，未发送";return;
+    }
+    NSInteger itemId=[selected[@"id"] integerValue];
+    NSString *qty=[self.quantity.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    NSCharacterSet *nonDigits=[[NSCharacterSet decimalDigitCharacterSet] invertedSet];
+    if(itemId<=0 || itemId>INT32_MAX || !qty.length || [qty rangeOfCharacterFromSet:nonDigits].location!=NSNotFound ||
+       qty.length>4 || qty.integerValue<1 || qty.integerValue>9999) {
+        self.statusLabel.text=@"ID 或数量无效，数量范围为 1～9999";return;
+    }
+    int32_t ident=(int32_t)itemId, count=(int32_t)qty.integerValue;
+    UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"确认发送 GM 请求"
+        message:[NSString stringWithFormat:@"%@\nID：%d  数量：%d\n仅确认发送请求，不能保证实际到账。",selected[@"name"],ident,count]
+        preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    __weak typeof(self) weakSelf=self;
+    [alert addAction:[UIAlertAction actionWithTitle:@"确认发放" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        typeof(self) strongSelf=weakSelf;if(!strongSelf)return;
+        strongSelf.sendButton.enabled=NO;
+        int rc=XJGMSendItem(ident,count);
+        strongSelf.sendButton.enabled=(strongSelf.selected!=nil);
+        if(rc==1)strongSelf.statusLabel.text=[NSString stringWithFormat:@"GM 请求已调用发送接口：ID %d × %d；到账未验证",ident,count];
+        else strongSelf.statusLabel.text=[NSString stringWithFormat:@"E%03d：GM 请求未发送，检查 gm-send-stage.txt",-rc];
+        NSLog(@"[XJGM] send ID=%d count=%d result=%d",ident,count,rc);
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView{return 1;}
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     if(tableView==self.categoryTable)return CategoryNames().count;
@@ -281,7 +313,7 @@ static NSArray<NSString *> *CategoryNames(void) {
 }
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     if(tableView==self.categoryTable){
-        self.selectedCategory=indexPath.row;[self.categoryTable reloadData];[self rebuildFilter];
+        self.selectedCategory=indexPath.row;self.selected=nil;[self showSelected];[self.categoryTable reloadData];[self rebuildFilter];
     } else {
         NSUInteger index=(NSUInteger)self.page*[self pageSize]+(NSUInteger)indexPath.row;
         if(index>=self.filtered.count)return;
