@@ -9,7 +9,7 @@ extern "C" int XJGMExportActors(void);
 extern "C" int XJGMSendSkill(int32_t actorId,int32_t skillId);
 extern "C" int XJGMExportAttributes(void);
 extern "C" int XJGMExportActorAttributes(int32_t actorId,const char* expectedName,int32_t expectedForceId);
-extern "C" int XJGMSendActorAttribute(int32_t actorId,int32_t attrId,int32_t value);
+extern "C" int XJGMSendActorAttribute(int32_t actorId,int32_t attrId,int32_t value,bool expectedPercent);
 static UIWindow *sWindow=nil;
 static UIColor *Paper(void) { return [UIColor colorWithRed:.92 green:.88 blue:.80 alpha:1]; }
 static UIColor *Panel(void) { return [UIColor colorWithRed:.97 green:.95 blue:.89 alpha:1]; }
@@ -530,7 +530,7 @@ static NSArray<NSString *> *CategoryNames(void) {
         self.attributeText.text=@"弟子或属性已变更，本次未发送。请重新选择。";
         [self updateAttributeSendState];return;
     }
-    int rc=XJGMSendActorAttribute([actor[@"id"] intValue],[attr[@"id"] intValue],value);
+    int rc=XJGMSendActorAttribute([actor[@"id"] intValue],[attr[@"id"] intValue],value,[attr[@"isPercentage"] boolValue]);
     // Submission is not proof of persistence: avoid claiming saved/permanent.
     self.attributeText.text=rc==1?
         [NSString stringWithFormat:@"已提交：%@ · %@ → %d\n重新进入游戏后再验证是否持久生效。",
