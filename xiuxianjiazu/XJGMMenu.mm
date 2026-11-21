@@ -300,6 +300,7 @@ static NSArray<NSString *> *CategoryNames(void) {
 - (void)showAttributes:(id)sender {
     [self.view endEditing:YES];
     self.attributePanel.hidden=NO;
+    [self.panel bringSubviewToFront:self.attributePanel];
     [self adjustPanel];
     if(!self.selectedActor) {
         self.attributePickPending=YES;
@@ -367,8 +368,7 @@ static NSArray<NSString *> *CategoryNames(void) {
            [obj[@"id"] isKindOfClass:NSNumber.class] && [obj[@"name"] isKindOfClass:NSString.class])
             names[obj[@"id"]]=obj[@"name"];
     }
-    NSMutableString *view=[NSMutableString stringWithFormat:@"弟子：%@\n定义：%lu 项 · 原始属性：%d 项\n\n"
-        "⚠ 数组索引与属性 ID 的映射尚未实机确认；以下名称只是候选对照，数值为原始 List<long> 数据。\n\n",
+    NSMutableString *view=[NSMutableString stringWithFormat:@"弟子：%@\n定义：%lu 项 · 原始属性：%d 项\n\n⚠ 数组索引与属性 ID 的映射尚未实机确认；以下名称只是候选对照，数值为原始 List<long> 数据。\n\n",
         actor[@"name"],(unsigned long)names.count,code];
     for(id entry in snapshot[@"values"]) {
         if(![entry isKindOfClass:NSDictionary.class] ||
@@ -564,6 +564,7 @@ static NSArray<NSString *> *CategoryNames(void) {
 - (void)openActors:(id)sender {
     if(!self.skillsMode && !self.attributePickPending)return;
     [self.view endEditing:YES];self.actorPicker.hidden=NO;
+    [self.panel bringSubviewToFront:self.actorPicker];
     self.actorQuery.text=@"";
     [self reloadLiveActors:YES];
 }
@@ -666,6 +667,7 @@ static NSArray<NSString *> *CategoryNames(void) {
         [self showSelected];
         if(self.attributePickPending) {
             self.attributePickPending=NO;
+            [self.panel bringSubviewToFront:self.attributePanel];
             [self refreshAttributes:nil];
         }
     } else if(tableView==self.categoryTable){
