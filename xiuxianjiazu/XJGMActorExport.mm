@@ -74,7 +74,9 @@ static bool call(APIs &r,void* method,void* instance,void** args,void** result){
  if(result)*result=value;
  return true;
 }
+static thread_local bool sSkipActorCheckpoint=false;
 static void checkpoint(const char *stage){
+ if(sSkipActorCheckpoint)return;
  NSArray *dirs=NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask,YES);
  if(!dirs.count)return;
  NSString *dir=[dirs[0] stringByAppendingPathComponent:@"XiuxianjiazuGM"];
@@ -265,7 +267,12 @@ extern "C" __attribute__((visibility("default"))) int XJGMReadActorAttributeLive
     int32_t expectedForceId,int64_t* outValue) {
   @autoreleasepool {
     if(!outValue)return -456;
-    return exportActorAttributes(actorId,expectedName,expectedForceId,attrIndex,outValue);
+    // Periodic readback must not create diagnostic log files every few seconds.
+    bool previous=sSkipActorCheckpoint;
+    sSkipActorCheckpoint=true;
+    int result=exportActorAttributes(actorId,expectedName,expectedForceId,attrIndex,outValue);
+    sSkipActorCheckpoint=previous;
+    return result;
   }
 }
 
