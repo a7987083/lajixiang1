@@ -9,6 +9,7 @@ extern "C" int XJGMExportActors(void);
 extern "C" int XJGMSendSkill(int32_t actorId,int32_t skillId);
 extern "C" int XJGMExportAttributes(void);
 extern "C" int XJGMExportActorAttributes(int32_t actorId,const char* expectedName,int32_t expectedForceId);
+extern "C" int XJGMSendActorAttribute(int32_t actorId,int32_t attrId,int32_t value);
 static UIWindow *sWindow=nil;
 static UIColor *Paper(void) { return [UIColor colorWithRed:.92 green:.88 blue:.80 alpha:1]; }
 static UIColor *Panel(void) { return [UIColor colorWithRed:.97 green:.95 blue:.89 alpha:1]; }
@@ -57,6 +58,14 @@ static NSArray<NSString *> *CategoryNames(void) {
 @property(nonatomic,strong) UIView *attributePanel;
 @property(nonatomic,strong) UITextView *attributeText;
 @property(nonatomic,strong) UIButton *attributeRefresh;
+@property(nonatomic,strong) UITextField *attributeSearch;
+@property(nonatomic,strong) UITextField *attributeValue;
+@property(nonatomic,strong) UITableView *attributeTable;
+@property(nonatomic,strong) UIButton *attributeSend;
+@property(nonatomic,strong) NSArray<NSDictionary *> *attributeDefs;
+@property(nonatomic,strong) NSArray<NSDictionary *> *attributeFiltered;
+@property(nonatomic,strong) NSDictionary *selectedAttribute;
+@property(nonatomic,strong) NSDictionary *attributeRawValues;
 @property(nonatomic,assign) BOOL attributePickPending;
 @property(nonatomic,strong) UIButton *actorButton;
 @property(nonatomic,strong) UIView *actorPicker;
@@ -213,6 +222,34 @@ static NSArray<NSString *> *CategoryNames(void) {
     self.attributeText.backgroundColor=Panel();self.attributeText.textColor=Ink();
     self.attributeText.font=[UIFont systemFontOfSize:12];self.attributeText.text=@"选择弟子后实时读取属性数组。";
     [self.attributePanel addSubview:self.attributeText];
+    self.attributeSearch=[UITextField new];
+    self.attributeSearch.placeholder=@"搜索动态属性名称";
+    self.attributeSearch.font=[UIFont systemFontOfSize:12];self.attributeSearch.textColor=Ink();
+    self.attributeSearch.backgroundColor=Panel();self.attributeSearch.layer.borderColor=Border().CGColor;
+    self.attributeSearch.layer.borderWidth=1;self.attributeSearch.returnKeyType=UIReturnKeyDone;
+    self.attributeSearch.delegate=self;
+    [self.attributeSearch addTarget:self action:@selector(filterAttributeList) forControlEvents:UIControlEventEditingChanged];
+    [self.attributePanel addSubview:self.attributeSearch];
+    self.attributeTable=[[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStylePlain];
+    self.attributeTable.delegate=self;self.attributeTable.dataSource=self;
+    self.attributeTable.rowHeight=37;self.attributeTable.backgroundColor=Panel();
+    [self.attributeTable registerClass:UITableViewCell.class forCellReuseIdentifier:@"cell"];
+    [self.attributePanel addSubview:self.attributeTable];
+    self.attributeValue=[UITextField new];self.attributeValue.placeholder=@"修改值 0～9999";
+    self.attributeValue.keyboardType=UIKeyboardTypeNumberPad;
+    self.attributeValue.font=[UIFont systemFontOfSize:12];self.attributeValue.textColor=Ink();
+    self.attributeValue.textAlignment=NSTextAlignmentCenter;
+    self.attributeValue.layer.borderColor=Border().CGColor;self.attributeValue.layer.borderWidth=1;
+    self.attributeValue.backgroundColor=Panel();self.attributeValue.delegate=self;
+    UIToolbar *attributeBar=[[UIToolbar alloc] initWithFrame:CGRectMake(0,0,320,44)];
+    UIBarButtonItem *finish=[[UIBarButtonItem alloc] initWithTitle:@"完成" style:UIBarButtonItemStyleDone target:self action:@selector(finishAttributeInput:)];
+    attributeBar.items=@[[[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace target:nil action:nil],finish];
+    self.attributeValue.inputAccessoryView=attributeBar;
+    [self.attributePanel addSubview:self.attributeValue];
+    self.attributeSend=Btn(@"设置属性",self,@selector(sendAttribute:));
+    self.attributeSend.enabled=NO;self.attributeSend.alpha=.5;
+    [self.attributePanel addSubview:self.attributeSend];
+    self.attributeDefs=@[];self.attributeFiltered=@[];self.attributeRawValues=@{};
     [self adjustPanel];
 }
 - (void)viewDidLayoutSubviews {
@@ -265,7 +302,12 @@ static NSArray<NSString *> *CategoryNames(void) {
     [self.attributePanel viewWithTag:906].frame=CGRectMake(vw-72,10,58,28);
     [self.attributePanel viewWithTag:907].frame=CGRectMake(13,49,105,32);
     self.attributeRefresh.frame=CGRectMake(125,49,105,32);
-    self.attributeText.frame=CGRectMake(13,91,vw-26,MAX(120,vh-105));
+    self.attributeSearch.frame=CGRectMake(13,91,vw-26,30);
+    self.attributeTable.frame=CGRectMake(13,128,vw-26,MAX(90,vh-304));
+    self.attributeValue.frame=CGRectMake(13,vh-169,MAX(70,(vw-34)*.48),33);
+    self.attributeSend.frame=CGRectMake(21+MAX(70,(vw-34)*.48),vh-169,
+        MAX(65,(vw-34)*.52-8),33);
+    self.attributeText.frame=CGRectMake(13,vh-128,vw-26,113);
     self.statusLabel.frame=CGRectMake(m,bottom+68,inner,40);
 }
 - (void)toggle:(id)sender {
@@ -300,6 +342,8 @@ static NSArray<NSString *> *CategoryNames(void) {
 - (void)showAttributes:(id)sender {
     [self.view endEditing:YES];
     self.attributePanel.hidden=NO;
+    self.selectedAttribute=nil;self.attributeValue.text=@"";
+    self.attributeSearch.text=@"";
     [self.panel bringSubviewToFront:self.attributePanel];
     [self adjustPanel];
     if(!self.selectedActor) {
@@ -363,10 +407,24 @@ static NSArray<NSString *> *CategoryNames(void) {
         self.attributeText.text=@"属性快照校验失败，未显示旧数据。";self.attributeRefresh.enabled=YES;return;
     }
     NSMutableDictionary *names=[NSMutableDictionary dictionary];
+    NSMutableDictionary *raw=[NSMutableDictionary dictionary];
+    for(id entry in snapshot[@"values"]) {
+        if([entry isKindOfClass:NSDictionary.class] &&
+           [entry[@"index"] isKindOfClass:NSNumber.class] &&
+           [entry[@"value"] isKindOfClass:NSNumber.class])
+           raw[entry[@"index"]]=entry[@"value"];
+    }
+    self.attributeRawValues=[raw copy];
+    NSMutableArray *validDefs=[NSMutableArray array];
     for(id obj in (NSArray*)defs) {
         if([obj isKindOfClass:NSDictionary.class] &&
            [obj[@"id"] isKindOfClass:NSNumber.class] && [obj[@"name"] isKindOfClass:NSString.class])
+        {
             names[obj[@"id"]]=obj[@"name"];
+            if([obj[@"valueType"] isKindOfClass:NSNumber.class] &&
+               [obj[@"id"] integerValue]>=0 && [obj[@"id"] integerValue]<100)
+                [validDefs addObject:obj];
+        }
     }
     NSMutableString *view=[NSMutableString stringWithFormat:@"弟子：%@\n定义：%lu 项 · 原始属性：%d 项\n\n⚠ 数组索引与属性 ID 的映射尚未实机确认；以下名称只是候选对照，数值为原始 List<long> 数据。\n\n",
         actor[@"name"],(unsigned long)names.count,code];
@@ -378,8 +436,93 @@ static NSArray<NSString *> *CategoryNames(void) {
         [view appendFormat:@"[%@] %@（候选）  %@\n",
             entry[@"index"],candidate,entry[@"value"]];
     }
-    self.attributeText.text=view;
+    self.attributeDefs=[validDefs sortedArrayUsingComparator:^NSComparisonResult(NSDictionary *a,NSDictionary *b) {
+        return [a[@"id"] compare:b[@"id"]];
+    }];
+    NSDictionary *retained=nil;
+    for(NSDictionary *a in self.attributeDefs)
+        if(self.selectedAttribute && [a[@"id"] isEqual:self.selectedAttribute[@"id"]] &&
+           [a[@"name"] isEqual:self.selectedAttribute[@"name"]] &&
+           [a[@"valueType"] isEqual:self.selectedAttribute[@"valueType"]]) {retained=a;break;}
+    self.selectedAttribute=retained;
+    [self filterAttributeList];
+    self.attributeText.text=[NSString stringWithFormat:@"弟子：%@ · %lu 条属性\n已选：%@\n%@",
+        actor[@"name"],(unsigned long)self.attributeDefs.count,
+        self.selectedAttribute[@"name"]?:@"未选择",
+        @"当前值来自原始数组索引，属性名对应关系待写入后验证。"];
+    [self updateAttributeSendState];
     self.attributeRefresh.enabled=YES;
+}
+
+- (void)finishAttributeInput:(id)sender {
+    [self.attributeValue resignFirstResponder];
+}
+- (void)filterAttributeList {
+    NSString *q=[self.attributeSearch.text stringByTrimmingCharactersInSet:
+         NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    NSMutableArray *result=[NSMutableArray array];
+    for(NSDictionary *d in self.attributeDefs) {
+        if(q.length && [d[@"name"] rangeOfString:q options:NSCaseInsensitiveSearch].location==NSNotFound &&
+           [[d[@"id"] stringValue] rangeOfString:q].location==NSNotFound)continue;
+        [result addObject:d];
+    }
+    self.attributeFiltered=result;[self.attributeTable reloadData];
+}
+- (void)updateAttributeSendState {
+    BOOL canSend=self.selectedActor && self.selectedAttribute &&
+        [self.selectedAttribute[@"valueType"] intValue]==0 &&
+        self.attributeRawValues[self.selectedAttribute[@"id"]]!=nil;
+    self.attributeSend.enabled=canSend;self.attributeSend.alpha=canSend?1:.5;
+}
+- (void)sendAttribute:(id)sender {
+    [self.view endEditing:YES];
+    NSDictionary *actor=self.selectedActor,*attr=self.selectedAttribute;
+    if(!actor||!attr || [attr[@"valueType"] intValue]!=0) {
+        self.attributeText.text=@"请选择普通整数属性；百分比属性暂未开放。";return;
+    }
+    NSString *entered=[self.attributeValue.text stringByTrimmingCharactersInSet:
+        NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    NSCharacterSet *bad=[NSCharacterSet.decimalDigitCharacterSet invertedSet];
+    if(entered.length==0 || entered.length>4 ||
+       [entered rangeOfCharacterFromSet:bad].location!=NSNotFound ||
+       entered.integerValue<0 || entered.integerValue>9999) {
+        self.attributeText.text=@"仅允许输入 0～9999 的整数；未发送。";return;
+    }
+    int32_t value=(int32_t)entered.intValue;
+    // An explicit confirmation is required before a state-changing GM message.
+    NSNumber *old=self.attributeRawValues[attr[@"id"]];
+    NSString *message=[NSString stringWithFormat:
+        @"弟子：%@\n属性：%@\n当前原始值（候选）：%@\n新值：%d\n\n此次命令会修改游戏状态。",
+        actor[@"name"],attr[@"name"],old?:@"未知",value];
+    UIAlertController *confirm=[UIAlertController alertControllerWithTitle:@"确认设置属性"
+        message:message preferredStyle:UIAlertControllerStyleAlert];
+    [confirm addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    __weak typeof(self) weakSelf=self;
+    [confirm addAction:[UIAlertAction actionWithTitle:@"确认发送" style:UIAlertActionStyleDestructive
+        handler:^(__unused UIAlertAction *action){
+        typeof(self) strongSelf=weakSelf;if(!strongSelf)return;
+        strongSelf.attributeSend.enabled=NO;
+        [strongSelf refreshAttributes:nil];
+        // Stop on identity or catalog changes. Refresh fetches both from runtime.
+        NSDictionary *fresh=strongSelf.selectedAttribute;
+        NSDictionary *newActor=strongSelf.selectedActor;
+        if(!fresh || !newActor || ![newActor[@"id"] isEqual:actor[@"id"]] ||
+           ![newActor[@"name"] isEqual:actor[@"name"]] ||
+           ![newActor[@"forceId"] isEqual:actor[@"forceId"]] ||
+           ![fresh[@"id"] isEqual:attr[@"id"]] ||
+           ![fresh[@"name"] isEqual:attr[@"name"]] ||
+           ![fresh[@"valueType"] isEqual:attr[@"valueType"]]) {
+           strongSelf.attributeText.text=@"弟子或属性已变更，请重新选择；本次未发送。";
+           [strongSelf updateAttributeSendState];return;
+        }
+        int rc=XJGMSendActorAttribute([actor[@"id"] intValue],[attr[@"id"] intValue],value);
+        strongSelf.attributeText.text=rc==1?
+            [NSString stringWithFormat:@"请求已发送：%@ / %@ → %d\n请刷新并核对游戏实际效果。",
+                actor[@"name"],attr[@"name"],value]:
+            [NSString stringWithFormat:@"属性发送 E%03d；检查 gm-attribute-stage.txt",-rc];
+        [strongSelf updateAttributeSendState];
+    }]];
+    [self presentViewController:confirm animated:YES completion:nil];
 }
 - (void)showItems:(id)sender {
     [self.view endEditing:YES];
@@ -633,6 +776,7 @@ static NSArray<NSString *> *CategoryNames(void) {
 }
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView{return 1;}
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+    if(tableView==self.attributeTable)return self.attributeFiltered.count;
     if(tableView==self.actorTable)return self.visibleActors.count;
     if(tableView==self.categoryTable)return self.skillsMode?11:CategoryNames().count;
     NSInteger start=self.page*(NSInteger)[self pageSize];
@@ -643,7 +787,13 @@ static NSArray<NSString *> *CategoryNames(void) {
     cell.backgroundColor=Panel();cell.textLabel.textColor=Ink();
     cell.textLabel.font=[UIFont systemFontOfSize:11 weight:UIFontWeightRegular];
     cell.textLabel.numberOfLines=2;
-    if(tableView==self.actorTable){
+    if(tableView==self.attributeTable){
+        NSDictionary *a=self.attributeFiltered[(NSUInteger)indexPath.row];
+        NSNumber *raw=self.attributeRawValues[a[@"id"]];
+        cell.textLabel.text=[NSString stringWithFormat:@"%@   当前：%@%@",
+            a[@"name"],raw?:@"—",[a[@"valueType"] intValue]==0?@"":@"  (百分比只读)"];
+        cell.backgroundColor=(self.selectedAttribute && [self.selectedAttribute[@"id"] isEqual:a[@"id"]])?Tan():Panel();
+    } else if(tableView==self.actorTable){
         NSDictionary *a=self.visibleActors[(NSUInteger)indexPath.row];
         cell.textLabel.text=a[@"name"];
         cell.backgroundColor=(self.selectedActor && [self.selectedActor[@"id"] isEqual:a[@"id"]])?Tan():Panel();
@@ -660,7 +810,19 @@ static NSArray<NSString *> *CategoryNames(void) {
     return cell;
 }
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
-    if(tableView==self.actorTable){
+    if(tableView==self.attributeTable){
+        if((NSUInteger)indexPath.row>=self.attributeFiltered.count)return;
+        self.selectedAttribute=self.attributeFiltered[(NSUInteger)indexPath.row];
+        NSNumber *raw=self.attributeRawValues[self.selectedAttribute[@"id"]];
+        self.attributeText.text=[NSString stringWithFormat:
+            @"弟子：%@\n属性：%@\n当前原始数值：%@\n%@",
+            self.selectedActor[@"name"]?:@"未选择",
+            self.selectedAttribute[@"name"],raw?:@"—",
+            [self.selectedAttribute[@"valueType"] intValue]==0?
+               @"修改前请核对游戏中的真实值。":@"百分比属性暂未开放修改。"];
+        [self updateAttributeSendState];
+        [self.attributeTable reloadData];
+    } else if(tableView==self.actorTable){
         if((NSUInteger)indexPath.row>=self.visibleActors.count)return;
         self.selectedActor=self.visibleActors[(NSUInteger)indexPath.row];
         self.actorPicker.hidden=YES;[self.view endEditing:YES];
