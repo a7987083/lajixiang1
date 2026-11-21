@@ -314,3 +314,67 @@ extern "C" __attribute__((visibility("default"))) NSString* XJGMCurrentWorldToke
     return [NSString stringWithFormat:@"%@|%p",token,world];
   }
 }
+
+
+extern "C" __attribute__((visibility("default"))) int XJGMExportActorBloods(
+    int32_t actorId,const char* expectedName,int32_t expectedForceId) {
+ @autoreleasepool {
+  if(actorId<=0||!expectedName||!expectedName[0])return -701;
+  APIs r={};if(setup(r)!=1)return -702;
+  void* domain=r.domain();if(!domain)return -703;
+  if(!r.threadCurrent()&&!r.threadAttach(domain))return -704;
+  void* assembly=r.assembly(domain,"gameCore.dll");
+  void* image=assembly?r.image(assembly):nullptr;
+  void* cacheCls=image?r.fromName(image,"","DataCache"):nullptr;
+  if(!cacheCls)return -705;
+  void* cache=nullptr;
+  if(!call(r,r.method(cacheCls,"get_Instance",0),nullptr,nullptr,&cache)||!cache)return -706;
+  void* lookup=r.method(cacheCls,"TryGetActor",1);
+  void* actor=nullptr;void* actorArgs[]={&actorId};
+  if(!call(r,lookup,cache,actorArgs,&actor)||!actor)return -707;
+  void* actorCls=r.objectClass(actor);if(!actorCls)return -708;
+  int32_t force=0;
+  if(intGetter(r,actor,r.method(actorCls,"get_forceId",0),&force)!=1)return -708;
+  void* nameObject=nullptr;
+  if(!call(r,r.method(actorCls,"get_name",0),actor,nullptr,&nameObject))return -708;
+  NSString* name=readString(r,nameObject);
+  NSString* expected=[NSString stringWithUTF8String:expectedName];
+  if(!name||!expected||![name isEqualToString:expected]||force!=expectedForceId)return -709;
+  // ActorData.GetBloods(false) is read-only in the managed object graph.
+  bool falseArg=false;void* getArgs[]={&falseArg};
+  void* bloodList=nullptr;
+  if(!call(r,r.method(actorCls,"GetBloods",1),actor,getArgs,&bloodList)||!bloodList)return -710;
+  void* listClass=r.objectClass(bloodList);if(!listClass)return -711;
+  void* countMethod=r.method(listClass,"get_Count",0);
+  void* getItemMethod=r.method(listClass,"get_Item",1);
+  if(!countMethod||!getItemMethod)return -711;
+  int32_t count=0;
+  if(intGetter(r,bloodList,countMethod,&count)!=1||count<0||count>1024)return -712;
+  NSMutableArray* result=[NSMutableArray arrayWithCapacity:(NSUInteger)count];
+  for(int32_t i=0;i<count;i++){
+   void* entry=nullptr;void* args[]={&i};
+   if(!call(r,getItemMethod,bloodList,args,&entry)||!entry)return -713;
+   void* type=r.objectClass(entry);if(!type)return -714;
+   void* idBox=nullptr;void* valueBox=nullptr;void* activeBox=nullptr;
+   if(!call(r,r.method(type,"get_tmplId",0),entry,nullptr,&idBox)||!idBox ||
+      !call(r,r.method(type,"get_value",0),entry,nullptr,&valueBox)||!valueBox ||
+      !call(r,r.method(type,"get_fullActive",0),entry,nullptr,&activeBox)||!activeBox)return -715;
+   void* idRaw=r.unbox(idBox),*valRaw=r.unbox(valueBox),*activeRaw=r.unbox(activeBox);
+   if(!idRaw||!valRaw||!activeRaw)return -715;
+   int16_t bid=*(int16_t*)idRaw, purity=*(int16_t*)valRaw;
+   BOOL active=*(uint8_t*)activeRaw!=0;
+   [result addObject:@{@"id":@(bid),@"purity":@(purity),@"active":@(active)}];
+  }
+  NSArray* dirs=NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask,YES);
+  if(!dirs.count)return -716;
+  NSString* dir=[dirs[0] stringByAppendingPathComponent:@"XiuxianjiazuGM"];
+  if(![[NSFileManager defaultManager] createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil])return -716;
+  NSDictionary* obj=@{@"actorId":@(actorId),@"actorName":name,
+       @"forceId":@(force),@"bloods":result};
+  NSData* json=[NSJSONSerialization dataWithJSONObject:obj options:0 error:nil];
+  if(!json||json.length>1024*1024)return -717;
+  if(![json writeToFile:[dir stringByAppendingPathComponent:@"actor-bloods.json"]
+             options:NSDataWritingAtomic error:nil])return -718;
+  return count;
+ }
+}
