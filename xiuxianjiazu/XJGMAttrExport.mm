@@ -52,6 +52,29 @@ static void checkpoint(const char *step) {
   NSLog(@"[XJGMExport] %@",value);
 }
 
+
+static void* findPercentMethodAcrossAssemblies(Runtime &r,void* domain) {
+  using Assemblies=const void** (*)(void*,size_t*);
+  auto enumerate=(Assemblies)sym(r.handle,"il2cpp_domain_get_assemblies");
+  if(!enumerate || !domain)return nullptr;
+  size_t count=0;
+  const void** assemblies=enumerate(domain,&count);
+  if(!assemblies || count==0 || count>512)return nullptr;
+  void* matched=nullptr;
+  for(size_t i=0;i<count;i++) {
+    if(!assemblies[i])continue;
+    void* image=r.image((void*)assemblies[i]);
+    if(!image)continue;
+    void* cls=r.fromName(image,"","AttrHelper");
+    if(!cls)continue;
+    void* method=r.method(cls,"IsPercentageAttType",1);
+    if(!method)continue;
+    // Resolve exactly once; ambiguous type matches are unsafe.
+    if(matched && method!=matched)return nullptr;
+    matched=method;
+  }
+  return matched;
+}
 static void* managedImage(Runtime &r,void* domain,const char* assemblyName) {
   void* assembly=r.assembly(domain,assemblyName);
   return assembly ? r.image(assembly) : nullptr;
@@ -151,9 +174,8 @@ static int exportTable(Runtime &r,void *image,const char *typeName,const char *c
   if(!idField||!nameField||!valueTypeField||!scoreField||!standardValueField||!descFmtField)return -108;
   // Use the game's actual formatting classification rather than the config's
   // valueType: the two differ for several real attributes (8/53/30/31).
-  void *core=managedImage(r,r.domain(),"gameCore.dll");
-  void *helper=core?r.fromName(core,"","AttrHelper"):nullptr;
-  void *isPercent=helper?r.method(helper,"IsPercentageAttType",1):nullptr;
+  checkpoint("percent_lookup_all_assemblies");
+  void *isPercent=findPercentMethodAcrossAssemblies(r,r.domain());
   if(!isPercent)return -114;
   NSMutableArray *entries=[NSMutableArray arrayWithCapacity:(NSUInteger)count];
   if (count) {
