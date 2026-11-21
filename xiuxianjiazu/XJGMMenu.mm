@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <limits.h>
 extern "C" int XJGMSendItem(int32_t itemId,int32_t count);
+extern "C" int XJGMTestAdComplete(int32_t adId);
 extern "C" int XJGMExportActors(void);
 extern "C" int XJGMSendSkill(int32_t actorId,int32_t skillId);
 extern "C" int XJGMExportAttributes(void);
@@ -84,6 +85,7 @@ static NSArray<NSString *> *CategoryNames(void) {
 @property(nonatomic,strong) UIButton *skillsTab;
 @property(nonatomic,strong) UIButton *attributesTab;
 @property(nonatomic,strong) UIButton *bloodTab;
+@property(nonatomic,strong) UIButton *adTestTab;
 @property(nonatomic,strong) UIScrollView *bloodPanel;
 @property(nonatomic,strong) UIButton *bloodActorButton;
 @property(nonatomic,strong) UITextField *bloodSearch;
@@ -173,6 +175,8 @@ static NSArray<NSString *> *CategoryNames(void) {
     [self.panel addSubview:self.attributesTab];
     self.bloodTab=Btn(@"血脉管理",self,@selector(showBloods:));
     [self.panel addSubview:self.bloodTab];
+    self.adTestTab=Btn(@"广告测试",self,@selector(testAdvertReward:));
+    [self.panel addSubview:self.adTestTab];
 
     self.query=[UITextField new];self.query.delegate=self;
     self.query.placeholder=@"名称或 ID";self.query.textColor=Ink();self.query.font=[UIFont systemFontOfSize:12];
@@ -365,12 +369,13 @@ static NSArray<NSString *> *CategoryNames(void) {
     [self.panel viewWithTag:901].frame=CGRectMake(m,7,w-75,28);
     self.closeButton.frame=CGRectMake(w-61,9,51,27);
     CGFloat tabGap=5;
-    CGFloat tabWidth=floor((inner-tabGap*3)/4);
+    CGFloat tabWidth=floor((inner-tabGap*4)/5);
     self.itemsTab.frame=CGRectMake(m,41,tabWidth,30);
     self.skillsTab.frame=CGRectMake(m+tabWidth+tabGap,41,tabWidth,30);
     self.attributesTab.frame=CGRectMake(m+(tabWidth+tabGap)*2,41,tabWidth,30);
-    self.bloodTab.frame=CGRectMake(m+(tabWidth+tabGap)*3,41,
-        inner-3*(tabWidth+tabGap),30);
+    self.bloodTab.frame=CGRectMake(m+(tabWidth+tabGap)*3,41,tabWidth,30);
+    self.adTestTab.frame=CGRectMake(m+(tabWidth+tabGap)*4,41,
+        inner-4*(tabWidth+tabGap),30);
     self.query.frame=CGRectMake(m,77,inner,31);
 
     // Compact iPhone portrait: categories 24%, list 35%, details remaining 41%.
@@ -431,6 +436,27 @@ static NSArray<NSString *> *CategoryNames(void) {
         bw-20-bloodButtonW*2,33);
     self.bloodDetail.frame=CGRectMake(5,bloodContentH-158,bw-10,153);
     self.statusLabel.frame=CGRectMake(m,bottom+68,inner,40);
+}
+- (void)testAdvertReward:(id)sender {
+    UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"广告完成回调测试"
+        message:@"只尝试调用目标版本的 OnVideoAdComplete(2)，不会直接构造 C2S_AdvertReward。此操作可能触发游戏自己的网络请求；本地调用成功不代表奖励到账。请仅在授权测试环境使用。"
+        preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    __weak typeof(self) weakSelf=self;
+    [alert addAction:[UIAlertAction actionWithTitle:@"执行一次" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        (void)action;
+        int status=XJGMTestAdComplete(2);
+        XJGMController *strongSelf=weakSelf;
+        if(!strongSelf)return;
+        NSString *message=status==1 ?
+            @"客户端回调已执行；实际发奖仍须核对游戏和服务端。日志：Documents/XiuxianjiazuGM/ad-test-stage.txt" :
+            [NSString stringWithFormat:@"调用未成功，错误 E%d。检查目标 UUID、IL2CPP 状态及日志。",-status];
+        UIAlertController *result=[UIAlertController alertControllerWithTitle:@"广告测试结果" message:message
+            preferredStyle:UIAlertControllerStyleAlert];
+        [result addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil]];
+        [strongSelf presentViewController:result animated:YES completion:nil];
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
 }
 - (void)toggle:(id)sender {
     self.panel.hidden=!self.panel.hidden;self.bubble.hidden=!self.panel.hidden;
