@@ -190,3 +190,81 @@ static int sendOriginalItem(int32_t id,int32_t count) {
 extern "C" __attribute__((visibility("default"))) int XJGMSendItem(int32_t id,int32_t count) {
   @autoreleasepool { return sendOriginalItem(id,count); }
 }
+
+
+// P2.1.5: independent skill GM command path.
+// Verified target-version reverse engineering reference: GMSkillBlock.OnClickBtnAdd.
+// Arguments: ActorData.id -> SkillInfo.id. No dependency on GMView instance.
+namespace {
+static void skillStage(const char* step) {
+  NSArray *dirs=NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask,YES);
+  if(!dirs.count)return;
+  NSString *dir=[dirs[0] stringByAppendingPathComponent:@"XiuxianjiazuGM"];
+  [[NSFileManager defaultManager] createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
+  [[NSString stringWithFormat:@"P2.1.5 stage=%s",step]
+    writeToFile:[dir stringByAppendingPathComponent:@"gm-skill-stage.txt"]
+    atomically:YES encoding:NSUTF8StringEncoding error:nil];
+}
+static int sendOriginalSkill(int32_t actorId,int32_t skillId) {
+  skillStage("start");
+  if(actorId<=0||skillId<=0)return -501;
+  uintptr_t base=exactImageBase();
+  if(!base)return -502;
+  skillStage("uuid_verified");
+  Runtime r={};
+  if(resolve(r)!=1)return -503;
+  void* domain=r.domain();
+  if(!domain)return -504;
+  if(!r.current()&&!r.attach(domain))return -505;
+  void* configImage=managedImage(r,domain,"gameConfigs.dll");
+  void* protocolImage=managedImage(r,domain,"gameProtocal.dll");
+  void* coreImage=managedImage(r,domain,"gameCore.dll");
+  if(!configImage||!protocolImage||!coreImage)return -506;
+  void* skillCls=r.fromName(configImage,"config.export.excel","SkillInfo");
+  void* cacheCls=r.fromName(coreImage,"","DataCache");
+  void* cmdCls=r.fromName(protocolImage,"xxjz.game","C2S_GMComand");
+  void* appCls=r.fromName(coreImage,"","GameApp");
+  if(!skillCls||!cacheCls||!cmdCls||!appCls)return -507;
+  skillStage("classes_resolved");
+
+  // Validate that the requested skill is in the game's current SkillInfo catalog.
+  void* skill=nullptr;void* skillArgs[]={&skillId};
+  if(!invoke(r,r.method(skillCls,"Find",1),nullptr,skillArgs,&skill)||!skill)return -508;
+
+  // Validate that the target actor is still in the game cache immediately before sending.
+  void* cache=nullptr;
+  if(!invoke(r,r.method(cacheCls,"get_Instance",0),nullptr,nullptr,&cache)||!cache)return -509;
+  void* actor=nullptr;void* actorArgs[]={&actorId};
+  if(!invoke(r,r.method(cacheCls,"TryGetActor",1),cache,actorArgs,&actor)||!actor)return -510;
+  skillStage("actor_and_skill_verified");
+
+  using NewObject=void*(*)(void*);
+  auto newObject=(NewObject)sym(r.handle,"il2cpp_object_new");
+  if(!newObject)return -511;
+  void* cmd=newObject(cmdCls);
+  if(!cmd||!invoke(r,r.method(cmdCls,".ctor",0),cmd,nullptr))return -512;
+  skillStage("command_created");
+
+  // Exact-game managed literal slots from the original GMSkillBlock call chain.
+  // Do not carry forward across different UnityFramework UUIDs.
+  void* typeLiteral=managedLiteral(base,0x448DC00);
+  void* routeLiteral=managedLiteral(base,0x4479768);
+  if(!typeLiteral||!routeLiteral)return -513;
+  void* typeArgs[]={typeLiteral};
+  if(!invoke(r,r.method(cmdCls,"set_typeStr",1),cmd,typeArgs))return -514;
+  void* first[]={&actorId};void* second[]={&skillId};
+  void* add=r.method(cmdCls,"AddToParams1",1);
+  if(!invoke(r,add,cmd,first)||!invoke(r,add,cmd,second))return -515;
+  skillStage("parameters_added");
+  void* app=nullptr;
+  if(!invoke(r,r.method(appCls,"get_Instance",0),nullptr,nullptr,&app)||!app)return -516;
+  void* args[]={routeLiteral,cmd};
+  skillStage("invoke_send");
+  bool submitted=invoke(r,r.method(appCls,"Send",2),app,args);
+  if(submitted)skillStage("submitted");
+  return submitted?1:-517;
+}
+}
+extern "C" __attribute__((visibility("default"))) int XJGMSendSkill(int32_t actorId,int32_t skillId) {
+  @autoreleasepool{return sendOriginalSkill(actorId,skillId);}
+}
