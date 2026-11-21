@@ -10,6 +10,7 @@ extern "C" int XJGMSendSkill(int32_t actorId,int32_t skillId);
 extern "C" int XJGMExportAttributes(void);
 extern "C" int XJGMExportActorAttributes(int32_t actorId,const char* expectedName,int32_t expectedForceId);
 extern "C" int XJGMSendActorAttribute(int32_t actorId,int32_t attrId,int32_t value,bool expectedPercent);
+extern "C" int XJGMSamplePersistence(int32_t actorId,int32_t attributeIndex,const char* expectedName,int32_t forceId);
 static UIWindow *sWindow=nil;
 static UIColor *Paper(void) { return [UIColor colorWithRed:.92 green:.88 blue:.80 alpha:1]; }
 static UIColor *Panel(void) { return [UIColor colorWithRed:.97 green:.95 blue:.89 alpha:1]; }
@@ -58,6 +59,7 @@ static NSArray<NSString *> *CategoryNames(void) {
 @property(nonatomic,strong) UIView *attributePanel;
 @property(nonatomic,strong) UITextView *attributeText;
 @property(nonatomic,strong) UIButton *attributeRefresh;
+@property(nonatomic,strong) UIButton *persistenceProbe;
 @property(nonatomic,strong) UITextField *attributeSearch;
 @property(nonatomic,strong) UITextField *attributeValue;
 @property(nonatomic,strong) UITableView *attributeTable;
@@ -250,6 +252,8 @@ static NSArray<NSString *> *CategoryNames(void) {
     self.attributeSend=Btn(@"设置属性",self,@selector(sendAttribute:));
     self.attributeSend.enabled=NO;self.attributeSend.alpha=.5;
     [self.attributePanel addSubview:self.attributeSend];
+    self.persistenceProbe=Btn(@"存档链诊断（只读）",self,@selector(samplePersistence:));
+    [self.attributePanel addSubview:self.persistenceProbe];
     self.attributeDefs=@[];self.attributeFiltered=@[];self.attributeRawValues=@{};
     [self adjustPanel];
 }
@@ -304,7 +308,8 @@ static NSArray<NSString *> *CategoryNames(void) {
     [self.attributePanel viewWithTag:907].frame=CGRectMake(13,49,105,32);
     self.attributeRefresh.frame=CGRectMake(125,49,105,32);
     self.attributeSearch.frame=CGRectMake(13,91,vw-26,30);
-    self.attributeTable.frame=CGRectMake(13,128,vw-26,MAX(90,vh-304));
+    self.attributeTable.frame=CGRectMake(13,128,vw-26,MAX(90,vh-350));
+    self.persistenceProbe.frame=CGRectMake(13,vh-208,vw-26,31);
     self.attributeValue.frame=CGRectMake(13,vh-169,MAX(70,(vw-34)*.48),33);
     self.attributeSend.frame=CGRectMake(21+MAX(70,(vw-34)*.48),vh-169,
         MAX(65,(vw-34)*.52-8),33);
@@ -479,6 +484,24 @@ static NSArray<NSString *> *CategoryNames(void) {
         [self.selectedAttribute[@"isPercentage"] isKindOfClass:NSNumber.class] &&
         self.attributeRawValues[self.selectedAttribute[@"id"]]!=nil;
     self.attributeSend.enabled=canSend;self.attributeSend.alpha=canSend?1:.5;
+}
+- (void)samplePersistence:(id)sender {
+    [self.view endEditing:YES];
+    if(!self.attributeFreshReady || !self.selectedActor || !self.selectedAttribute) {
+        self.attributeText.text=@"请选择弟子和属性，并刷新动态数据后再诊断。";
+        return;
+    }
+    NSDictionary *actor=self.selectedActor,*attr=self.selectedAttribute;
+    // This is a read-only check of the server/world object, not ActorData.
+    int result=XJGMSamplePersistence([actor[@"id"] intValue],
+        [attr[@"id"] intValue],[actor[@"name"] UTF8String],
+        [actor[@"forceId"] intValue]);
+    self.attributeText.text=result>0?
+        [NSString stringWithFormat:
+            @"已记录第 %d 次只读快照：%@ / %@\n保存位置：XiuxianjiazuGM/persistence-diagnostic.json\n请在修改前、修改后、手动保存后、重新载入后各采样一次。",
+            result,actor[@"name"],attr[@"name"]]:
+        [NSString stringWithFormat:
+            @"世界数据读取失败 E%03d；检查 actor-export-stage.txt。未修改游戏状态。",-result];
 }
 - (void)sendAttribute:(id)sender {
     [self.view endEditing:YES];
