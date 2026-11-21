@@ -20,7 +20,7 @@ jobs:
             -isysroot "$SDK" -miphoneos-version-min=13.0 \
             -framework UIKit -framework Foundation -framework QuartzCore -framework CoreGraphics \
             -Wl,-install_name,@rpath/XiuxianjiazuGM.dylib \
-            xiuxianjiazu/XJGMMenu.mm xiuxianjiazu/XJGMAdTest.mm xiuxianjiazu/XJGMItemSender.mm xiuxianjiazu/XJGMActorExport.mm xiuxianjiazu/XJGMAttrExport.mm xiuxianjiazu/XJGMBloodExport.mm xiuxianjiazu/XJGMBloodWriter.mm xiuxianjiazu/XJGMQualityColor.mm -o dist/XiuxianjiazuGM.dylib
+            xiuxianjiazu/XJGMMenu.mm xiuxianjiazu/XJGMRecruitProbe.mm xiuxianjiazu/XJGMItemSender.mm xiuxianjiazu/XJGMActorExport.mm xiuxianjiazu/XJGMAttrExport.mm xiuxianjiazu/XJGMBloodExport.mm xiuxianjiazu/XJGMBloodWriter.mm xiuxianjiazu/XJGMQualityColor.mm -o dist/XiuxianjiazuGM.dylib
           codesign --force --sign - --timestamp=none dist/XiuxianjiazuGM.dylib
           file dist/XiuxianjiazuGM.dylib
           shasum -a 256 dist/XiuxianjiazuGM.dylib > dist/SHA256SUMS.txt
