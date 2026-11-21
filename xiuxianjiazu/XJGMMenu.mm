@@ -65,6 +65,34 @@ static NSString *CleanName(NSString *name) {
     return [regex stringByReplacingMatchesInString:name?:@"" options:0
               range:NSMakeRange(0,(name?:@"").length) withTemplate:@""];
 }
+// The original ActorDataBloodLabel.GetBloodLabelText reads BloodTmpl.name
+// unchanged; Unity TMP can apply an explicit <color=#RRGGBB> markup in it.
+// UIKit cannot interpret TMP rich text. Parse only explicit hex markup from
+// the original name; never invent a blood rarity-to-color mapping.
+static UIColor *XJGMExplicitBloodNameColor(NSString *rawName) {
+    if(![rawName isKindOfClass:NSString.class]||!rawName.length)return nil;
+    static NSRegularExpression *pattern=nil;static dispatch_once_t once;
+    dispatch_once(&once,^{
+        pattern=[NSRegularExpression regularExpressionWithPattern:
+            @"<color\\s*=\\s*#?([0-9a-fA-F]{6})(?:[0-9a-fA-F]{2})?\\s*>"
+            options:NSRegularExpressionCaseInsensitive error:nil];
+    });
+    NSTextCheckingResult *m=[pattern firstMatchInString:rawName options:0
+        range:NSMakeRange(0,rawName.length)];
+    if(!m||[m rangeAtIndex:1].location==NSNotFound)return nil;
+    NSString *hex=[rawName substringWithRange:[m rangeAtIndex:1]];
+    unsigned int value=0;
+    if(![[NSScanner scannerWithString:hex] scanHexInt:&value])return nil;
+    return [UIColor colorWithRed:((value>>16)&255)/255.0
+                          green:((value>>8)&255)/255.0
+                           blue:(value&255)/255.0 alpha:1];
+}
+static UIColor *XJGMBloodDisplayColor(NSDictionary *blood) {
+    UIColor *explicitColor=XJGMExplicitBloodNameColor(blood[@"name"]);
+    if(explicitColor)return explicitColor;
+    return XJGMNativeQualityColor(2,[blood[@"id"] intValue],
+                                  [blood[@"quality"] intValue]);
+}
 static NSArray<NSString *> *CategoryNames(void) {
     return @[@"全部",@"丹药",@"灵植材料",@"装备法宝",@"符箓",@"阵法",@"功法",@"灵兽",@"种子",@"其他"];
 }
@@ -664,7 +692,7 @@ static NSArray<NSString *> *CategoryNames(void) {
         blood[@"name"],blood[@"id"],blood[@"quality"],blood[@"bloodType"],
         self.selectedActor[@"name"]?:@"未选择",purity,active,blood[@"description"]?:@""];
     XJGMColorNameInDetail(self.bloodDetail,blood[@"name"],
-        XJGMNativeQualityColor(2,[blood[@"id"] intValue],[blood[@"quality"] intValue]));
+        XJGMBloodDisplayColor(blood));
     [self updateBloodActionState];
 }
 - (void)showAttributes:(id)sender {
@@ -1276,7 +1304,7 @@ static NSArray<NSString *> *CategoryNames(void) {
         cell.textLabel.text=[NSString stringWithFormat:@"%@%@",
             blood[@"name"]?:@"",purity];
         XJGMColorNameInLabel(cell.textLabel,cell.textLabel.text,blood[@"name"],
-            XJGMNativeQualityColor(2,[blood[@"id"] intValue],[blood[@"quality"] intValue]));
+            XJGMBloodDisplayColor(blood));
         cell.backgroundColor=[self.selectedBlood[@"id"] isEqual:blood[@"id"]]?Tan():Panel();
     } else if(tableView==self.attributeTable){
         NSDictionary *a=self.attributeFiltered[(NSUInteger)indexPath.row];
