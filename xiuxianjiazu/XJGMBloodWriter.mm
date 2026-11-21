@@ -74,8 +74,35 @@ static int snapshot(int32_t actorId,const char* name,int32_t forceId,int32_t blo
     }
     return 1;
 }
+static bool matchesTargetUUID() {
+    static const uint8_t required[16]={
+        0x31,0x69,0x50,0xD2,0x5C,0xD5,0x32,0xB9,
+        0xA2,0xDF,0xFF,0xBF,0x3D,0x3B,0x8D,0x11
+    };
+    for(uint32_t i=0;i<_dyld_image_count();i++) {
+        const char* path=_dyld_get_image_name(i);
+        const mach_header* header=_dyld_get_image_header(i);
+        if(!path||!header||header->magic!=MH_MAGIC_64||header->cputype!=CPU_TYPE_ARM64)continue;
+        NSString *file=[NSString stringWithUTF8String:path];
+        if(![file.lastPathComponent isEqualToString:@"UnityFramework"])continue;
+        const mach_header_64* hdr=(const mach_header_64*)header;
+        const uint8_t* cursor=(const uint8_t*)hdr+sizeof(mach_header_64);
+        for(uint32_t n=0;n<hdr->ncmds;n++) {
+            const load_command* cmd=(const load_command*)cursor;
+            if(cmd->cmdsize<sizeof(load_command))return false;
+            if(cmd->cmd==LC_UUID && cmd->cmdsize>=sizeof(uuid_command)) {
+                const uuid_command* u=(const uuid_command*)cmd;
+                return memcmp(u->uuid,required,16)==0;
+            }
+            cursor+=cmd->cmdsize;
+        }
+        return false;
+    }
+    return false;
+}
 static int runMutation(int32_t actorId,const char* expectedName,int32_t forceId,
                        int32_t bloodId,int32_t target,int32_t mode) {
+    if(!matchesTargetUUID())return -800;
     if(actorId<=0||bloodId<=0||bloodId>32767||!expectedName||!expectedName[0]||
        forceId<0||mode<0||mode>2)return -801;
     if(mode!=2 && (target<1||target>120))return -802;
