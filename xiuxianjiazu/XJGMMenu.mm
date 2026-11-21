@@ -277,9 +277,9 @@ static NSArray<NSString *> *CategoryNames(void) {
         message:[NSString stringWithFormat:@"%@\nID：%d  数量：%d\n仅确认发送请求，不能保证实际到账。",selected[@"name"],ident,count]
         preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    __weak typeof(self) weakSelf=self;
+    __weak XJGMController *weakSelf=self;
     [alert addAction:[UIAlertAction actionWithTitle:@"确认发放" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
-        typeof(self) strongSelf=weakSelf;if(!strongSelf)return;
+        XJGMController *strongSelf=weakSelf;if(!strongSelf)return;
         strongSelf.sendButton.enabled=NO;
         int rc=XJGMSendItem(ident,count);
         strongSelf.sendButton.enabled=(strongSelf.selected!=nil);
