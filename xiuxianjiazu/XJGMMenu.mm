@@ -531,35 +531,41 @@ static NSArray<NSString *> *CategoryNames(void) {
     if(!self.attributeLocks.count)return;
     if(UIApplication.sharedApplication.applicationState!=UIApplicationStateActive)return;
     NSString *world=XJGMCurrentWorldToken();
-    // An unavailable world token can be transient during scene transitions.
-    // Pause checks without deleting locks; a *different valid* UUID resets them.
-    if(!world.length)return;
+    if(!world.length)return; // Scene may be transitioning; do not erase locks.
     if(![world isEqualToString:self.lockWorldToken]) {
-        [self clearAttributeLocks:@"存档或游戏世界已切换；全部锁定已停止。"];
+        [self clearAttributeLocks:@"世界实例已切换，旧锁定已停止。"];
         return;
     }
-    // Each lock is independent: a failure on one attribute must not remove
-    // any other lock. Read failures are retained for a later one-second tick.
+    BOOL statusChanged=NO;
     for(NSString *key in [self.attributeLocks allKeys]) {
         NSMutableDictionary *entry=self.attributeLocks[key];
         if(!entry)continue;
+        BOOL wasError=entry[@"lastReadError"]!=nil || entry[@"lastWriteError"]!=nil;
         int64_t current=0;
         int status=XJGMReadActorAttributeLive([entry[@"actorId"] intValue],
             [entry[@"attrId"] intValue],[entry[@"actorName"] UTF8String],
             [entry[@"forceId"] intValue],&current);
-        if(status!=1) {
+        if(status!=1){
             entry[@"lastReadError"]=@(status);
-            continue;
+            if(!wasError)statusChanged=YES;
+            continue; // Independent lock retained, no unsafe write on read failure.
         }
         [entry removeObjectForKey:@"lastReadError"];
-        if(current==[entry[@"target"] longLongValue])continue;
-        // Exactly one GM submission per changed attribute per timer tick.
-        // Never use a global retry count to deactivate unrelated locks.
-        int rc=XJGMSendActorAttribute([entry[@"actorId"] intValue],
-            [entry[@"attrId"] intValue],[entry[@"target"] intValue],
-            [entry[@"isPercentage"] boolValue]);
-        if(rc!=1)entry[@"lastWriteError"]=@(rc);
-        else [entry removeObjectForKey:@"lastWriteError"];
+        if(current==[entry[@"target"] longLongValue]){
+            [entry removeObjectForKey:@"lastWriteError"];
+        } else {
+            int rc=XJGMSendActorAttribute([entry[@"actorId"] intValue],
+                [entry[@"attrId"] intValue],[entry[@"target"] intValue],
+                [entry[@"isPercentage"] boolValue]);
+            if(rc!=1)entry[@"lastWriteError"]=@(rc);
+            else [entry removeObjectForKey:@"lastWriteError"];
+        }
+        BOOL isError=entry[@"lastReadError"]!=nil || entry[@"lastWriteError"]!=nil;
+        if(wasError!=isError)statusChanged=YES;
+    }
+    if(statusChanged && self.attributesMode){
+        [self.attributeTable reloadData];
+        [self updateAttributeSendState];
     }
 }
 - (void)toggleAttributeLock:(id)sender {
@@ -604,6 +610,7 @@ static NSArray<NSString *> *CategoryNames(void) {
     NSNumber *actorId=actor[@"id"];
     NSString *actorName=actor[@"name"];
     NSNumber *forceId=actor[@"forceId"];
+    NSNumber *selectedAttrId=self.selectedAttribute[@"id"];
     __weak XJGMController *weakSelf=self;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(delay*NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
@@ -614,9 +621,17 @@ static NSArray<NSString *> *CategoryNames(void) {
            ![current[@"name"] isEqual:actorName] ||
            ![current[@"forceId"] isEqual:forceId])return;
         [strongSelf refreshAttributes:nil];
-        if(strongSelf.attributeFreshReady)
-            strongSelf.attributeText.text=message;
-        // If refresh failed, preserve its error text rather than hiding the error.
+        if(!strongSelf.attributeFreshReady)return;
+        if(![strongSelf.selectedAttribute[@"id"] isEqual:selectedAttrId])return;
+        NSNumber *actual=strongSelf.attributeRawValues[selectedAttrId];
+        if(!actual)return;
+        BOOL percent=[strongSelf.selectedAttribute[@"isPercentage"] boolValue];
+        NSString *readback=percent?
+            [NSString stringWithFormat:@"%.2f%%",actual.doubleValue/100.0]:
+            actual.stringValue;
+        strongSelf.attributeText.text=[NSString stringWithFormat:
+            @"%@\\n刷新读数：%@（来自 ActorData 属性数组；索引映射待实机验证）",
+            message,readback];
     });
 }
 - (void)performAttributeAction:(BOOL)shouldLock {
@@ -958,9 +973,11 @@ static NSArray<NSString *> *CategoryNames(void) {
             [NSString stringWithFormat:@"%.2f%%",raw.doubleValue/100.0]:
             raw.stringValue):@"—";
         NSString *key=[self lockKeyForActor:self.selectedActor attribute:a];
-        BOOL locked=key && self.attributeLocks[key]!=nil;
+        NSDictionary *lock=key?self.attributeLocks[key]:nil;
+        BOOL lockError=lock[@"lastReadError"]!=nil || lock[@"lastWriteError"]!=nil;
+        NSString *state=lock?(lockError?@"   锁定异常":@"   已锁定"):@"";
         cell.textLabel.text=[NSString stringWithFormat:@"%@   当前：%@%@",
-            a[@"name"],shown,locked?@"   已锁定":@""];
+            a[@"name"],shown,state];
         cell.backgroundColor=(self.selectedAttribute && [self.selectedAttribute[@"id"] isEqual:a[@"id"]])?Tan():Panel();
     } else if(tableView==self.actorTable){
         NSDictionary *a=self.visibleActors[(NSUInteger)indexPath.row];
