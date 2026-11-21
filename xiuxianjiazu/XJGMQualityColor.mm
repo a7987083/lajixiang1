@@ -48,7 +48,10 @@ static bool findItemQuality(Runtime &r,void* domain,int32_t itemId,int32_t* qual
     *quality=level;return true;
 }
 static UIColor* nativeColor(Runtime &r,void* domain,int32_t quality) {
-    if(quality<0||quality>30)return nil;
+    // The original ARM64 implementation (UnityFramework RVA 0x1AAD8EC)
+    // selects the last palette entry when quality exceeds the palette length.
+    // Do not impose an invented 30-level upper bound here.
+    if(quality<0)return nil;
     void* cls=resolveConstants(r,domain);
     if(!cls)return nil;
     void* method=r.method(cls,"GetItemQualityColor",1);
@@ -74,7 +77,7 @@ extern "C" __attribute__((visibility("default"))) UIColor* XJGMNativeQualityColo
     @autoreleasepool {
         if(kind<0||kind>2)return nil;
         if(kind==0&&id<=0)return nil;
-        if(kind!=0&&(quality<0||quality>30))return nil;
+        if(kind!=0&&quality<0)return nil;
         // Called on the menu's main thread. Keep only successful lookups cached.
         static NSMutableDictionary<NSString*,UIColor*> *cache=nil;
         if(!cache)cache=[NSMutableDictionary dictionary];
@@ -88,6 +91,20 @@ extern "C" __attribute__((visibility("default"))) UIColor* XJGMNativeQualityColo
         if(kind==0&&!findItemQuality(r,domain,id,&resolvedQuality))return nil;
         UIColor *color=nativeColor(r,domain,resolvedQuality);
         if(color)cache[key]=color;
+        // BloodTmpl.quality does not necessarily share ItemTmpl.colorLv
+        // semantics. Keep a one-time diagnostic per blood ID to distinguish
+        // native API failure from a valid but visually unsuitable mapping.
+        if(kind==2){
+            static NSMutableSet<NSString*>* reported=nil;
+            if(!reported)reported=[NSMutableSet set];
+            if(![reported containsObject:key]){
+                [reported addObject:key];
+                CGFloat red=0,green=0,blue=0,alpha=0;
+                BOOL rgb=color&&[color getRed:&red green:&green blue:&blue alpha:&alpha];
+                NSLog(@"[XJGMQuality] blood id=%d quality=%d native=%@ rgba=(%.3f,%.3f,%.3f,%.3f)",
+                    id,quality,rgb?@"OK":@"UNAVAILABLE",red,green,blue,alpha);
+            }
+        }
         return color;
     }
 }
