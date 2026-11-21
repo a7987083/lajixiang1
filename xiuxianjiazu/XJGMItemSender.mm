@@ -333,15 +333,20 @@ static int sendOriginalActorAttribute(int32_t actorId,int32_t attributeId,int32_
   int32_t valueType=-1;
   r.fieldValue(attr,typeField,&valueType);
   if(valueType!=0 && valueType!=1)return -610;
-  // Game-native classification is authoritative, not UnitAttrTmpl.valueType.
-  void* helperMethod=findPercentMethodAcrossAssemblies(r,domain);
-  if(!helperMethod)return -620;
-  void* boxed=nullptr;
-  if(!invoke(r,helperMethod,nullptr,attrArgs,&boxed)||!boxed)return -621;
-  auto unbox=(void*(*)(void*))sym(r.handle,"il2cpp_object_unbox");
-  if(!unbox)return -621;
-  void* raw=unbox(boxed);if(!raw)return -621;
-  if((*(uint8_t*)raw!=0)!=expectedPercent)return -622;
+  // Restore the verified P2.2.3 ordinary integer path. The percentage helper
+  // was introduced later and must never block valueType=0 integer requests.
+  // Percentage requests remain strict: match real runtime classification.
+  if(expectedPercent || valueType!=0) {
+    attributeStage("percentage_check");
+    void* helperMethod=findPercentMethodAcrossAssemblies(r,domain);
+    if(!helperMethod)return -620;
+    void* boxed=nullptr;
+    if(!invoke(r,helperMethod,nullptr,attrArgs,&boxed)||!boxed)return -621;
+    auto unbox=(void*(*)(void*))sym(r.handle,"il2cpp_object_unbox");
+    if(!unbox)return -621;
+    void* raw=unbox(boxed);if(!raw)return -621;
+    if((*(uint8_t*)raw!=0)!=expectedPercent)return -622;
+  }
   void* cache=nullptr;
   if(!invoke(r,r.method(cacheCls,"get_Instance",0),nullptr,nullptr,&cache)||!cache)return -611;
   void* actor=nullptr;void* actorArgs[]={&actorId};
