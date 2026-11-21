@@ -2,7 +2,7 @@
 #import <Foundation/Foundation.h>
 #import <dispatch/dispatch.h>
 
-extern "C" int XJGMNativeItemSearch(const char *utf8);
+extern "C" int XJGMExportItems(int *savedOut);
 
 // Keep the floating window/bubble lifecycle and drag behavior unchanged.
 // This build deliberately has NO catalog enumeration, GM request sender, or timers.
@@ -69,18 +69,18 @@ static UIButton *Button(NSString *title,id target,SEL action) {
     self.panel.hidden=YES;
     [self.view addSubview:self.panel];
 
-    self.heading=Label(@"物品 · 原生 GM 搜索",17);
+    self.heading=Label(@"物品 · 配置导出 V1",17);
     self.heading.font=[UIFont systemFontOfSize:17 weight:UIFontWeightBold];
     [self.panel addSubview:self.heading];
     self.closeButton=Button(@"收起",self,@selector(toggle:));
     [self.panel addSubview:self.closeButton];
-    self.subtitle=Label(@"调用 GMItemBlock.OnClickBtnSearch()，仅使用游戏已存在的 GM 窗口实例。",11);
+    self.subtitle=Label(@"只读读取 ItemTmpl.configs，导出完整物品 ID 与名称。不调用 GMItemBlock，也不发送 GM 命令。",11);
     self.subtitle.textColor=Muted();
     [self.panel addSubview:self.subtitle];
 
     self.search=[[UITextField alloc] init];
-    self.search.placeholder=@"输入物品名称";
-    self.search.attributedPlaceholder=[[NSAttributedString alloc] initWithString:@"输入物品名称"
+    self.search.placeholder=@"保存到 Documents/XiuxianjiazuGM/";
+    self.search.attributedPlaceholder=[[NSAttributedString alloc] initWithString:@"保存到 Documents/XiuxianjiazuGM/"
         attributes:@{NSForegroundColorAttributeName:Muted()}];
     self.search.textColor=Ink();self.search.font=[UIFont systemFontOfSize:14];
     self.search.backgroundColor=[UIColor colorWithRed:.15 green:.18 blue:.23 alpha:1];
@@ -88,14 +88,14 @@ static UIButton *Button(NSString *title,id target,SEL action) {
     self.search.layer.borderColor=[UIColor colorWithRed:.27 green:.33 blue:.39 alpha:1].CGColor;
     self.search.leftView=[[UIView alloc] initWithFrame:CGRectMake(0,0,11,1)];
     self.search.leftViewMode=UITextFieldViewModeAlways;
-    self.search.returnKeyType=UIReturnKeySearch;self.search.delegate=self;
+    self.search.enabled=NO;self.search.delegate=self;
     [self.panel addSubview:self.search];
-    self.searchButton=Button(@"原生搜索",self,@selector(runSearch:));
+    self.searchButton=Button(@"导出物品 ID 列表",self,@selector(runSearch:));
     self.searchButton.backgroundColor=Accent();
     [self.searchButton setTitleColor:[UIColor colorWithRed:.08 green:.15 blue:.17 alpha:1] forState:UIControlStateNormal];
     [self.panel addSubview:self.searchButton];
 
-    self.status=Label(@"尚未执行搜索",12);
+    self.status=Label(@"未导出 · 等游戏加载配置后点击按钮",12);
     self.status.textColor=Muted();
     [self.panel addSubview:self.status];
     [self adjustPanel];
@@ -128,26 +128,24 @@ static UIButton *Button(NSString *title,id target,SEL action) {
         MAX(hh,MIN(self.view.bounds.size.height-hh,c.y+delta.y)));
     [g setTranslation:CGPointZero inView:self.view];
 }
-- (BOOL)textFieldShouldReturn:(UITextField *)textField {
-    [self runSearch:nil]; return YES;
-}
+- (BOOL)textFieldShouldReturn:(UITextField *)textField { return NO; }
 - (void)runSearch:(id)sender {
-    NSString *query=[self.search.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    if (!query.length) {self.status.text=@"请输入物品名称";return;}
     [self.view endEditing:YES];
     self.searchButton.enabled=NO;
-    int code=XJGMNativeItemSearch(query.UTF8String);
+    int saved=0;
+    // Manually invoked on the app's UI thread, never from constructor or retry timer.
+    int result=XJGMExportItems(&saved);
     self.searchButton.enabled=YES;
-    switch (code) {
-      case 1: self.status.text=@"已调用原生搜索。结果由游戏 GMItemBlock.itemView 显示。"; break;
-      case -309: self.status.text=@"E309：游戏尚未创建原生 GMItemBlock，未执行"; break;
-      case -312: self.status.text=@"E312：GMItemBlock 未完成初始化，未执行"; break;
-      case -313: self.status.text=@"E313：存在多个 GM 实例，拒绝歧义调用"; break;
-      case -315: case -316: self.status.text=[NSString stringWithFormat:@"E%03d：原生方法抛出异常", -code]; break;
-      default: self.status.text=[NSString stringWithFormat:@"E%03d：原生搜索不可用，未执行", -code]; break;
+    if (result>=0 && saved) {
+        self.status.text=[NSString stringWithFormat:@"已导出 %d 条：Documents/XiuxianjiazuGM/items.json",result];
+    } else if (result==-102) {
+        self.status.text=@"E102：游戏配置尚未加载，进入游戏后重试";
+    } else {
+        self.status.text=[NSString stringWithFormat:@"E%03d：导出失败（未写入有效文件）",-result];
     }
-    NSLog(@"[XJGMNative] OnClickBtnSearch result=%d",code);
+    NSLog(@"[XJGMExportV1] user export result=%d saved=%d",result,saved);
 }
+
 @end
 
 static XJGMController *sController=nil;
