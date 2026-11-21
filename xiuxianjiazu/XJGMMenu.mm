@@ -630,7 +630,7 @@ static NSArray<NSString *> *CategoryNames(void) {
             [NSString stringWithFormat:@"%.2f%%",actual.doubleValue/100.0]:
             actual.stringValue;
         strongSelf.attributeText.text=[NSString stringWithFormat:
-            @"%@\\n刷新读数：%@（来自 ActorData 属性数组；索引映射待实机验证）",
+            @"%@\n刷新读数：%@（来自 ActorData 属性数组；索引映射待实机验证）",
             message,readback];
     });
 }
