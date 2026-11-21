@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <limits.h>
 extern "C" int XJGMSendItem(int32_t itemId,int32_t count);
+extern "C" int XJGMExportActors(void);
 static UIWindow *sWindow=nil;
 static UIColor *Paper(void) { return [UIColor colorWithRed:.92 green:.88 blue:.80 alpha:1]; }
 static UIColor *Panel(void) { return [UIColor colorWithRed:.97 green:.95 blue:.89 alpha:1]; }
@@ -287,9 +288,9 @@ static NSArray<NSString *> *CategoryNames(void) {
 - (void)next:(id)sender {if((NSUInteger)(self.page+1)<[self pageCount]){self.page++;[self updatePage];}}
 - (void)showSelected {
     NSDictionary *o=self.selected;
-    self.sendButton.enabled=(o!=nil && !self.skillsMode);self.sendButton.alpha=(o && !self.skillsMode)?1:.5;
+    self.sendButton.enabled=(self.skillsMode || o!=nil);self.sendButton.alpha=(self.skillsMode || o!=nil)?1:.5;
     self.quantity.hidden=self.skillsMode;self.minusButton.hidden=self.skillsMode;self.plusButton.hidden=self.skillsMode;
-    [self.sendButton setTitle:self.skillsMode?@"功法操作（待审计）":@"发放物品" forState:UIControlStateNormal];
+    [self.sendButton setTitle:self.skillsMode?@"导出弟子列表":@"发放物品" forState:UIControlStateNormal];
     if(!o){
         self.pickedLabel.text=self.skillsMode?@"未选择功法":@"未选择物品";
         self.detailLabel.text=self.skillsMode?@"功法说明\n\n选择阶位和功法查看详细配置。":@"物品说明\n\n选择分类和物品后，在这里查看 ID 与类型字段。";
@@ -319,7 +320,16 @@ static NSArray<NSString *> *CategoryNames(void) {
 - (void)sendItem:(id)sender {
     // Do not send twice during keyboard dismissal or multiple taps.
     [self.view endEditing:YES];
-    if(self.skillsMode){self.statusLabel.text=@"功法 GM 命令尚未验证，禁止发送";return;}
+    if(self.skillsMode) {
+        self.sendButton.enabled=NO;
+        self.statusLabel.text=@"读取游戏实时弟子列表中…";
+        int rc=XJGMExportActors();
+        self.sendButton.enabled=YES;
+        if(rc>=0)self.statusLabel.text=[NSString stringWithFormat:@"已导出 %d 名弟子到 actors.json（仅只读）",rc];
+        else self.statusLabel.text=[NSString stringWithFormat:@"弟子列表读取 E%03d，查看 actor-export-stage.txt",-rc];
+        NSLog(@"[XJGM] actor export result=%d",rc);
+        return;
+    }
     NSDictionary *selected=self.selected;
     if(!selected || ![self.allItems containsObject:selected]) {
         self.statusLabel.text=@"未选择有效物品，未发送";return;
