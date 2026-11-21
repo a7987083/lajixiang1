@@ -47,7 +47,7 @@ static void checkpoint(const char *step) {
   NSString *dir=[dirs[0] stringByAppendingPathComponent:@"XiuxianjiazuGM"];
   [[NSFileManager defaultManager] createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
   NSString *file=[dir stringByAppendingPathComponent:@"export-stage.txt"];
-  NSString *value=[NSString stringWithFormat:@"V1.3 stage=%s",step];
+  NSString *value=[NSString stringWithFormat:@"V1.4 stage=%s",step];
   [value writeToFile:file atomically:YES encoding:NSUTF8StringEncoding error:nil];
   NSLog(@"[XJGMExport] %@",value);
 }
@@ -144,7 +144,11 @@ static int exportTable(Runtime &r,void *image,const char *typeName,const char *c
   if (count<0 || count>250000) return -107;
   void* idField=r.field(cls,"id");
   void* nameField=r.field(cls,"name");
-  if (!idField || !nameField) return -108;
+  // Verified on ItemTmpl in the target dump.cs: Int32 fields at 0x34/0x9C/0x108.
+  void* typeField=r.field(cls,"type");
+  void* childTypeField=r.field(cls,"childType");
+  void* searchTypeField=r.field(cls,"searchType");
+  if (!idField || !nameField || !typeField || !childTypeField || !searchTypeField) return -108;
   NSMutableArray *entries=[NSMutableArray arrayWithCapacity:(NSUInteger)count];
   if (count) {
     checkpoint("array_new");
@@ -200,7 +204,7 @@ static int exportTable(Runtime &r,void *image,const char *typeName,const char *c
       }
       void* actualClass=objectClass(item);
       if (!actualClass || !assignable(cls,actualClass)) return -112;
-      int32_t ident=0;
+      int32_t ident=0, itemType=0, childType=0, searchType=0;
       void* managedName=nullptr;
       if (n<8 || n%64==0) {
         char stage[64]; snprintf(stage,sizeof(stage),"element_%d_readfields",n);
@@ -208,6 +212,10 @@ static int exportTable(Runtime &r,void *image,const char *typeName,const char *c
       }
       r.fieldValue(item,idField,&ident);
       r.fieldValue(item,nameField,&managedName);
+      // Read all scalar fields through the same proven IL2CPP field API.
+      r.fieldValue(item,typeField,&itemType);
+      r.fieldValue(item,childTypeField,&childType);
+      r.fieldValue(item,searchTypeField,&searchType);
       if (ident<=0 || !managedName) continue;
       if (n<8 || n%64==0) {
         char stage[64]; snprintf(stage,sizeof(stage),"element_%d_readname",n);
@@ -219,7 +227,9 @@ static int exportTable(Runtime &r,void *image,const char *typeName,const char *c
       if (length && !chars) continue;
       NSString* name=[[NSString alloc] initWithCharacters:(const unichar*)chars length:(NSUInteger)length];
       if (!name) continue;
-      [entries addObject:@{@"id":@(ident),@"name":name}];
+      [entries addObject:@{@"id":@(ident),@"name":name,
+                            @"type":@(itemType),@"childType":@(childType),
+                            @"searchType":@(searchType)}];
     }
   }
   [entries sortUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
