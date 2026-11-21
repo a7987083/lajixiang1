@@ -65,6 +65,12 @@ static UIColor* nativeColor(Runtime &r,void* domain,int32_t quality) {
     for(int n=0;n<4;n++)
         if(!isfinite(components[n])||components[n]<0.f||components[n]>1.f)return nil;
     // UI text is legible on our opaque panel regardless of Unity alpha.
+    // The original Constants.GetItemQualityColor returns opaque white both
+    // for explicit white entries and for palette lookup failure. White has
+    // no information about bloodline rarity, and coloring the name with it
+    // made text unreadable against the beige menu background.
+    if(components[0]>.985f && components[1]>.985f && components[2]>.985f)
+        return nil;
     return [UIColor colorWithRed:components[0] green:components[1]
                           blue:components[2] alpha:1.0];
 }
