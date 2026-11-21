@@ -6,6 +6,7 @@
 #include <limits.h>
 extern "C" int XJGMSendItem(int32_t itemId,int32_t count);
 extern "C" int XJGMExportActors(void);
+extern "C" int XJGMSendSkill(int32_t actorId,int32_t skillId);
 static UIWindow *sWindow=nil;
 static UIColor *Paper(void) { return [UIColor colorWithRed:.92 green:.88 blue:.80 alpha:1]; }
 static UIColor *Panel(void) { return [UIColor colorWithRed:.97 green:.95 blue:.89 alpha:1]; }
@@ -50,6 +51,14 @@ static NSArray<NSString *> *CategoryNames(void) {
 @property(nonatomic,strong) UIButton *closeButton;
 @property(nonatomic,strong) UIButton *itemsTab;
 @property(nonatomic,strong) UIButton *skillsTab;
+@property(nonatomic,strong) UIButton *actorButton;
+@property(nonatomic,strong) UIView *actorPicker;
+@property(nonatomic,strong) UITextField *actorQuery;
+@property(nonatomic,strong) UITableView *actorTable;
+@property(nonatomic,strong) NSArray<NSDictionary *> *liveActors;
+@property(nonatomic,strong) NSArray<NSDictionary *> *visibleActors;
+@property(nonatomic,strong) NSDictionary *selectedActor;
+@property(nonatomic,strong) UILabel *actorStatus;
 @property(nonatomic,strong) UIButton *reloadButton;
 @property(nonatomic,strong) UIButton *prevButton;
 @property(nonatomic,strong) UIButton *nextButton;
@@ -76,6 +85,7 @@ static NSArray<NSString *> *CategoryNames(void) {
 @implementation XJGMController
 - (void)viewDidLoad {
     [super viewDidLoad];self.view.backgroundColor=UIColor.clearColor;
+    self.liveActors=@[];self.visibleActors=@[];
     self.allItems=@[];self.allSkills=@[];self.filtered=@[];self.selectedCategory=0;self.page=0;self.skillsMode=NO;
     self.bubble=Btn(@"GM",self,@selector(toggle:));
     self.bubble.frame=CGRectMake(10,100,48,48);self.bubble.layer.cornerRadius=24;
@@ -147,10 +157,37 @@ static NSArray<NSString *> *CategoryNames(void) {
     self.quantity.layer.borderColor=Border().CGColor;
     [self.panel addSubview:self.minusButton];[self.panel addSubview:self.plusButton];
     [self.panel addSubview:self.quantity];
+    self.actorButton=Btn(@"选择弟子",self,@selector(openActors:));
+    self.actorButton.hidden=YES;[self.panel addSubview:self.actorButton];
     self.sendButton=Btn(@"发放物品",self,@selector(sendItem:));
     self.sendButton.enabled=NO;self.sendButton.alpha=.5;[self.panel addSubview:self.sendButton];
     self.statusLabel=Txt(@"加载外部 JSON 后选择物品并设置发放数量",10);
     self.statusLabel.textColor=Dim();[self.panel addSubview:self.statusLabel];
+    // Independent actor chooser, backed by a freshly fetched DataCache list.
+    self.actorPicker=[UIView new];self.actorPicker.hidden=YES;
+    self.actorPicker.backgroundColor=Paper();self.actorPicker.layer.cornerRadius=7;
+    self.actorPicker.layer.borderColor=Border().CGColor;self.actorPicker.layer.borderWidth=1;
+    [self.panel addSubview:self.actorPicker];
+    UILabel *actorTitle=Txt(@"选择实时弟子",16);actorTitle.tag=902;
+    [self.actorPicker addSubview:actorTitle];
+    UIButton *actorClose=Btn(@"返回",self,@selector(closeActors:));actorClose.tag=903;
+    [self.actorPicker addSubview:actorClose];
+    UIButton *actorReload=Btn(@"刷新弟子",self,@selector(refreshActors:));actorReload.tag=904;
+    [self.actorPicker addSubview:actorReload];
+    self.actorQuery=[UITextField new];self.actorQuery.placeholder=@"搜索姓名或 ID";
+    self.actorQuery.font=[UIFont systemFontOfSize:13];self.actorQuery.textColor=Ink();
+    self.actorQuery.backgroundColor=Panel();self.actorQuery.layer.borderWidth=1;
+    self.actorQuery.layer.borderColor=Border().CGColor;
+    self.actorQuery.returnKeyType=UIReturnKeyDone;self.actorQuery.delegate=self;
+    [self.actorQuery addTarget:self action:@selector(filterActors) forControlEvents:UIControlEventEditingChanged];
+    [self.actorPicker addSubview:self.actorQuery];
+    self.actorTable=[[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStylePlain];
+    self.actorTable.dataSource=self;self.actorTable.delegate=self;
+    self.actorTable.rowHeight=44;self.actorTable.backgroundColor=Panel();
+    [self.actorTable registerClass:UITableViewCell.class forCellReuseIdentifier:@"actor"];
+    [self.actorPicker addSubview:self.actorTable];
+    self.actorStatus=Txt(@"进入游戏后刷新弟子列表",11);
+    [self.actorPicker addSubview:self.actorStatus];
     [self adjustPanel];
 }
 - (void)viewDidLayoutSubviews {
@@ -185,14 +222,27 @@ static NSArray<NSString *> *CategoryNames(void) {
     self.minusButton.frame=CGRectMake(m,bottom+35,30,29);
     self.quantity.frame=CGRectMake(m+35,bottom+35,56,29);
     self.plusButton.frame=CGRectMake(m+96,bottom+35,30,29);
+    self.actorButton.frame=CGRectMake(m,bottom+35,126,29);
     self.sendButton.frame=CGRectMake(m+134,bottom+35,MAX(50,inner-134),29);
+    self.actorPicker.frame=CGRectMake(4,4,w-8,h-8);
+    CGFloat aw=self.actorPicker.bounds.size.width,ah=self.actorPicker.bounds.size.height;
+    [self.actorPicker viewWithTag:902].frame=CGRectMake(14,12,aw-95,32);
+    [self.actorPicker viewWithTag:903].frame=CGRectMake(aw-72,14,60,29);
+    [self.actorPicker viewWithTag:904].frame=CGRectMake(14,52,98,32);
+    self.actorQuery.frame=CGRectMake(119,52,aw-133,32);
+    self.actorTable.frame=CGRectMake(14,94,aw-28,MAX(110,ah-151));
+    self.actorStatus.frame=CGRectMake(14,ah-49,aw-28,41);
     self.statusLabel.frame=CGRectMake(m,bottom+68,inner,40);
 }
 - (void)toggle:(id)sender {
     self.panel.hidden=!self.panel.hidden;self.bubble.hidden=!self.panel.hidden;
     if (!self.panel.hidden) {
         [self adjustPanel];if(!(self.skillsMode?self.allSkills.count:self.allItems.count))[self loadItems:nil];
-    } else [self.view endEditing:YES];
+    } else {
+        [self.view endEditing:YES];self.actorPicker.hidden=YES;
+        self.selectedActor=nil;self.liveActors=@[];self.visibleActors=@[];
+        [self showSelected];
+    }
 }
 - (void)drag:(UIPanGestureRecognizer *)g {
     CGPoint d=[g translationInView:self.view],c=self.bubble.center;
@@ -203,13 +253,13 @@ static NSArray<NSString *> *CategoryNames(void) {
 }
 - (void)showItems:(id)sender {
     [self.view endEditing:YES];
-    self.skillsMode=NO;self.selected=nil;self.selectedCategory=0;self.page=0;self.query.text=@"";
+    self.skillsMode=NO;self.selectedActor=nil;self.selected=nil;self.selectedCategory=0;self.page=0;self.query.text=@"";
     [self.categoryTable reloadData];[self showSelected];
     if(!self.allItems.count)[self loadItems:nil];else[self rebuildFilter];
 }
 - (void)showSkills:(id)sender {
     [self.view endEditing:YES];
-    self.skillsMode=YES;self.selected=nil;self.selectedCategory=0;self.page=0;self.query.text=@"";
+    self.skillsMode=YES;self.selectedActor=nil;self.selected=nil;self.selectedCategory=0;self.page=0;self.query.text=@"";
     [self.categoryTable reloadData];[self showSelected];
     if(!self.allSkills.count)[self loadItems:nil];else[self rebuildFilter];
 }
@@ -288,15 +338,22 @@ static NSArray<NSString *> *CategoryNames(void) {
 - (void)next:(id)sender {if((NSUInteger)(self.page+1)<[self pageCount]){self.page++;[self updatePage];}}
 - (void)showSelected {
     NSDictionary *o=self.selected;
-    self.sendButton.enabled=(self.skillsMode || o!=nil);self.sendButton.alpha=(self.skillsMode || o!=nil)?1:.5;
+    BOOL canSend=self.skillsMode?(o!=nil && self.selectedActor!=nil):(o!=nil);
+    self.sendButton.enabled=canSend;self.sendButton.alpha=canSend?1:.5;
+    self.actorButton.hidden=!self.skillsMode;
+    if(self.skillsMode)[self.actorButton setTitle:self.selectedActor?
+        [NSString stringWithFormat:@"弟子：%@",self.selectedActor[@"name"]]:@"选择弟子" forState:UIControlStateNormal];
     self.quantity.hidden=self.skillsMode;self.minusButton.hidden=self.skillsMode;self.plusButton.hidden=self.skillsMode;
-    [self.sendButton setTitle:self.skillsMode?@"导出弟子列表":@"发放物品" forState:UIControlStateNormal];
+    [self.sendButton setTitle:self.skillsMode?@"添加功法":@"发放物品" forState:UIControlStateNormal];
     if(!o){
-        self.pickedLabel.text=self.skillsMode?@"未选择功法":@"未选择物品";
+        self.pickedLabel.text=self.skillsMode?
+            [NSString stringWithFormat:@"弟子：%@ · 未选功法",self.selectedActor[@"name"]?:@"未选择"]:@"未选择物品";
         self.detailLabel.text=self.skillsMode?@"功法说明\n\n选择阶位和功法查看详细配置。":@"物品说明\n\n选择分类和物品后，在这里查看 ID 与类型字段。";
         return;
     }
-    self.pickedLabel.text=[NSString stringWithFormat:@"已选：%@  ID %@",o[@"name"],o[@"id"]];
+    self.pickedLabel.text=self.skillsMode?
+        [NSString stringWithFormat:@"弟子：%@ · 功法：%@ ID %@",self.selectedActor[@"name"]?:@"未选择",o[@"name"],o[@"id"]]:
+        [NSString stringWithFormat:@"已选：%@  ID %@",o[@"name"],o[@"id"]];
     if(self.skillsMode) {
         self.detailLabel.text=[NSString stringWithFormat:@"功法说明\n%@\nID：%@\n阶位：%@\n类别：%@ 类型：%@\n自创：%@\n层数：%@\n\n%@",
             o[@"name"],o[@"id"],o[@"skillQuality"],o[@"skillCategory"],o[@"skillType"],
@@ -321,13 +378,35 @@ static NSArray<NSString *> *CategoryNames(void) {
     // Do not send twice during keyboard dismissal or multiple taps.
     [self.view endEditing:YES];
     if(self.skillsMode) {
+        if(!self.selected || !self.selectedActor) {
+            self.statusLabel.text=@"请先选择功法与目标弟子";return;
+        }
+        int32_t actorId=[self.selectedActor[@"id"] intValue];
+        int32_t skillId=[self.selected[@"id"] intValue];
+        NSString *oldName=self.selectedActor[@"name"]?:@"";
+        int oldForce=[self.selectedActor[@"forceId"] intValue];
         self.sendButton.enabled=NO;
-        self.statusLabel.text=@"读取游戏实时弟子列表中…";
-        int rc=XJGMExportActors();
-        self.sendButton.enabled=YES;
-        if(rc>=0)self.statusLabel.text=[NSString stringWithFormat:@"已导出 %d 名弟子到 actors.json（仅只读）",rc];
-        else self.statusLabel.text=[NSString stringWithFormat:@"弟子列表读取 E%03d，查看 actor-export-stage.txt",-rc];
-        NSLog(@"[XJGM] actor export result=%d",rc);
+        // Re-fetch live actors immediately before issuing a GM mutation.
+        int count=[self reloadLiveActors:NO];
+        if(count<0) {
+            self.statusLabel.text=[NSString stringWithFormat:@"刷新弟子失败 E%03d；已取消发放",-count];
+            [self showSelected];return;
+        }
+        NSDictionary *fresh=nil;
+        for(NSDictionary *actor in self.liveActors)
+            if([actor[@"id"] intValue]==actorId){fresh=actor;break;}
+        if(!fresh || ![fresh[@"name"] isEqualToString:oldName] ||
+           [fresh[@"forceId"] intValue]!=oldForce) {
+            self.selectedActor=nil;
+            self.statusLabel.text=@"弟子名单已变更，请重新选择后再发送";
+            [self showSelected];return;
+        }
+        int rc=XJGMSendSkill(actorId,skillId);
+        [self showSelected];
+        self.statusLabel.text=rc==1?
+            [NSString stringWithFormat:@"功法请求已发送：弟子 %d，技能 %d；学习结果待实机确认",actorId,skillId]:
+            [NSString stringWithFormat:@"功法发送失败 E%03d，检查 gm-skill-stage.txt",-rc];
+        NSLog(@"[XJGM] skill actor=%d id=%d result=%d",actorId,skillId,rc);
         return;
     }
     NSDictionary *selected=self.selected;
@@ -349,8 +428,78 @@ static NSArray<NSString *> *CategoryNames(void) {
     else self.statusLabel.text=[NSString stringWithFormat:@"E%03d：GM 请求未发送，检查 gm-send-stage.txt",-rc];
     NSLog(@"[XJGM] send ID=%d count=%d result=%d",ident,count,rc);
 }
+- (void)openActors:(id)sender {
+    if(!self.skillsMode)return;
+    [self.view endEditing:YES];self.actorPicker.hidden=NO;
+    self.actorQuery.text=@"";
+    [self reloadLiveActors:YES];
+}
+- (void)closeActors:(id)sender {
+    [self.view endEditing:YES];self.actorPicker.hidden=YES;
+}
+- (void)refreshActors:(id)sender {
+    [self.view endEditing:YES];[self reloadLiveActors:YES];
+}
+- (int)reloadLiveActors:(BOOL)updateUI {
+    // Use the verified read-only runtime exporter as a fresh snapshot transport.
+    // Never trust an older actors.json: read only after successful export.
+    int code=XJGMExportActors();
+    if(code<0) {
+        self.liveActors=@[];self.visibleActors=@[];
+        if(updateUI) {
+            self.actorStatus.text=[NSString stringWithFormat:@"读取失败 E%03d（actor-export-stage.txt）",-code];
+            [self.actorTable reloadData];
+        }
+        return code;
+    }
+    NSArray *dirs=NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask,YES);
+    NSString *path=dirs.count?[[dirs[0] stringByAppendingPathComponent:@"XiuxianjiazuGM"]
+                      stringByAppendingPathComponent:@"actors.json"]:nil;
+    NSData *data=path?[NSData dataWithContentsOfFile:path options:0 error:nil]:nil;
+    id root=data?[NSJSONSerialization JSONObjectWithData:data options:0 error:nil]:nil;
+    if(![root isKindOfClass:NSArray.class]) {
+        self.liveActors=@[];return -430;
+    }
+    NSMutableArray *valid=[NSMutableArray array];NSMutableSet *ids=[NSMutableSet set];
+    for(id obj in (NSArray *)root) {
+        if(![obj isKindOfClass:NSDictionary.class])continue;
+        NSDictionary *a=obj;
+        if(![a[@"id"] isKindOfClass:NSNumber.class] ||
+           ![a[@"name"] isKindOfClass:NSString.class] ||
+           ![a[@"forceId"] isKindOfClass:NSNumber.class])continue;
+        if([a[@"id"] intValue]<=0 || [ids containsObject:a[@"id"]])continue;
+        [ids addObject:a[@"id"]];[valid addObject:a];
+    }
+    if(valid.count!=(NSUInteger)code) {
+        self.liveActors=@[];return -431;
+    }
+    self.liveActors=[valid copy];
+    if(updateUI) {
+        // Retain selection only if all identity fields still match the fresh live snapshot.
+        NSDictionary *matched=nil;
+        for(NSDictionary *a in self.liveActors)
+            if(self.selectedActor && [a[@"id"] isEqual:self.selectedActor[@"id"]] &&
+                [a[@"name"] isEqual:self.selectedActor[@"name"]] &&
+                [a[@"forceId"] isEqual:self.selectedActor[@"forceId"]]){matched=a;break;}
+        self.selectedActor=matched;
+        self.actorStatus.text=[NSString stringWithFormat:@"实时读取 %lu 名弟子", (unsigned long)valid.count];
+        [self filterActors];[self showSelected];
+    }
+    return (int)valid.count;
+}
+- (void)filterActors {
+    NSString *query=[self.actorQuery.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    NSMutableArray *matching=[NSMutableArray array];
+    for(NSDictionary *a in self.liveActors) {
+        if(query.length && [a[@"name"] rangeOfString:query options:NSCaseInsensitiveSearch].location==NSNotFound &&
+           [[a[@"id"] stringValue] rangeOfString:query].location==NSNotFound)continue;
+        [matching addObject:a];
+    }
+    self.visibleActors=[matching copy];[self.actorTable reloadData];
+}
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView{return 1;}
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+    if(tableView==self.actorTable)return self.visibleActors.count;
     if(tableView==self.categoryTable)return self.skillsMode?11:CategoryNames().count;
     NSInteger start=self.page*(NSInteger)[self pageSize];
     return MAX(0,MIN((NSInteger)[self pageSize],(NSInteger)self.filtered.count-start));
@@ -360,7 +509,11 @@ static NSArray<NSString *> *CategoryNames(void) {
     cell.backgroundColor=Panel();cell.textLabel.textColor=Ink();
     cell.textLabel.font=[UIFont systemFontOfSize:11 weight:UIFontWeightRegular];
     cell.textLabel.numberOfLines=2;
-    if(tableView==self.categoryTable){
+    if(tableView==self.actorTable){
+        NSDictionary *a=self.visibleActors[(NSUInteger)indexPath.row];
+        cell.textLabel.text=[NSString stringWithFormat:@"%@ · ID %@ · 势力 %@",a[@"name"],a[@"id"],a[@"forceId"]];
+        cell.backgroundColor=(self.selectedActor && [self.selectedActor[@"id"] isEqual:a[@"id"]])?Tan():Panel();
+    } else if(tableView==self.categoryTable){
         NSArray *names=self.skillsMode?@[@"全部",@"一阶",@"二阶",@"三阶",@"四阶",@"五阶",@"六阶",@"七阶",@"八阶",@"九阶",@"自创"]:CategoryNames();
         cell.textLabel.text=names[(NSUInteger)indexPath.row];
         cell.backgroundColor=self.selectedCategory==indexPath.row?Tan():Panel();
@@ -373,7 +526,12 @@ static NSArray<NSString *> *CategoryNames(void) {
     return cell;
 }
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
-    if(tableView==self.categoryTable){
+    if(tableView==self.actorTable){
+        if((NSUInteger)indexPath.row>=self.visibleActors.count)return;
+        self.selectedActor=self.visibleActors[(NSUInteger)indexPath.row];
+        self.actorPicker.hidden=YES;[self.view endEditing:YES];
+        [self showSelected];
+    } else if(tableView==self.categoryTable){
         self.selectedCategory=indexPath.row;self.selected=nil;[self showSelected];[self.categoryTable reloadData];[self rebuildFilter];
     } else {
         NSUInteger index=(NSUInteger)self.page*[self pageSize]+(NSUInteger)indexPath.row;
