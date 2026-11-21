@@ -128,9 +128,31 @@ static int probe() {
   void *pending=nullptr;
   r.fieldValue(player,pendingField,&pending);
   facts[@"candidateListPresent"]=@(pending!=nullptr);
+  facts[@"candidateListNull"]=@(pending==nullptr);
+  // Use managed count getters: a null collection is not itself proof of a zero count.
+  struct {
+    const char *method;
+    NSString *key;
+  } counters[]={
+    {"get_WaitRecruitActorCount",@"candidateCount"},
+    {"get_AutoRecruitActorPendingCount",@"autoRecruitPendingCount"},
+    {"get_WaitRejectActorPendingCount",@"rejectPendingCount"}
+  };
+  for(const auto &entry:counters) {
+    void *getter=r.method(forceClass,entry.method,0);
+    if(!getter)return save(facts,-928);
+    void *countObject=nullptr;
+    if(!call(r,getter,player,nullptr,&countObject)||!countObject)return save(facts,-929);
+    void *countValue=unbox(countObject);
+    if(!countValue)return save(facts,-930);
+    int32_t n=*(int32_t*)countValue;
+    if(n<0||n>10000)return save(facts,-931);
+    facts[entry.key]=@(n);
+  }
   if(!pending) {
-    facts[@"candidateCount"]=@0;
-    facts[@"candidateListNull"]=@YES;
+    // Keep absence distinct from an actual managed Count result.
+    facts[@"sampleCandidateIds"]=@[];
+    facts[@"sampleLimit"]=@50;
   } else {
     void *listClass=classOf(pending);
     if(!listClass)return save(facts,-921);
@@ -141,7 +163,9 @@ static int probe() {
     if(!countRaw)return save(facts,-923);
     int32_t pendingCount=*(int32_t*)countRaw;
     if(pendingCount<0||pendingCount>10000)return save(facts,-924);
-    facts[@"candidateCount"]=@(pendingCount);
+    facts[@"candidateListCount"]=@(pendingCount);
+    facts[@"candidateCountConsistent"]=@(pendingCount==[facts[@"candidateCount"] intValue]);
+    if(pendingCount!=[facts[@"candidateCount"] intValue])return save(facts,-932);
     void *itemMethod=r.method(listClass,"get_Item",1);
     if(!itemMethod && pendingCount>0)return save(facts,-925);
     NSMutableArray *ids=[NSMutableArray array];
