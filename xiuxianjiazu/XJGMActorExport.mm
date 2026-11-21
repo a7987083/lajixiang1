@@ -180,7 +180,8 @@ extern "C" __attribute__((visibility("default"))) int XJGMExportActors(void){
 // The indices below are raw List<long> positions; do NOT assume semantic mapping
 // to UnitAttrTmpl.id without checking actual game UI in a later validation step.
 namespace {
-static int exportActorAttributes(int32_t actorId,const char* expectedName,int32_t expectedForceId) {
+static int exportActorAttributes(int32_t actorId,const char* expectedName,int32_t expectedForceId,
+                                 int32_t attributeIndex=-1,int64_t* readValue=nullptr) {
  checkpoint("attr_start");
  if(actorId<=0 || !expectedName || !expectedName[0])return -440;
  APIs r={};
@@ -223,14 +224,17 @@ static int exportActorAttributes(int32_t actorId,const char* expectedName,int32_
  if(!getCount||!getItem)return -449;
  int32_t count=0;
  if(intGetter(r,list,getCount,&count)!=1||count<0||count>4096)return -450;
+ if(readValue && (attributeIndex<0||attributeIndex>=count))return -455;
  NSMutableArray *values=[NSMutableArray arrayWithCapacity:(NSUInteger)count];
  for(int32_t index=0;index<count;index++){
   void* boxed=nullptr;void* indexArgs[]={&index};
   if(!call(r,getItem,list,indexArgs,&boxed)||!boxed)return -451;
   void* raw=r.unbox(boxed);if(!raw)return -451;
   int64_t value=*(int64_t*)raw;
-  [values addObject:@{@"index":@(index),@"value":@(value)}];
+  if(readValue && index==attributeIndex)*readValue=value;
+  if(!readValue)[values addObject:@{@"index":@(index),@"value":@(value)}];
  }
+ if(readValue)return 1; // No file I/O for the periodic live lock sampler.
  checkpoint("attr_encode");
  NSDictionary* obj=@{@"actorId":@(actorId),@"actorName":name,@"forceId":@(force),
                      @"count":@(count),@"values":values,
@@ -252,134 +256,38 @@ extern "C" __attribute__((visibility("default"))) int XJGMExportActorAttributes(
 }
 
 
-// Read-only persistence root-cause sampler. No GSActor mutation, save or hook.
-// Compares runtime attValue with baseAtt serialized by GSActor.SaveData.
-namespace {
-static void* findLoadedClass(APIs &r,void* domain,const char* namesp,const char* name) {
-  using Assemblies=const void** (*)(void*,size_t*);
-  auto enumerate=(Assemblies)dlsym(r.handle,"il2cpp_domain_get_assemblies");
-  if(!enumerate || !domain)return nullptr;
-  size_t count=0;const void** assemblies=enumerate(domain,&count);
-  if(!assemblies || count==0 || count>512)return nullptr;
-  void* result=nullptr;
-  for(size_t i=0;i<count;i++){
-    if(!assemblies[i])continue;
-    void* img=r.image((void*)assemblies[i]);
-    void* candidate=img?r.fromName(img,namesp,name):nullptr;
-    if(!candidate)continue;
-    // An ambiguous class name must not silently select an unrelated type.
-    if(result && result!=candidate)return nullptr;
-    result=candidate;
+
+
+// Shared read-only runtime path, with the same live ActorData identity validation
+// as the already verified attribute exporter. No storage write on lock sampling.
+extern "C" __attribute__((visibility("default"))) int XJGMReadActorAttributeLive(
+    int32_t actorId,int32_t attrIndex,const char* expectedName,
+    int32_t expectedForceId,int64_t* outValue) {
+  @autoreleasepool {
+    if(!outValue)return -456;
+    return exportActorAttributes(actorId,expectedName,expectedForceId,attrIndex,outValue);
   }
-  return result;
 }
-static int sampleGSActorPersistence(int32_t actorId,int32_t attributeId,const char* expectedName,int32_t forceId) {
- checkpoint("persist_start");
- if(actorId<=0||attributeId<0||attributeId>=4096||!expectedName)return -701;
- APIs r={};int status=setup(r);if(status!=1)return status;
- void* domain=r.domain();if(!domain)return -702;
- if(!r.threadCurrent()&&!r.threadAttach(domain))return -703;
- checkpoint("persist_resolve_classes");
- void* appCls=findLoadedClass(r,domain,"","GameApp");
- if(!appCls){checkpoint("persist_missing_GameApp");return -705;}
- void* worldCls=findLoadedClass(r,domain,"GS","GSWorld");
- if(!worldCls){checkpoint("persist_missing_GSWorld");return -719;}
- void* actorCls=findLoadedClass(r,domain,"GS","GSActor");
- if(!actorCls){checkpoint("persist_missing_GSActor");return -720;}
- checkpoint("persist_classes_resolved");
- auto field=(void*(*)(void*,const char*))dlsym(r.handle,"il2cpp_class_get_field_from_name");
- auto fieldVal=(void(*)(void*,void*,void*))dlsym(r.handle,"il2cpp_field_get_value");
- auto arrLength=(uintptr_t(*)(void*))dlsym(r.handle,"il2cpp_array_length");
- auto corlib=(void*(*)())dlsym(r.handle,"il2cpp_get_corlib");
- auto methods=(void*(*)(void*,void**))dlsym(r.handle,"il2cpp_class_get_methods");
- auto methodName=(const char*(*)(void*))dlsym(r.handle,"il2cpp_method_get_name");
- auto methodParams=(uint32_t(*)(void*))dlsym(r.handle,"il2cpp_method_get_param_count");
- auto methodParam=(void*(*)(void*,uint32_t))dlsym(r.handle,"il2cpp_method_get_param");
- auto typeCode=(int(*)(void*))dlsym(r.handle,"il2cpp_type_get_type");
- if(!field||!fieldVal||!arrLength||!corlib||!methods||!methodName||
-    !methodParams||!methodParam||!typeCode)return -706;
- void* app=nullptr;
- if(!call(r,r.method(appCls,"get_Instance",0),nullptr,nullptr,&app)||!app)return -707;
- void* worldField=field(appCls,"CustomGSWorld");if(!worldField)return -708;
- void* world=nullptr;fieldVal(app,worldField,&world);
- if(!world)return -709;
- void* actor=nullptr;void* args[]={&actorId};
- if(!call(r,r.method(worldCls,"FindActor",1),world,args,&actor)||!actor)return -710;
- checkpoint("persist_actor");
- void* idField=field(actorCls,"id");
- void* nameMethod=r.method(actorCls,"get_name",0);
- void* forceMethod=r.method(actorCls,"get_forceId",0);
- if(!idField||!nameMethod||!forceMethod)return -711;
- int32_t actualId=0,actualForce=0;fieldVal(actor,idField,&actualId);
- if(intGetter(r,actor,forceMethod,&actualForce)!=1)return -712;
- void* managedName=nullptr;
- if(!call(r,nameMethod,actor,nullptr,&managedName))return -713;
- NSString* actualName=readString(r,managedName);
- NSString* expected=[NSString stringWithUTF8String:expectedName];
- if(actualId!=actorId||actualForce!=forceId||!actualName||
-    ![actualName isEqualToString:expected])return -714;
- // Pick the Int32 Array.GetValue overload explicitly (not GetValue(Int64)).
- void* arrayClass=r.fromName(corlib(),"System","Array");
- if(!arrayClass)return -715;
- void* it=nullptr,*getValue=nullptr;
- while(void* m=methods(arrayClass,&it)) {
-   const char* name=methodName(m);
-   if(name&&strcmp(name,"GetValue")==0&&methodParams(m)==1) {
-     void* param=methodParam(m,0);
-     if(param&&typeCode(param)==0x08){getValue=m;break;}
-   }
- }
- if(!getValue)return -716;
- const char* sources[]={"baseAtt","attValue","attMod","baseAttPct",
-    "bodyRealmBaseAtt","bodyRealmBaseAttPct",
-    "heavenlyTreasureBaseAtt","heavenlyTreasureBaseAttPct"};
- NSMutableDictionary* fields=[NSMutableDictionary dictionary];
- for(const char* source:sources) {
-    NSString* label=[NSString stringWithUTF8String:source];
-    void* f=field(actorCls,source);
-    if(!f){fields[label]=@{@"status":@"missing_field"};continue;}
-    void* arr=nullptr;fieldVal(actor,f,&arr);
-    if(!arr){fields[label]=@{@"status":@"null_array"};continue;}
-    uintptr_t count=arrLength(arr);
-    if(count>4096||count==0){fields[label]=@{@"status":@"invalid_length"};continue;}
-    if((uintptr_t)attributeId>=count) {
-      fields[label]=@{@"length":@(count),@"status":@"index_out_of_range"};continue;
-    }
-    int32_t index=attributeId;void* getArgs[]={&index},*boxed=nullptr;
-    if(!call(r,getValue,arr,getArgs,&boxed)||!boxed) {
-      fields[label]=@{@"length":@(count),@"status":@"read_failed"};continue;
-    }
-    void* raw=r.unbox(boxed);
-    if(!raw){fields[label]=@{@"length":@(count),@"status":@"unbox_failed"};continue;}
-    fields[label]=@{@"length":@(count),@"value":@(*(int64_t*)raw)};
- }
- // Process-instance identifier distinguishes re-entry from reload of same process.
- static NSString *runId=nil;
- static dispatch_once_t once;
- dispatch_once(&once,^{runId=NSUUID.UUID.UUIDString;});
- NSDictionary *entry=@{@"process":runId,@"timestamp":@([[NSDate date] timeIntervalSince1970]),
-  @"actorId":@(actorId),@"actorName":actualName,@"forceId":@(forceId),
-  @"attributeIndex":@(attributeId),@"sources":fields};
- NSArray* dirs=NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask,YES);
- if(!dirs.count)return -717;
- NSString* dir=[dirs[0] stringByAppendingPathComponent:@"XiuxianjiazuGM"];
- if(![[NSFileManager defaultManager] createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil])return -717;
- NSString* dest=[dir stringByAppendingPathComponent:@"persistence-diagnostic.json"];
- NSData* previous=[NSData dataWithContentsOfFile:dest];
- id old=previous?[NSJSONSerialization JSONObjectWithData:previous options:0 error:nil]:nil;
- NSMutableArray* history=[NSMutableArray array];
- if([old isKindOfClass:NSArray.class]) {
-   NSUInteger start=[old count]>23?[old count]-23:0;
-   [history addObjectsFromArray:[old subarrayWithRange:NSMakeRange(start,[old count]-start)]];
- }
- [history addObject:entry];
- NSData* output=[NSJSONSerialization dataWithJSONObject:history options:0 error:nil];
- if(!output||![output writeToFile:dest options:NSDataWritingAtomic error:nil])return -718;
- checkpoint("persist_success");
- return (int)history.count;
-}
-}
-extern "C" __attribute__((visibility("default"))) int XJGMSamplePersistence(
-  int32_t actorId,int32_t attributeIndex,const char* expectedName,int32_t forceId) {
- @autoreleasepool{return sampleGSActorPersistence(actorId,attributeIndex,expectedName,forceId);}
+
+// Save slot/world generation guard. Distinguishes a reopened world with reused
+// actor IDs from the old one; nil/empty means no reliable world context.
+extern "C" __attribute__((visibility("default"))) NSString* XJGMCurrentWorldToken(void) {
+  @autoreleasepool {
+    APIs r={};
+    if(setup(r)!=1)return nil;
+    void* domain=r.domain();if(!domain)return nil;
+    if(!r.threadCurrent()&&!r.threadAttach(domain))return nil;
+    void* asmCore=r.assembly(domain,"gameCore.dll");
+    void* img=asmCore?r.image(asmCore):nullptr;
+    void* cls=img?r.fromName(img,"","GameApp"):nullptr;
+    if(!cls)return nil;
+    void* instance=nullptr;
+    if(!call(r,r.method(cls,"get_Instance",0),nullptr,nullptr,&instance)||!instance)return nil;
+    void* method=r.method(cls,"GetCurrentCustomGSWorldUUID",0);
+    if(!method)return nil;
+    void* tokenObj=nullptr;
+    if(!call(r,method,instance,nullptr,&tokenObj)||!tokenObj)return nil;
+    NSString* token=readString(r,tokenObj);
+    return token.length?token:nil;
+  }
 }
