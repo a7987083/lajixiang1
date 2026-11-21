@@ -236,8 +236,8 @@ static NSArray<NSString *> *CategoryNames(void) {
     self.attributeTable.rowHeight=37;self.attributeTable.backgroundColor=Panel();
     [self.attributeTable registerClass:UITableViewCell.class forCellReuseIdentifier:@"cell"];
     [self.attributePanel addSubview:self.attributeTable];
-    self.attributeValue=[UITextField new];self.attributeValue.placeholder=@"修改值 0～9999";
-    self.attributeValue.keyboardType=UIKeyboardTypeNumberPad;
+    self.attributeValue=[UITextField new];self.attributeValue.placeholder=@"输入属性数值";
+    self.attributeValue.keyboardType=UIKeyboardTypeDecimalPad;
     self.attributeValue.font=[UIFont systemFontOfSize:12];self.attributeValue.textColor=Ink();
     self.attributeValue.textAlignment=NSTextAlignmentCenter;
     self.attributeValue.layer.borderColor=Border().CGColor;self.attributeValue.layer.borderWidth=1;
@@ -474,25 +474,44 @@ static NSArray<NSString *> *CategoryNames(void) {
 }
 - (void)updateAttributeSendState {
     BOOL canSend=self.attributeFreshReady && self.selectedActor && self.selectedAttribute &&
-        [self.selectedAttribute[@"valueType"] intValue]==0 &&
+        ([self.selectedAttribute[@"valueType"] intValue]==0 || [self.selectedAttribute[@"valueType"] intValue]==1) &&
         self.attributeRawValues[self.selectedAttribute[@"id"]]!=nil;
     self.attributeSend.enabled=canSend;self.attributeSend.alpha=canSend?1:.5;
 }
 - (void)sendAttribute:(id)sender {
     [self.view endEditing:YES];
     NSDictionary *actor=self.selectedActor,*attr=self.selectedAttribute;
-    if(!actor||!attr || [attr[@"valueType"] intValue]!=0) {
-        self.attributeText.text=@"请选择普通整数属性；百分比属性暂未开放。";return;
+    if(!self.attributeFreshReady || !actor || !attr) {
+        self.attributeText.text=@"动态弟子或属性尚未完成校验，请刷新。";return;
+    }
+    int type=[attr[@"valueType"] intValue];
+    if(type!=0&&type!=1) {
+        self.attributeText.text=@"该属性数值类型未知；已取消修改。";return;
     }
     NSString *entered=[self.attributeValue.text stringByTrimmingCharactersInSet:
         NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    NSCharacterSet *bad=[NSCharacterSet.decimalDigitCharacterSet invertedSet];
-    if(entered.length==0 || entered.length>4 ||
-       [entered rangeOfCharacterFromSet:bad].location!=NSNotFound ||
-       entered.integerValue<0 || entered.integerValue>9999) {
-        self.attributeText.text=@"仅允许输入 0～9999 的整数；未发送。";return;
+    // The native GM protocol accepts Int32. Input does not enforce an invented
+    // 9999/100% cap. True gameplay caps vary and are not supplied by UnitAttrTmpl.
+    // Percent fields: original AttrHelper.GetAttValueString divides raw by 100.0.
+    NSString *pattern=type==1?@"^[0-9]+(?:\\.[0-9]{1,2})?$":@"^[0-9]+$";
+    NSRegularExpression *regex=[NSRegularExpression regularExpressionWithPattern:pattern options:0 error:nil];
+    if(!entered.length || entered.length>16 ||
+       [regex numberOfMatchesInString:entered options:0 range:NSMakeRange(0,entered.length)]!=1) {
+        self.attributeText.text=type==1?@"请输入百分比，最多两位小数。":@"请输入非负整数。";
+        return;
     }
-    int32_t value=(int32_t)entered.intValue;
+    NSDecimalNumber *display=[NSDecimalNumber decimalNumberWithString:entered locale:
+        @{NSLocaleDecimalSeparator:@"."}];
+    NSDecimalNumber *scale=[NSDecimalNumber decimalNumberWithString:type==1?@"100":@"1"];
+    NSDecimalNumber *encoded=[display decimalNumberByMultiplyingBy:scale];
+    NSDecimalNumber *limit=[NSDecimalNumber decimalNumberWithString:@"2147483647"];
+    if([encoded isEqualToNumber:NSDecimalNumber.notANumber] ||
+       [encoded compare:limit]==NSOrderedDescending ||
+       [encoded compare:NSDecimalNumber.zero]==NSOrderedAscending) {
+        self.attributeText.text=@"超出游戏 GM 指令的 Int32 参数范围；未发送。";
+        return;
+    }
+    int32_t value=encoded.intValue;
     // Inline execution, no UIAlertController or other modal confirmation.
     // Still fail closed if any actor identity or attribute definition has changed.
     self.attributeSend.enabled=NO;
@@ -782,8 +801,11 @@ static NSArray<NSString *> *CategoryNames(void) {
     if(tableView==self.attributeTable){
         NSDictionary *a=self.attributeFiltered[(NSUInteger)indexPath.row];
         NSNumber *raw=self.attributeRawValues[a[@"id"]];
-        cell.textLabel.text=[NSString stringWithFormat:@"%@   当前：%@%@",
-            a[@"name"],raw?:@"—",[a[@"valueType"] intValue]==0?@"":@"  (百分比只读)"];
+        BOOL percentage=[a[@"valueType"] intValue]==1;
+        NSString *shown=raw?(percentage?
+            [NSString stringWithFormat:@"%.2f%%",raw.doubleValue/100.0]:
+            raw.stringValue):@"—";
+        cell.textLabel.text=[NSString stringWithFormat:@"%@   当前：%@",a[@"name"],shown];
         cell.backgroundColor=(self.selectedAttribute && [self.selectedAttribute[@"id"] isEqual:a[@"id"]])?Tan():Panel();
     } else if(tableView==self.actorTable){
         NSDictionary *a=self.visibleActors[(NSUInteger)indexPath.row];
@@ -806,12 +828,14 @@ static NSArray<NSString *> *CategoryNames(void) {
         if((NSUInteger)indexPath.row>=self.attributeFiltered.count)return;
         self.selectedAttribute=self.attributeFiltered[(NSUInteger)indexPath.row];
         NSNumber *raw=self.attributeRawValues[self.selectedAttribute[@"id"]];
+        BOOL percentage=[self.selectedAttribute[@"valueType"] intValue]==1;
+        NSString *shown=raw?(percentage?
+            [NSString stringWithFormat:@"%.2f%%",raw.doubleValue/100.0]:raw.stringValue):@"—";
+        self.attributeValue.placeholder=percentage?@"百分比，例如 12.50":@"输入整数";
+        self.attributeValue.text=@"";
         self.attributeText.text=[NSString stringWithFormat:
-            @"弟子：%@\n属性：%@\n当前原始数值：%@\n%@",
-            self.selectedActor[@"name"]?:@"未选择",
-            self.selectedAttribute[@"name"],raw?:@"—",
-            [self.selectedAttribute[@"valueType"] intValue]==0?
-               @"修改前请核对游戏中的真实值。":@"百分比属性暂未开放修改。"];
+            @"弟子：%@\n属性：%@\n当前值：%@\n百分比按游戏原始格式换算；未知游戏上限不作假设。",
+            self.selectedActor[@"name"]?:@"未选择",self.selectedAttribute[@"name"],shown];
         [self updateAttributeSendState];
         [self.attributeTable reloadData];
     } else if(tableView==self.actorTable){
