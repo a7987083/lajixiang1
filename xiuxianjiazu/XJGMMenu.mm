@@ -10,7 +10,8 @@ extern "C" int XJGMSendSkill(int32_t actorId,int32_t skillId);
 extern "C" int XJGMExportAttributes(void);
 extern "C" int XJGMExportActorAttributes(int32_t actorId,const char* expectedName,int32_t expectedForceId);
 extern "C" int XJGMSendActorAttribute(int32_t actorId,int32_t attrId,int32_t value,bool expectedPercent);
-extern "C" int XJGMSamplePersistence(int32_t actorId,int32_t attributeIndex,const char* expectedName,int32_t forceId);
+extern "C" int XJGMReadActorAttributeLive(int32_t actorId,int32_t attrIndex,const char* expectedName,int32_t expectedForceId,int64_t* outValue);
+extern "C" NSString* XJGMCurrentWorldToken(void);
 static UIWindow *sWindow=nil;
 static UIColor *Paper(void) { return [UIColor colorWithRed:.92 green:.88 blue:.80 alpha:1]; }
 static UIColor *Panel(void) { return [UIColor colorWithRed:.97 green:.95 blue:.89 alpha:1]; }
@@ -60,7 +61,10 @@ static NSArray<NSString *> *CategoryNames(void) {
 @property(nonatomic,assign) BOOL attributesMode;
 @property(nonatomic,strong) UITextView *attributeText;
 @property(nonatomic,strong) UIButton *attributeRefresh;
-@property(nonatomic,strong) UIButton *persistenceProbe;
+@property(nonatomic,strong) UIButton *attributeLockButton;
+@property(nonatomic,strong) NSMutableDictionary<NSString*,NSMutableDictionary*> *attributeLocks;
+@property(nonatomic,strong) NSString *lockWorldToken;
+@property(nonatomic,strong) NSTimer *attributeLockTimer;
 @property(nonatomic,strong) UITextField *attributeSearch;
 @property(nonatomic,strong) UITextField *attributeValue;
 @property(nonatomic,strong) UITableView *attributeTable;
@@ -247,11 +251,17 @@ static NSArray<NSString *> *CategoryNames(void) {
     attributeBar.items=@[[[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace target:nil action:nil],finish];
     self.attributeValue.inputAccessoryView=attributeBar;
     [self.attributePanel addSubview:self.attributeValue];
-    self.attributeSend=Btn(@"设置属性",self,@selector(sendAttribute:));
+    self.attributeSend=Btn(@"设置一次",self,@selector(sendAttribute:));
     self.attributeSend.enabled=NO;self.attributeSend.alpha=.5;
     [self.attributePanel addSubview:self.attributeSend];
-    self.persistenceProbe=Btn(@"存档链诊断（只读）",self,@selector(samplePersistence:));
-    [self.attributePanel addSubview:self.persistenceProbe];
+    self.attributeLockButton=Btn(@"锁定",self,@selector(toggleAttributeLock:));
+    self.attributeLockButton.enabled=NO;self.attributeLockButton.alpha=.5;
+    [self.attributePanel addSubview:self.attributeLockButton];
+    self.attributeLocks=[NSMutableDictionary dictionary];
+    // Reconcile only in an active game and only while locks exist.
+    self.attributeLockTimer=[NSTimer timerWithTimeInterval:3.0 target:self
+        selector:@selector(reconcileAttributeLocks:) userInfo:nil repeats:YES];
+    [NSRunLoop.mainRunLoop addTimer:self.attributeLockTimer forMode:NSRunLoopCommonModes];
     self.attributeDefs=@[];self.attributeFiltered=@[];self.attributeRawValues=@{};
     [self adjustPanel];
 }
@@ -307,12 +317,15 @@ static NSArray<NSString *> *CategoryNames(void) {
     [self.attributePanel viewWithTag:907].frame=CGRectMake(5,contentH-205,MAX(100,vw*.49-8),32);
     self.attributeRefresh.frame=CGRectMake(MAX(112,vw*.49+2),contentH-205,MAX(90,vw*.51-7),32);
     self.attributeSearch.frame=CGRectMake(5,2,vw-10,32);
-    self.attributeTable.frame=CGRectMake(5,42,vw-10,MAX(80,contentH-254));
-    CGFloat inputW=floor((vw-16)*.48);
-    self.attributeValue.frame=CGRectMake(5,contentH-165,inputW,32);
-    self.attributeSend.frame=CGRectMake(inputW+11,contentH-165,vw-inputW-16,32);
-    self.persistenceProbe.frame=CGRectMake(5,contentH-125,vw-10,30);
-    self.attributeText.frame=CGRectMake(5,contentH-88,vw-10,83);
+    self.attributeTable.frame=CGRectMake(5,42,vw-10,MAX(80,contentH-223));
+    [self.attributePanel viewWithTag:907].frame=CGRectMake(5,contentH-173,MAX(100,vw*.49-8),32);
+    self.attributeRefresh.frame=CGRectMake(MAX(112,vw*.49+2),contentH-173,MAX(90,vw*.51-7),32);
+    CGFloat controlW=floor((vw-20)/3);
+    self.attributeValue.frame=CGRectMake(5,contentH-133,controlW,32);
+    self.attributeSend.frame=CGRectMake(10+controlW,contentH-133,controlW,32);
+    self.attributeLockButton.frame=CGRectMake(15+2*controlW,contentH-133,
+        vw-20-2*controlW,32);
+    self.attributeText.frame=CGRectMake(5,contentH-94,vw-10,89);
     self.statusLabel.frame=CGRectMake(m,bottom+68,inner,40);
 }
 - (void)toggle:(id)sender {
@@ -502,26 +515,101 @@ static NSArray<NSString *> *CategoryNames(void) {
         [self.selectedAttribute[@"isPercentage"] isKindOfClass:NSNumber.class] &&
         self.attributeRawValues[self.selectedAttribute[@"id"]]!=nil;
     self.attributeSend.enabled=canSend;self.attributeSend.alpha=canSend?1:.5;
+    NSString *key=[self lockKeyForActor:self.selectedActor attribute:self.selectedAttribute];
+    BOOL locked=key && self.attributeLocks[key]!=nil;
+    [self.attributeLockButton setTitle:locked?@"恢复":@"锁定" forState:UIControlStateNormal];
+    self.attributeLockButton.enabled=locked || canSend;
+    self.attributeLockButton.alpha=(locked || canSend)?1:.5;
 }
-- (void)samplePersistence:(id)sender {
-    [self.view endEditing:YES];
-    if(!self.attributeFreshReady || !self.selectedActor || !self.selectedAttribute) {
-        self.attributeText.text=@"请选择弟子和属性，并刷新动态数据后再诊断。";
+
+- (NSString *)lockKeyForActor:(NSDictionary *)actor attribute:(NSDictionary *)attr {
+    if(!actor || !attr || !self.lockWorldToken.length)return nil;
+    return [NSString stringWithFormat:@"%@|%@|%@",self.lockWorldToken,actor[@"id"],attr[@"id"]];
+}
+- (void)clearAttributeLocks:(NSString *)reason {
+    if(!self.attributeLocks.count)return;
+    [self.attributeLocks removeAllObjects];self.lockWorldToken=nil;
+    if(self.attributesMode) {
+        self.attributeText.text=reason?:@"锁定已全部停止。";
+        [self.attributeTable reloadData];[self updateAttributeSendState];
+    }
+}
+- (void)reconcileAttributeLocks:(NSTimer *)timer {
+    if(!self.attributeLocks.count)return;
+    if(UIApplication.sharedApplication.applicationState!=UIApplicationStateActive)return;
+    NSString *world=XJGMCurrentWorldToken();
+    if(!world.length || ![world isEqualToString:self.lockWorldToken]) {
+        [self clearAttributeLocks:@"存档或游戏世界已切换；全部锁定已停止。"];
         return;
     }
+    NSTimeInterval now=NSDate.date.timeIntervalSince1970;
+    NSMutableArray<NSString *> *expired=[NSMutableArray array];
+    for(NSString *key in [self.attributeLocks allKeys]){
+        NSMutableDictionary *entry=self.attributeLocks[key];
+        int64_t current=0;
+        int status=XJGMReadActorAttributeLive([entry[@"actorId"] intValue],
+            [entry[@"attrId"] intValue],[entry[@"actorName"] UTF8String],
+            [entry[@"forceId"] intValue],&current);
+        if(status!=1){[expired addObject:key];continue;}
+        if(current==[entry[@"target"] longLongValue]){
+            entry[@"retryCount"]=@0;
+            continue;
+        }
+        // Do not repeatedly send while the game processes a prior message.
+        if(now-[entry[@"lastAttempt"] doubleValue]<5.0)continue;
+        if([entry[@"retryCount"] intValue]>=3){
+            [expired addObject:key];continue;
+        }
+        int rc=XJGMSendActorAttribute([entry[@"actorId"] intValue],
+            [entry[@"attrId"] intValue],[entry[@"target"] intValue],
+            [entry[@"isPercentage"] boolValue]);
+        entry[@"lastAttempt"]=@(now);
+        entry[@"retryCount"]=@([entry[@"retryCount"] intValue]+1);
+        if(rc!=1)[expired addObject:key];
+    }
+    if(expired.count){
+        for(NSString *key in expired)[self.attributeLocks removeObjectForKey:key];
+        if(self.attributesMode){
+            self.attributeText.text=[NSString stringWithFormat:
+                @"%lu 项锁定已自动停止（弟子失效、读写错误或数值无法稳定维持）。",
+                (unsigned long)expired.count];
+            [self.attributeTable reloadData];[self updateAttributeSendState];
+        }
+    }
+    if(!self.attributeLocks.count)self.lockWorldToken=nil;
+}
+- (void)toggleAttributeLock:(id)sender {
     NSDictionary *actor=self.selectedActor,*attr=self.selectedAttribute;
-    // This is a read-only check of the server/world object, not ActorData.
-    int result=XJGMSamplePersistence([actor[@"id"] intValue],
-        [attr[@"id"] intValue],[actor[@"name"] UTF8String],
-        [actor[@"forceId"] intValue]);
-    self.attributeText.text=result>0?
-        [NSString stringWithFormat:
-            @"已记录第 %d 次只读快照：%@ / %@\n保存位置：XiuxianjiazuGM/persistence-diagnostic.json\n请在修改前、修改后、手动保存后、重新载入后各采样一次。",
-            result,actor[@"name"],attr[@"name"]]:
-        [NSString stringWithFormat:
-            @"世界数据读取失败 E%03d；检查 actor-export-stage.txt。未修改游戏状态。",-result];
+    NSString *key=[self lockKeyForActor:actor attribute:attr];
+    if(key && self.attributeLocks[key]){
+        // '恢复' means STOP locking only. Never restore or write the old value.
+        [self.attributeLocks removeObjectForKey:key];
+        if(!self.attributeLocks.count)self.lockWorldToken=nil;
+        self.attributeText.text=[NSString stringWithFormat:
+            @"已停止锁定：%@ · %@；当前值不回滚。",actor[@"name"],attr[@"name"]];
+        [self.attributeTable reloadData];[self updateAttributeSendState];
+        return;
+    }
+    if(self.attributeLocks.count>=8){
+        self.attributeText.text=@"最多同时锁定 8 项属性，避免持续检查造成游戏卡顿。";
+        return;
+    }
+    NSString *world=XJGMCurrentWorldToken();
+    if(!world.length){
+        self.attributeText.text=@"未取得当前游戏世界标识；本次不启用锁定。";
+        return;
+    }
+    if(self.attributeLocks.count && ![world isEqualToString:self.lockWorldToken]){
+        [self clearAttributeLocks:@"游戏世界变化，已清理旧锁定。"];
+        return;
+    }
+    self.lockWorldToken=world;
+    [self performAttributeAction:YES];
 }
 - (void)sendAttribute:(id)sender {
+    [self performAttributeAction:NO];
+}
+- (void)performAttributeAction:(BOOL)shouldLock {
     [self.view endEditing:YES];
     NSDictionary *actor=self.selectedActor,*attr=self.selectedAttribute;
     if(!self.attributeFreshReady || !actor || !attr) {
@@ -555,7 +643,7 @@ static NSArray<NSString *> *CategoryNames(void) {
         return;
     }
     int32_t value=encoded.intValue;
-    // Inline execution, no UIAlertController or other modal confirmation.
+    // No modal. A lock is only activated after the initial request is submitted.
     // Still fail closed if any actor identity or attribute definition has changed.
     self.attributeSend.enabled=NO;
     [self refreshAttributes:nil];
@@ -572,11 +660,20 @@ static NSArray<NSString *> *CategoryNames(void) {
         [self updateAttributeSendState];return;
     }
     int rc=XJGMSendActorAttribute([actor[@"id"] intValue],[attr[@"id"] intValue],value,[attr[@"isPercentage"] boolValue]);
-    // Submission is not proof of persistence: avoid claiming saved/permanent.
+    if(rc==1 && shouldLock) {
+        NSString *key=[self lockKeyForActor:actor attribute:attr];
+        self.attributeLocks[key]=[@{@"actorId":actor[@"id"],@"actorName":actor[@"name"],
+            @"forceId":actor[@"forceId"],@"attrId":attr[@"id"],
+            @"attrName":attr[@"name"],@"isPercentage":attr[@"isPercentage"],
+            @"target":@(value),@"lastAttempt":@([[NSDate date] timeIntervalSince1970]),
+            @"retryCount":@0} mutableCopy];
+        [self.attributeTable reloadData];
+    }
     self.attributeText.text=rc==1?
-        [NSString stringWithFormat:@"已提交：%@ · %@ → %d\n重新进入游戏后再验证是否持久生效。",
-            actor[@"name"],attr[@"name"],value]:
-        [NSString stringWithFormat:@"属性发送失败 E%03d；检查 gm-attribute-stage.txt",-rc];
+        [NSString stringWithFormat:@"%@：%@ · %@ → %@",
+            shouldLock?@"锁定监控已开启":@"设置一次已提交",
+            actor[@"name"],attr[@"name"],entered]:
+        [NSString stringWithFormat:@"属性发送失败 E%03d；未启用锁定", -rc];
     [self updateAttributeSendState];
 }
 - (void)showItems:(id)sender {
@@ -849,7 +946,10 @@ static NSArray<NSString *> *CategoryNames(void) {
         NSString *shown=raw?(percentage?
             [NSString stringWithFormat:@"%.2f%%",raw.doubleValue/100.0]:
             raw.stringValue):@"—";
-        cell.textLabel.text=[NSString stringWithFormat:@"%@   当前：%@",a[@"name"],shown];
+        NSString *key=[self lockKeyForActor:self.selectedActor attribute:a];
+        BOOL locked=key && self.attributeLocks[key]!=nil;
+        cell.textLabel.text=[NSString stringWithFormat:@"%@   当前：%@%@",
+            a[@"name"],shown,locked?@"   已锁定":@""];
         cell.backgroundColor=(self.selectedAttribute && [self.selectedAttribute[@"id"] isEqual:a[@"id"]])?Tan():Panel();
     } else if(tableView==self.actorTable){
         NSDictionary *a=self.visibleActors[(NSUInteger)indexPath.row];
