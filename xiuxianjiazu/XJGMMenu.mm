@@ -7,6 +7,7 @@
 extern "C" int XJGMSendItem(int32_t itemId,int32_t count);
 extern "C" int XJGMExportActors(void);
 extern "C" int XJGMSendSkill(int32_t actorId,int32_t skillId);
+extern "C" int XJGMExportAttributes(void);
 static UIWindow *sWindow=nil;
 static UIColor *Paper(void) { return [UIColor colorWithRed:.92 green:.88 blue:.80 alpha:1]; }
 static UIColor *Panel(void) { return [UIColor colorWithRed:.97 green:.95 blue:.89 alpha:1]; }
@@ -51,6 +52,7 @@ static NSArray<NSString *> *CategoryNames(void) {
 @property(nonatomic,strong) UIButton *closeButton;
 @property(nonatomic,strong) UIButton *itemsTab;
 @property(nonatomic,strong) UIButton *skillsTab;
+@property(nonatomic,strong) UIButton *attributesTab;
 @property(nonatomic,strong) UIButton *actorButton;
 @property(nonatomic,strong) UIView *actorPicker;
 @property(nonatomic,strong) UITextField *actorQuery;
@@ -104,6 +106,8 @@ static NSArray<NSString *> *CategoryNames(void) {
     self.closeButton=Btn(@"收起",self,@selector(toggle:));[self.panel addSubview:self.closeButton];
     self.itemsTab=Btn(@"物品功能",self,@selector(showItems:));[self.panel addSubview:self.itemsTab];
     self.skillsTab=Btn(@"功法列表",self,@selector(showSkills:));[self.panel addSubview:self.skillsTab];
+    self.attributesTab=Btn(@"导出属性",self,@selector(exportAttributes:));
+    [self.panel addSubview:self.attributesTab];
     self.reloadButton=Btn(@"重新加载",self,@selector(loadItems:));[self.panel addSubview:self.reloadButton];
 
     self.query=[UITextField new];self.query.delegate=self;
@@ -202,7 +206,9 @@ static NSArray<NSString *> *CategoryNames(void) {
     [self.panel viewWithTag:901].frame=CGRectMake(m,7,w-75,28);
     self.closeButton.frame=CGRectMake(w-61,9,51,27);
     self.itemsTab.frame=CGRectMake(m,41,94,28);
-    self.skillsTab.frame=CGRectMake(m+100,41,94,28);
+    self.skillsTab.frame=CGRectMake(m+82,41,76,28);
+    self.itemsTab.frame=CGRectMake(m,41,76,28);
+    self.attributesTab.frame=CGRectMake(m+164,41,76,28);
     self.reloadButton.frame=CGRectMake(w-104,41,95,28);
     self.query.frame=CGRectMake(m,77,inner,31);
 
@@ -250,6 +256,16 @@ static NSArray<NSString *> *CategoryNames(void) {
     self.bubble.center=CGPointMake(MAX(rx,MIN(self.view.bounds.size.width-rx,c.x+d.x)),
         MAX(ry,MIN(self.view.bounds.size.height-ry,c.y+d.y)));
     [g setTranslation:CGPointZero inView:self.view];
+}
+- (void)exportAttributes:(id)sender {
+    [self.view endEditing:YES];
+    self.attributesTab.enabled=NO;
+    self.statusLabel.text=@"正在只读导出属性配置…";
+    int count=XJGMExportAttributes();
+    self.attributesTab.enabled=YES;
+    if(count>=0)self.statusLabel.text=[NSString stringWithFormat:@"导出属性配置 %d 条：Documents/XiuxianjiazuGM/attributes.json",count];
+    else self.statusLabel.text=[NSString stringWithFormat:@"属性表导出 E%03d；检查 export-stage.txt",-count];
+    NSLog(@"[XJGM] attribute export count=%d",count);
 }
 - (void)showItems:(id)sender {
     [self.view endEditing:YES];
