@@ -12,6 +12,8 @@ extern "C" int XJGMExportActorAttributes(int32_t actorId,const char* expectedNam
 extern "C" int XJGMSendActorAttribute(int32_t actorId,int32_t attrId,int32_t value,bool expectedPercent);
 extern "C" int XJGMReadActorAttributeLive(int32_t actorId,int32_t attrIndex,const char* expectedName,int32_t expectedForceId,int64_t* outValue);
 extern "C" NSString* XJGMCurrentWorldToken(void);
+extern "C" int XJGMExportBloodCatalog(void);
+extern "C" int XJGMExportActorBloods(int32_t actorId,const char* expectedName,int32_t expectedForceId);
 static UIWindow *sWindow=nil;
 static UIColor *Paper(void) { return [UIColor colorWithRed:.92 green:.88 blue:.80 alpha:1]; }
 static UIColor *Panel(void) { return [UIColor colorWithRed:.97 green:.95 blue:.89 alpha:1]; }
@@ -57,6 +59,18 @@ static NSArray<NSString *> *CategoryNames(void) {
 @property(nonatomic,strong) UIButton *itemsTab;
 @property(nonatomic,strong) UIButton *skillsTab;
 @property(nonatomic,strong) UIButton *attributesTab;
+@property(nonatomic,strong) UIButton *bloodTab;
+@property(nonatomic,strong) UIScrollView *bloodPanel;
+@property(nonatomic,strong) UIButton *bloodActorButton;
+@property(nonatomic,strong) UITextField *bloodSearch;
+@property(nonatomic,strong) UITableView *bloodTable;
+@property(nonatomic,strong) UITextView *bloodDetail;
+@property(nonatomic,strong) NSArray<NSDictionary *> *allBloods;
+@property(nonatomic,strong) NSArray<NSDictionary *> *filteredBloods;
+@property(nonatomic,strong) NSDictionary *selectedBlood;
+@property(nonatomic,strong) NSDictionary<NSNumber *,NSDictionary *> *actorBloodValues;
+@property(nonatomic,assign) BOOL bloodMode;
+@property(nonatomic,assign) BOOL bloodPickPending;
 @property(nonatomic,strong) UIScrollView *attributePanel;
 @property(nonatomic,assign) BOOL attributesMode;
 @property(nonatomic,strong) UITextView *attributeText;
@@ -128,6 +142,8 @@ static NSArray<NSString *> *CategoryNames(void) {
     self.skillsTab=Btn(@"功法列表",self,@selector(showSkills:));[self.panel addSubview:self.skillsTab];
     self.attributesTab=Btn(@"属性查看",self,@selector(showAttributes:));
     [self.panel addSubview:self.attributesTab];
+    self.bloodTab=Btn(@"血脉管理",self,@selector(showBloods:));
+    [self.panel addSubview:self.bloodTab];
 
     self.query=[UITextField new];self.query.delegate=self;
     self.query.placeholder=@"名称或 ID";self.query.textColor=Ink();self.query.font=[UIFont systemFontOfSize:12];
@@ -259,6 +275,30 @@ static NSArray<NSString *> *CategoryNames(void) {
         selector:@selector(reconcileAttributeLocks:) userInfo:nil repeats:YES];
     [NSRunLoop.mainRunLoop addTimer:self.attributeLockTimer forMode:NSRunLoopCommonModes];
     self.attributeDefs=@[];self.attributeFiltered=@[];self.attributeRawValues=@{};
+    self.allBloods=@[];self.filteredBloods=@[];self.actorBloodValues=@{};
+    self.bloodPanel=[UIScrollView new];self.bloodPanel.backgroundColor=Paper();
+    self.bloodPanel.layer.cornerRadius=5;self.bloodPanel.hidden=YES;
+    [self.panel addSubview:self.bloodPanel];
+    self.bloodActorButton=Btn(@"选择弟子",self,@selector(chooseBloodActor:));
+    [self.bloodPanel addSubview:self.bloodActorButton];
+    self.bloodSearch=[UITextField new];self.bloodSearch.delegate=self;
+    self.bloodSearch.placeholder=@"搜索血脉名称或 ID";
+    self.bloodSearch.font=[UIFont systemFontOfSize:12];
+    self.bloodSearch.textColor=Ink();self.bloodSearch.backgroundColor=Panel();
+    self.bloodSearch.layer.borderColor=Border().CGColor;self.bloodSearch.layer.borderWidth=1;
+    [self.bloodSearch addTarget:self action:@selector(filterBloodCatalog)
+           forControlEvents:UIControlEventEditingChanged];
+    [self.bloodPanel addSubview:self.bloodSearch];
+    self.bloodTable=[[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStylePlain];
+    self.bloodTable.delegate=self;self.bloodTable.dataSource=self;
+    self.bloodTable.rowHeight=46;self.bloodTable.backgroundColor=Panel();
+    [self.bloodTable registerClass:UITableViewCell.class forCellReuseIdentifier:@"cell"];
+    [self.bloodPanel addSubview:self.bloodTable];
+    self.bloodDetail=[UITextView new];self.bloodDetail.editable=NO;
+    self.bloodDetail.textColor=Ink();self.bloodDetail.font=[UIFont systemFontOfSize:12];
+    self.bloodDetail.backgroundColor=Panel();self.bloodDetail.layer.cornerRadius=5;
+    self.bloodDetail.text=@"选择弟子与血脉查看实际浓度。\n本阶段为只读查询；写入协议仍需目标二进制验证。";
+    [self.bloodPanel addSubview:self.bloodDetail];
     [self adjustPanel];
 }
 - (void)viewDidLayoutSubviews {
@@ -272,13 +312,13 @@ static NSArray<NSString *> *CategoryNames(void) {
     CGFloat m=9,inner=w-2*m;
     [self.panel viewWithTag:901].frame=CGRectMake(m,7,w-75,28);
     self.closeButton.frame=CGRectMake(w-61,9,51,27);
-    // Three equal-width tabs across all modes; catalog loading stays automatic.
-    CGFloat tabGap=6;
-    CGFloat tabWidth=floor((inner-tabGap*2)/3);
+    CGFloat tabGap=5;
+    CGFloat tabWidth=floor((inner-tabGap*3)/4);
     self.itemsTab.frame=CGRectMake(m,41,tabWidth,30);
     self.skillsTab.frame=CGRectMake(m+tabWidth+tabGap,41,tabWidth,30);
-    self.attributesTab.frame=CGRectMake(m+(tabWidth+tabGap)*2,41,
-        inner-2*(tabWidth+tabGap),30);
+    self.attributesTab.frame=CGRectMake(m+(tabWidth+tabGap)*2,41,tabWidth,30);
+    self.bloodTab.frame=CGRectMake(m+(tabWidth+tabGap)*3,41,
+        inner-3*(tabWidth+tabGap),30);
     self.query.frame=CGRectMake(m,77,inner,31);
 
     // Compact iPhone portrait: categories 24%, list 35%, details remaining 41%.
@@ -324,13 +364,22 @@ static NSArray<NSString *> *CategoryNames(void) {
     self.attributeText.frame=CGRectMake(5,contentH-94,vw-10,89);
     self.attributeTable.layer.cornerRadius=5;
     self.attributeValue.layer.cornerRadius=5;
+    self.bloodPanel.frame=CGRectMake(m,77,inner,h-86);
+    CGFloat bw=self.bloodPanel.bounds.size.width,bh=self.bloodPanel.bounds.size.height;
+    CGFloat bloodContentH=MAX(bh,440);
+    self.bloodPanel.contentSize=CGSizeMake(bw,bloodContentH);
+    self.bloodActorButton.frame=CGRectMake(5,4,bw-10,33);
+    self.bloodSearch.frame=CGRectMake(5,45,bw-10,33);
+    self.bloodTable.frame=CGRectMake(5,85,bw-10,MAX(90,bloodContentH-246));
+    self.bloodDetail.frame=CGRectMake(5,bloodContentH-153,bw-10,148);
     self.statusLabel.frame=CGRectMake(m,bottom+68,inner,40);
 }
 - (void)toggle:(id)sender {
     self.panel.hidden=!self.panel.hidden;self.bubble.hidden=!self.panel.hidden;
     if (!self.panel.hidden) {
         [self adjustPanel];
-        if(self.attributesMode)[self showAttributes:nil];
+        if(self.bloodMode)[self showBloods:nil];
+        else if(self.attributesMode)[self showAttributes:nil];
         else if(!(self.skillsMode?self.allSkills.count:self.allItems.count))[self loadItems:nil];
     } else {
         [self.view endEditing:YES];self.actorPicker.hidden=YES;
@@ -347,18 +396,125 @@ static NSArray<NSString *> *CategoryNames(void) {
     [g setTranslation:CGPointZero inView:self.view];
 }
 - (void)updateModeViews {
-    BOOL attr=self.attributesMode;
+    BOOL attr=self.attributesMode||self.bloodMode;
     // One shared root UI. Hide the item/skill content, not the common toolbar.
     for(UIView *view in @[self.query,self.categoryTable,self.itemTable,self.prevButton,
          self.nextButton,self.countLabel,self.detailLabel,self.pickedLabel,
          self.minusButton,self.quantity,self.plusButton,self.actorButton,
          self.sendButton,self.statusLabel]) view.hidden=attr;
-    self.attributePanel.hidden=!attr;
+    self.attributePanel.hidden=!self.attributesMode;
+    self.bloodPanel.hidden=!self.bloodMode;
+}
+
+- (void)showBloods:(id)sender {
+    [self.view endEditing:YES];
+    self.bloodMode=YES;self.attributesMode=NO;self.attributePickPending=NO;
+    self.skillsMode=NO;self.bloodPickPending=NO;
+    [self updateModeViews];[self adjustPanel];
+    [self loadBloodCatalog];
+}
+- (void)chooseBloodActor:(id)sender {
+    self.bloodPickPending=YES;
+    [self openActors:nil];
+}
+- (void)loadBloodCatalog {
+    int rc=XJGMExportBloodCatalog();
+    if(rc<0){
+        self.bloodDetail.text=[NSString stringWithFormat:
+            @"血脉目录导出失败 E%03d。检查 blood-export-stage.txt。",-rc];
+        return;
+    }
+    NSArray *dirs=NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask,YES);
+    NSString *dir=dirs.count?[dirs[0] stringByAppendingPathComponent:@"XiuxianjiazuGM"]:@"";
+    NSData *data=[NSData dataWithContentsOfFile:[dir stringByAppendingPathComponent:@"bloods.json"]];
+    id result=data?[NSJSONSerialization JSONObjectWithData:data options:0 error:nil]:nil;
+    if(![result isKindOfClass:NSArray.class] || [result count]!=(NSUInteger)rc){
+        self.bloodDetail.text=@"血脉目录快照校验失败；不显示旧数据。";return;
+    }
+    NSMutableArray *defs=[NSMutableArray array];
+    for(id obj in (NSArray*)result){
+        if(![obj isKindOfClass:NSDictionary.class])continue;
+        if(![obj[@"id"] isKindOfClass:NSNumber.class]||
+           ![obj[@"name"] isKindOfClass:NSString.class])continue;
+        [defs addObject:obj];
+    }
+    self.allBloods=[defs sortedArrayUsingComparator:^NSComparisonResult(NSDictionary *a,NSDictionary *b){
+        return [a[@"id"] compare:b[@"id"]];
+    }];
+    [self filterBloodCatalog];
+    if(self.selectedActor)[self reloadActorBloods];
+    else{
+        [self.bloodActorButton setTitle:@"选择弟子" forState:UIControlStateNormal];
+        self.bloodDetail.text=[NSString stringWithFormat:
+            @"已加载 %lu 项血脉配置。选择弟子查看已有血脉及浓度。\n血脉写入尚未验证，当前仅供读取。",
+            (unsigned long)self.allBloods.count];
+    }
+}
+- (void)filterBloodCatalog {
+    NSString *q=[self.bloodSearch.text stringByTrimmingCharactersInSet:
+        NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    NSMutableArray *items=[NSMutableArray array];
+    for(NSDictionary *entry in self.allBloods){
+        if(q.length &&
+           [entry[@"name"] rangeOfString:q options:NSCaseInsensitiveSearch].location==NSNotFound &&
+           [[entry[@"id"] stringValue] rangeOfString:q].location==NSNotFound)continue;
+        [items addObject:entry];
+    }
+    self.filteredBloods=[items copy];[self.bloodTable reloadData];
+}
+- (void)reloadActorBloods {
+    NSDictionary *actor=self.selectedActor;
+    if(!actor)return;
+    int rc=XJGMExportActorBloods([actor[@"id"] intValue],[actor[@"name"] UTF8String],
+                                 [actor[@"forceId"] intValue]);
+    if(rc<0){
+        self.actorBloodValues=@{};
+        self.bloodDetail.text=[NSString stringWithFormat:
+            @"弟子血脉读取失败 E%03d；不使用历史快照。",-rc];
+        [self.bloodTable reloadData];return;
+    }
+    NSArray *dirs=NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask,YES);
+    NSString *dir=dirs.count?[dirs[0] stringByAppendingPathComponent:@"XiuxianjiazuGM"]:@"";
+    NSData *data=[NSData dataWithContentsOfFile:[dir stringByAppendingPathComponent:@"actor-bloods.json"]];
+    id result=data?[NSJSONSerialization JSONObjectWithData:data options:0 error:nil]:nil;
+    if(![result isKindOfClass:NSDictionary.class] ||
+       ![result[@"actorId"] isEqual:actor[@"id"]] ||
+       ![result[@"actorName"] isEqual:actor[@"name"]] ||
+       ![result[@"forceId"] isEqual:actor[@"forceId"]] ||
+       ![result[@"bloods"] isKindOfClass:NSArray.class] ||
+       [result[@"bloods"] count]!=(NSUInteger)rc){
+        self.actorBloodValues=@{};self.bloodDetail.text=@"血脉快照校验失败。";return;
+    }
+    NSMutableDictionary *owned=[NSMutableDictionary dictionary];
+    for(id blood in result[@"bloods"]){
+        if([blood isKindOfClass:NSDictionary.class]&&
+           [blood[@"id"] isKindOfClass:NSNumber.class])owned[blood[@"id"]]=blood;
+    }
+    self.actorBloodValues=[owned copy];
+    [self.bloodActorButton setTitle:[NSString stringWithFormat:@"弟子：%@",actor[@"name"]]
+                          forState:UIControlStateNormal];
+    [self.bloodTable reloadData];[self showSelectedBlood];
+}
+- (void)showSelectedBlood {
+    NSDictionary *blood=self.selectedBlood;
+    if(!blood){
+        self.bloodDetail.text=[NSString stringWithFormat:
+            @"弟子：%@ · 当前 %lu 条血脉\n点击左侧血脉查看详情。\n尚未接入经验证的修改协议。",
+            self.selectedActor[@"name"]?:@"未选择",
+            (unsigned long)self.actorBloodValues.count];return;
+    }
+    NSDictionary *owned=self.actorBloodValues[blood[@"id"]];
+    NSString *purity=owned?[owned[@"purity"] description]:@"未拥有";
+    NSString *active=owned?([owned[@"active"] boolValue]?@"已激活":@"未激活"):@"—";
+    self.bloodDetail.text=[NSString stringWithFormat:
+        @"%@  ID：%@\n品质：%@ · 类型：%@\n弟子：%@ · 浓度：%@ · %@\n%@\n修改浓度、添加及移除：尚未验证安全写入链。",
+        blood[@"name"],blood[@"id"],blood[@"quality"],blood[@"bloodType"],
+        self.selectedActor[@"name"]?:@"未选择",purity,active,blood[@"description"]?:@""];
 }
 - (void)showAttributes:(id)sender {
     [self.view endEditing:YES];
     BOOL newlySelected=!self.attributesMode;
-    self.attributesMode=YES;
+    self.attributesMode=YES;self.bloodMode=NO;
     if(newlySelected){self.selectedAttribute=nil;self.attributeValue.text=@"";
         self.attributeSearch.text=@"";}
     [self updateModeViews];
@@ -692,14 +848,14 @@ static NSArray<NSString *> *CategoryNames(void) {
 }
 - (void)showItems:(id)sender {
     [self.view endEditing:YES];
-    self.attributesMode=NO;self.attributePickPending=NO;
+    self.attributesMode=NO;self.attributePickPending=NO;self.bloodMode=NO;self.bloodPickPending=NO;
     self.skillsMode=NO;self.selectedActor=nil;self.selected=nil;self.selectedCategory=0;self.page=0;self.query.text=@"";
     [self.categoryTable reloadData];[self showSelected];[self updateModeViews];
     if(!self.allItems.count)[self loadItems:nil];else[self rebuildFilter];
 }
 - (void)showSkills:(id)sender {
     [self.view endEditing:YES];
-    self.attributesMode=NO;self.attributePickPending=NO;
+    self.attributesMode=NO;self.attributePickPending=NO;self.bloodMode=NO;self.bloodPickPending=NO;
     self.skillsMode=YES;self.selectedActor=nil;self.selected=nil;self.selectedCategory=0;self.page=0;self.query.text=@"";
     [self.categoryTable reloadData];[self showSelected];[self updateModeViews];
     if(!self.allSkills.count)[self loadItems:nil];else[self rebuildFilter];
@@ -871,7 +1027,7 @@ static NSArray<NSString *> *CategoryNames(void) {
     NSLog(@"[XJGM] send ID=%d count=%d result=%d",ident,count,rc);
 }
 - (void)openActors:(id)sender {
-    if(!self.skillsMode && !self.attributePickPending)return;
+    if(!self.skillsMode && !self.attributePickPending && !self.bloodPickPending)return;
     [self.view endEditing:YES];self.actorPicker.hidden=NO;
     [self.panel bringSubviewToFront:self.actorPicker];
     self.actorQuery.text=@"";
@@ -943,6 +1099,7 @@ static NSArray<NSString *> *CategoryNames(void) {
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView{return 1;}
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     if(tableView==self.attributeTable)return self.attributeFiltered.count;
+    if(tableView==self.bloodTable)return self.filteredBloods.count;
     if(tableView==self.actorTable)return self.visibleActors.count;
     if(tableView==self.categoryTable)return self.skillsMode?11:CategoryNames().count;
     NSInteger start=self.page*(NSInteger)[self pageSize];
@@ -953,7 +1110,14 @@ static NSArray<NSString *> *CategoryNames(void) {
     cell.backgroundColor=Panel();cell.textLabel.textColor=Ink();
     cell.textLabel.font=[UIFont systemFontOfSize:11 weight:UIFontWeightRegular];
     cell.textLabel.numberOfLines=2;
-    if(tableView==self.attributeTable){
+    if(tableView==self.bloodTable){
+        NSDictionary *blood=self.filteredBloods[(NSUInteger)indexPath.row];
+        NSDictionary *owned=self.actorBloodValues[blood[@"id"]];
+        NSString *purity=owned?[NSString stringWithFormat:@" · 浓度 %@",owned[@"purity"]]:@"";
+        cell.textLabel.text=[NSString stringWithFormat:@"%@%@",
+            blood[@"name"]?:@"",purity];
+        cell.backgroundColor=[self.selectedBlood[@"id"] isEqual:blood[@"id"]]?Tan():Panel();
+    } else if(tableView==self.attributeTable){
         NSDictionary *a=self.attributeFiltered[(NSUInteger)indexPath.row];
         NSNumber *raw=self.attributeRawValues[a[@"id"]];
         BOOL percentage=[a[@"isPercentage"] boolValue];
@@ -993,7 +1157,12 @@ static NSArray<NSString *> *CategoryNames(void) {
     return cell;
 }
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
-    if(tableView==self.attributeTable){
+    if(tableView==self.bloodTable){
+        if((NSUInteger)indexPath.row>=self.filteredBloods.count)return;
+        self.selectedBlood=self.filteredBloods[(NSUInteger)indexPath.row];
+        [self showSelectedBlood];
+        [self.bloodTable reloadData];
+    } else if(tableView==self.attributeTable){
         if((NSUInteger)indexPath.row>=self.attributeFiltered.count)return;
         self.selectedAttribute=self.attributeFiltered[(NSUInteger)indexPath.row];
         NSNumber *raw=self.attributeRawValues[self.selectedAttribute[@"id"]];
@@ -1024,6 +1193,10 @@ static NSArray<NSString *> *CategoryNames(void) {
             self.attributePickPending=NO;
             [self.panel bringSubviewToFront:self.attributePanel];
             [self refreshAttributes:nil];
+        } else if(self.bloodPickPending){
+            self.bloodPickPending=NO;
+            [self.panel bringSubviewToFront:self.bloodPanel];
+            [self reloadActorBloods];
         }
     } else if(tableView==self.categoryTable){
         self.selectedCategory=indexPath.row;self.selected=nil;[self showSelected];[self.categoryTable reloadData];[self rebuildFilter];
