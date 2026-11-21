@@ -109,6 +109,72 @@ static int probe() {
   if(count<0||count>20000)return save(facts,-916);
   facts[@"forceCount"]=@(count);
   facts[@"worldObjectPresent"]=@YES;
+  // Custom worlds reserve force ID 1 for the player; confirm by isPlayerForce.
+  int32_t playerId=1;
+  void *player=nullptr;
+  void *forceArgs[]={&playerId};
+  if(!call(r,r.method(worldClass,"GetForce",1),world,forceArgs,&player)||!player)
+    return save(facts,-917);
+  facts[@"playerForceId"]=@(playerId);
+  void *playerFlag=r.field(forceClass,"isPlayerForce");
+  if(!playerFlag)return save(facts,-918);
+  bool isPlayer=false;
+  r.fieldValue(player,playerFlag,&isPlayer);
+  facts[@"isPlayerForce"]=@(isPlayer);
+  if(!isPlayer)return save(facts,-919);
+
+  void *pendingField=r.field(forceClass,"waitRecruitActors");
+  if(!pendingField)return save(facts,-920);
+  void *pending=nullptr;
+  r.fieldValue(player,pendingField,&pending);
+  facts[@"candidateListPresent"]=@(pending!=nullptr);
+  if(!pending) {
+    facts[@"candidateCount"]=@0;
+    facts[@"candidateListNull"]=@YES;
+  } else {
+    void *listClass=classOf(pending);
+    if(!listClass)return save(facts,-921);
+    void *countBox=nullptr;
+    if(!call(r,r.method(listClass,"get_Count",0),pending,nullptr,&countBox)||!countBox)
+      return save(facts,-922);
+    void *countRaw=unbox(countBox);
+    if(!countRaw)return save(facts,-923);
+    int32_t pendingCount=*(int32_t*)countRaw;
+    if(pendingCount<0||pendingCount>10000)return save(facts,-924);
+    facts[@"candidateCount"]=@(pendingCount);
+    void *itemMethod=r.method(listClass,"get_Item",1);
+    if(!itemMethod && pendingCount>0)return save(facts,-925);
+    NSMutableArray *ids=[NSMutableArray array];
+    void *actorClass=r.fromName(server,"GS","GSActor");
+    void *idField=actorClass?r.field(actorClass,"id"):nullptr;
+    facts[@"actorIdFieldResolved"]=@(idField!=nullptr);
+    if(pendingCount>0&&!idField)return save(facts,-926);
+    for(int32_t i=0;i<pendingCount && i<50;i++) {
+      void *actor=nullptr;
+      void *indexArgs[]={&i};
+      if(!call(r,itemMethod,pending,indexArgs,&actor))return save(facts,-927);
+      if(!actor)continue;
+      int32_t actorId=0;
+      r.fieldValue(actor,idField,&actorId);
+      [ids addObject:@(actorId)];
+    }
+    facts[@"sampleCandidateIds"]=ids;
+    facts[@"sampleLimit"]=@50;
+  }
+  // The normal members list is counted separately, never modified.
+  void *membersField=r.field(forceClass,"actors");
+  if(membersField) {
+    void *members=nullptr;
+    r.fieldValue(player,membersField,&members);
+    if(members) {
+      void *membersClass=classOf(members);
+      void *membersBox=nullptr;
+      if(membersClass && call(r,r.method(membersClass,"get_Count",0),members,nullptr,&membersBox)&&membersBox) {
+        void *membersRaw=unbox(membersBox);
+        if(membersRaw)facts[@"memberCount"]=@(*(int32_t*)membersRaw);
+      }
+    }
+  }
   // Count and metadata availability do NOT prove the game-server handler is callable
   // from UIKit or that a save will persist. No mutations in this probe.
   return save(facts,1);
