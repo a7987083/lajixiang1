@@ -255,19 +255,38 @@ extern "C" __attribute__((visibility("default"))) int XJGMExportActorAttributes(
 // Read-only persistence root-cause sampler. No GSActor mutation, save or hook.
 // Compares runtime attValue with baseAtt serialized by GSActor.SaveData.
 namespace {
+static void* findLoadedClass(APIs &r,void* domain,const char* namesp,const char* name) {
+  using Assemblies=const void** (*)(void*,size_t*);
+  auto enumerate=(Assemblies)dlsym(r.handle,"il2cpp_domain_get_assemblies");
+  if(!enumerate || !domain)return nullptr;
+  size_t count=0;const void** assemblies=enumerate(domain,&count);
+  if(!assemblies || count==0 || count>512)return nullptr;
+  void* result=nullptr;
+  for(size_t i=0;i<count;i++){
+    if(!assemblies[i])continue;
+    void* img=r.image((void*)assemblies[i]);
+    void* candidate=img?r.fromName(img,namesp,name):nullptr;
+    if(!candidate)continue;
+    // An ambiguous class name must not silently select an unrelated type.
+    if(result && result!=candidate)return nullptr;
+    result=candidate;
+  }
+  return result;
+}
 static int sampleGSActorPersistence(int32_t actorId,int32_t attributeId,const char* expectedName,int32_t forceId) {
  checkpoint("persist_start");
  if(actorId<=0||attributeId<0||attributeId>=4096||!expectedName)return -701;
  APIs r={};int status=setup(r);if(status!=1)return status;
  void* domain=r.domain();if(!domain)return -702;
  if(!r.threadCurrent()&&!r.threadAttach(domain))return -703;
- void* assembly=r.assembly(domain,"gameCore.dll");
- void* img=assembly?r.image(assembly):nullptr;
- if(!img)return -704;
- void* appCls=r.fromName(img,"","GameApp");
- void* worldCls=r.fromName(img,"GS","GSWorld");
- void* actorCls=r.fromName(img,"GS","GSActor");
- if(!appCls||!worldCls||!actorCls)return -705;
+ checkpoint("persist_resolve_classes");
+ void* appCls=findLoadedClass(r,domain,"","GameApp");
+ if(!appCls){checkpoint("persist_missing_GameApp");return -705;}
+ void* worldCls=findLoadedClass(r,domain,"GS","GSWorld");
+ if(!worldCls){checkpoint("persist_missing_GSWorld");return -719;}
+ void* actorCls=findLoadedClass(r,domain,"GS","GSActor");
+ if(!actorCls){checkpoint("persist_missing_GSActor");return -720;}
+ checkpoint("persist_classes_resolved");
  auto field=(void*(*)(void*,const char*))dlsym(r.handle,"il2cpp_class_get_field_from_name");
  auto fieldVal=(void(*)(void*,void*,void*))dlsym(r.handle,"il2cpp_field_get_value");
  auto arrLength=(uintptr_t(*)(void*))dlsym(r.handle,"il2cpp_array_length");
