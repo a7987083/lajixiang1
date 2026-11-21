@@ -227,16 +227,22 @@ static int exportActorAttributes(int32_t actorId,const char* expectedName,int32_
  int32_t count=0;
  if(intGetter(r,list,getCount,&count)!=1||count<0||count>4096)return -450;
  if(readValue && (attributeIndex<0||attributeIndex>=count))return -455;
+ // Live lock readback needs only one List<long> element. Avoid O(N) scans.
+ if(readValue) {
+  int32_t index=attributeIndex;
+  void* boxed=nullptr;void* indexArgs[]={&index};
+  if(!call(r,getItem,list,indexArgs,&boxed)||!boxed)return -451;
+  void* raw=r.unbox(boxed);if(!raw)return -451;
+  *readValue=*(int64_t*)raw;
+  return 1;
+ }
  NSMutableArray *values=[NSMutableArray arrayWithCapacity:(NSUInteger)count];
  for(int32_t index=0;index<count;index++){
   void* boxed=nullptr;void* indexArgs[]={&index};
   if(!call(r,getItem,list,indexArgs,&boxed)||!boxed)return -451;
   void* raw=r.unbox(boxed);if(!raw)return -451;
-  int64_t value=*(int64_t*)raw;
-  if(readValue && index==attributeIndex)*readValue=value;
-  if(!readValue)[values addObject:@{@"index":@(index),@"value":@(value)}];
+  [values addObject:@{@"index":@(index),@"value":@(*(int64_t*)raw)}];
  }
- if(readValue)return 1; // No file I/O for the periodic live lock sampler.
  checkpoint("attr_encode");
  NSDictionary* obj=@{@"actorId":@(actorId),@"actorName":name,@"forceId":@(force),
                      @"count":@(count),@"values":values,
@@ -295,6 +301,16 @@ extern "C" __attribute__((visibility("default"))) NSString* XJGMCurrentWorldToke
     void* tokenObj=nullptr;
     if(!call(r,method,instance,nullptr,&tokenObj)||!tokenObj)return nil;
     NSString* token=readString(r,tokenObj);
-    return token.length?token:nil;
+    if(!token.length)return nil;
+    // A save's UUID may stay the same across reloads. Bind locks additionally
+    // to the live GSWorld instance, not just to the save slot.
+    auto field=(void*(*)(void*,const char*))dlsym(r.handle,"il2cpp_class_get_field_from_name");
+    auto fieldValue=(void(*)(void*,void*,void*))dlsym(r.handle,"il2cpp_field_get_value");
+    if(!field || !fieldValue)return nil;
+    void* worldField=field(cls,"CustomGSWorld");
+    if(!worldField)return nil;
+    void* world=nullptr;fieldValue(instance,worldField,&world);
+    if(!world)return nil;
+    return [NSString stringWithFormat:@"%@|%p",token,world];
   }
 }
