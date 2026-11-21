@@ -38,6 +38,19 @@ struct Runtime {
   ThreadAttach attach;
 };
 static void* sym(void *h,const char* name) { return dlsym(h,name); }
+// Persist the last reached step *before* potentially unsafe managed runtime calls.
+// If iOS terminates the process without a crash report, this file survives relaunch.
+static void checkpoint(const char *step) {
+  NSArray *dirs=NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask,YES);
+  if (!dirs.count) return;
+  NSString *dir=[dirs[0] stringByAppendingPathComponent:@"XiuxianjiazuGM"];
+  [[NSFileManager defaultManager] createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
+  NSString *file=[dir stringByAppendingPathComponent:@"export-stage.txt"];
+  NSString *value=[NSString stringWithFormat:@"V1.1 stage=%s",step];
+  [value writeToFile:file atomically:YES encoding:NSUTF8StringEncoding error:nil];
+  NSLog(@"[XJGMExport] %@",value);
+}
+
 static void* managedImage(Runtime &r,void* domain,const char* assemblyName) {
   void* assembly=r.assembly(domain,assemblyName);
   return assembly ? r.image(assembly) : nullptr;
@@ -98,30 +111,32 @@ static int exportTable(Runtime &r,void *image,const char *typeName,const char *c
   if (!staticGet || !objectClass || !arrayNew || !arrayLength || !unbox) return -101;
   void* cls=r.fromName(image,"config.export.excel",typeName);
   if (!cls) return -208;
-  void* getEmpty=r.method(cls,"get_IsConfigsEmpty",0);
-  if (!getEmpty) return -209;
-  void* exc=nullptr;
-  void* boxed=r.invoke(getEmpty,nullptr,nullptr,&exc);
-  if (exc || !boxed) return -105;
-  if (*(uint8_t*)unbox(boxed)) return -102;
+  checkpoint("config_field");
   void* f=r.field(cls,"configs");
   if (!f) return -108;
   void* dict=nullptr;
+  checkpoint("static_get");
   staticGet(f,&dict);
-  if (!dict) return -103;
+  // Empty/uninitialized config is a recoverable state; no managed accessor required.
+  if (!dict) return -102;
+  checkpoint("dictionary_class");
   void* dictClass=objectClass(dict);
   if (!dictClass) return -104;
+  checkpoint("get_values_method");
   void* getValues=r.method(dictClass,"get_Values",0);
   if (!getValues) return -104;
-  exc=nullptr;
+  void* exc=nullptr;
+  checkpoint("invoke_get_values");
   void* values=r.invoke(getValues,dict,nullptr,&exc);
   if (exc || !values) return -105;
+  checkpoint("values_class");
   void* valuesClass=objectClass(values);
   if (!valuesClass) return -104;
   void* getCount=r.method(valuesClass,"get_Count",0);
   void* copyTo=r.method(valuesClass,"CopyTo",2);
   if (!getCount || !copyTo) return -104;
   exc=nullptr;
+  checkpoint("invoke_count");
   void* boxCount=r.invoke(getCount,values,nullptr,&exc);
   if (exc || !boxCount) return -105;
   int32_t count=*(int32_t*)unbox(boxCount);
@@ -131,15 +146,18 @@ static int exportTable(Runtime &r,void *image,const char *typeName,const char *c
   if (!idField || !nameField) return -108;
   NSMutableArray *entries=[NSMutableArray arrayWithCapacity:(NSUInteger)count];
   if (count) {
+    checkpoint("array_new");
     void* array=arrayNew(cls,(uintptr_t)count);
     if (!array) return -107;
     int32_t zero=0;
     void* params[]={array,&zero}; // object pointer, not pointer-to-pointer
     exc=nullptr;
+    checkpoint("invoke_copy_to");
     r.invoke(copyTo,values,params,&exc);
     if (exc || arrayLength(array)!=(uintptr_t)count) return -107;
     // Target is arm64 Unity IL2CPP managed reference array.
     void* const* elements=(void* const*)((uintptr_t)array+0x20);
+    checkpoint("read_elements");
     for (int32_t n=0;n<count;n++) {
       void* item=elements[n];
       if (!item) continue;
@@ -160,6 +178,7 @@ static int exportTable(Runtime &r,void *image,const char *typeName,const char *c
   [entries sortUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
     return [a[@"id"] compare:b[@"id"]];
   }];
+  checkpoint("json_encode");
   NSData* json=[NSJSONSerialization dataWithJSONObject:entries options:0 error:nil];
   if (!json || json.length>8*1024*1024) return -107;
   NSArray *documents=NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask,YES);
@@ -170,20 +189,24 @@ static int exportTable(Runtime &r,void *image,const char *typeName,const char *c
     BOOL directoryOK=[[NSFileManager defaultManager] createDirectoryAtPath:directory
                                            withIntermediateDirectories:YES attributes:nil error:&error];
     NSString *path=[directory stringByAppendingPathComponent:[NSString stringWithUTF8String:fileName]];
+    checkpoint("json_save");
     if (directoryOK) *saved=[json writeToFile:path options:NSDataWritingAtomic error:&error];
     if (!*saved) NSLog(@"[XJGM] E109 catalog save failed for %@: %@",path,error);
   } else {
     NSLog(@"[XJGM] E109 documents directory unavailable for %s",category);
   }
   if (!*saved) return -109;
+  checkpoint("success");
   return (int)entries.count;
 }
 static int prepareExport(Runtime &r,void **image) {
+  checkpoint("resolve_runtime");
   int status=resolve(r);
   if (status!=1) return status;
   void *domain=r.domain();
   if (!domain) return -205;
   if (!r.current() && !r.attach(domain)) return -210;
+  checkpoint("resolve_config_image");
   *image=managedImage(r,domain,"gameConfigs.dll");
   return *image?1:-206;
 }
@@ -193,10 +216,32 @@ extern "C" __attribute__((visibility("default"))) int XJGMExportItems(int *saved
   @autoreleasepool {
     Runtime r={}; void* image=nullptr;
     bool saved=false;
+    checkpoint("start");
     int status=prepareExport(r,&image);
     int result=status==1 ? exportTable(r,image,"ItemTmpl","item","items.json",&saved) : status;
     if (savedOut) *savedOut=saved?1:0;
     NSLog(@"[XJGMExportV1] result=%d saved=%d",result,saved?1:0);
     return result;
+  }
+}
+
+extern "C" __attribute__((visibility("default"))) int XJGMCheckItems(void) {
+  @autoreleasepool {
+    checkpoint("preflight_start");
+    Runtime r={}; void *image=nullptr;
+    int status=prepareExport(r,&image);
+    if (status!=1) return status;
+    void* cls=r.fromName(image,"config.export.excel","ItemTmpl");
+    if (!cls) return -208;
+    void* field=r.field(cls,"configs");
+    if (!field) return -108;
+    auto staticGet=(void (*)(void*,void*))sym(r.handle,"il2cpp_field_static_get_value");
+    if (!staticGet) return -101;
+    void *dict=nullptr;
+    checkpoint("preflight_static_get");
+    staticGet(field,&dict);
+    if (!dict) return -102;
+    checkpoint("preflight_success");
+    return 1;
   }
 }
