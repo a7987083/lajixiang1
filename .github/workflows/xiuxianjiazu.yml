@@ -1,7 +1,7 @@
 name: Build Xiuxianjiazu GM UI
 on:
   push:
-    branches: [xiuxianjiazu, feat/xiuxianjiazu-native-item-search, feat/xiuxianjiazu-item-catalog-v1, fix/xiuxianjiazu-item-export-crash-v1, fix/xiuxianjiazu-item-export-array-v1-2, fix/xiuxianjiazu-item-export-field-args-v1-3, feat/xiuxianjiazu-external-json-ui, feat/xiuxianjiazu-gm-menu-shell, feat/xiuxianjiazu-gm-item-send-v1, fix/xiuxianjiazu-send-ui-v1-1, feat/xiuxianjiazu-skill-catalog-menu-p2-1-2, feat/xiuxianjiazu-actor-list-p2-1-4]
+    branches: [xiuxianjiazu, feat/xiuxianjiazu-native-item-search, feat/xiuxianjiazu-item-catalog-v1, fix/xiuxianjiazu-item-export-crash-v1, fix/xiuxianjiazu-item-export-array-v1-2, fix/xiuxianjiazu-item-export-field-args-v1-3, feat/xiuxianjiazu-external-json-ui, feat/xiuxianjiazu-gm-menu-shell, feat/xiuxianjiazu-gm-item-send-v1, fix/xiuxianjiazu-send-ui-v1-1, feat/xiuxianjiazu-skill-catalog-menu-p2-1-2, feat/xiuxianjiazu-actor-list-p2-1-4, feat/xiuxianjiazu-live-actor-skill-p2-1-5]
     paths:
       - 'xiuxianjiazu/**'
       - '.github/workflows/xiuxianjiazu.yml'
