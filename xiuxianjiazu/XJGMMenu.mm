@@ -347,20 +347,21 @@ static NSArray<NSString *> *CategoryNames(void) {
     [self.sendButton setTitle:self.skillsMode?@"添加功法":@"发放物品" forState:UIControlStateNormal];
     if(!o){
         self.pickedLabel.text=self.skillsMode?
-            [NSString stringWithFormat:@"弟子：%@ · 未选功法",self.selectedActor[@"name"]?:@"未选择"]:@"未选择物品";
-        self.detailLabel.text=self.skillsMode?@"功法说明\n\n选择阶位和功法查看详细配置。":@"物品说明\n\n选择分类和物品后，在这里查看 ID 与类型字段。";
+            [NSString stringWithFormat:@"弟子：%@ · 未选择功法",self.selectedActor[@"name"]?:@"未选择"]:@"未选择物品";
+        self.detailLabel.text=self.skillsMode?@"功法说明\n\n请选择功法查看效果。":@"物品说明\n\n请选择物品。";
         return;
     }
     self.pickedLabel.text=self.skillsMode?
-        [NSString stringWithFormat:@"弟子：%@ · 功法：%@ ID %@",self.selectedActor[@"name"]?:@"未选择",o[@"name"],o[@"id"]]:
-        [NSString stringWithFormat:@"已选：%@  ID %@",o[@"name"],o[@"id"]];
+        [NSString stringWithFormat:@"弟子：%@ · 功法：%@",self.selectedActor[@"name"]?:@"未选择",o[@"name"]]:
+        [NSString stringWithFormat:@"已选：%@",o[@"name"]];
     if(self.skillsMode) {
-        self.detailLabel.text=[NSString stringWithFormat:@"功法说明\n%@\nID：%@\n阶位：%@\n类别：%@ 类型：%@\n自创：%@\n层数：%@\n\n%@",
-            o[@"name"],o[@"id"],o[@"skillQuality"],o[@"skillCategory"],o[@"skillType"],
-            o[@"isSelfCreation"],o[@"lvtext"],o[@"skillDescribe"]];
+        NSString *level=[o[@"lvtext"] isKindOfClass:NSString.class]?o[@"lvtext"]:@"";
+        NSString *description=[o[@"skillDescribe"] isKindOfClass:NSString.class]?o[@"skillDescribe"]:@"";
+        self.detailLabel.text=[NSString stringWithFormat:@"功法说明\n%@\n\n%@%@",
+            o[@"name"],level.length?[NSString stringWithFormat:@"层数：%@\n\n",level]:@"",
+            description.length?description:@"暂无说明"];
     } else {
-        self.detailLabel.text=[NSString stringWithFormat:@"物品说明\n\n%@\n\nID：%@\ntype：%@\nchildType：%@\nsearchType：%@",
-            o[@"name"],o[@"id"],o[@"type"],o[@"childType"],o[@"searchType"]];
+        self.detailLabel.text=[NSString stringWithFormat:@"物品说明\n\n%@",o[@"name"]];
     }
 }
 - (void)decrease:(id)sender {
@@ -404,7 +405,7 @@ static NSArray<NSString *> *CategoryNames(void) {
         int rc=XJGMSendSkill(actorId,skillId);
         [self showSelected];
         self.statusLabel.text=rc==1?
-            [NSString stringWithFormat:@"功法请求已发送：弟子 %d，技能 %d；学习结果待实机确认",actorId,skillId]:
+            [NSString stringWithFormat:@"已发送：%@ → %@",oldName,self.selected[@"name"]]:
             [NSString stringWithFormat:@"功法发送失败 E%03d，检查 gm-skill-stage.txt",-rc];
         NSLog(@"[XJGM] skill actor=%d id=%d result=%d",actorId,skillId,rc);
         return;
@@ -424,7 +425,7 @@ static NSArray<NSString *> *CategoryNames(void) {
     self.sendButton.enabled=NO;
     int rc=XJGMSendItem(ident,count);
     self.sendButton.enabled=(self.selected!=nil);
-    if(rc==1)self.statusLabel.text=[NSString stringWithFormat:@"请求已发送：ID %d × %d；请以背包实际到账为准",ident,count];
+    if(rc==1)self.statusLabel.text=[NSString stringWithFormat:@"已发送：%@ × %d",selected[@"name"],count];
     else self.statusLabel.text=[NSString stringWithFormat:@"E%03d：GM 请求未发送，检查 gm-send-stage.txt",-rc];
     NSLog(@"[XJGM] send ID=%d count=%d result=%d",ident,count,rc);
 }
@@ -511,7 +512,7 @@ static NSArray<NSString *> *CategoryNames(void) {
     cell.textLabel.numberOfLines=2;
     if(tableView==self.actorTable){
         NSDictionary *a=self.visibleActors[(NSUInteger)indexPath.row];
-        cell.textLabel.text=[NSString stringWithFormat:@"%@ · ID %@ · 势力 %@",a[@"name"],a[@"id"],a[@"forceId"]];
+        cell.textLabel.text=a[@"name"];
         cell.backgroundColor=(self.selectedActor && [self.selectedActor[@"id"] isEqual:a[@"id"]])?Tan():Panel();
     } else if(tableView==self.categoryTable){
         NSArray *names=self.skillsMode?@[@"全部",@"一阶",@"二阶",@"三阶",@"四阶",@"五阶",@"六阶",@"七阶",@"八阶",@"九阶",@"自创"]:CategoryNames();
@@ -520,7 +521,7 @@ static NSArray<NSString *> *CategoryNames(void) {
     } else {
         NSUInteger index=(NSUInteger)self.page*[self pageSize]+(NSUInteger)indexPath.row;
         NSDictionary *o=self.filtered[index];
-        cell.textLabel.text=[NSString stringWithFormat:@"%@\nID %@",o[@"name"],o[@"id"]];
+        cell.textLabel.text=o[@"name"];
         if(self.selected && [self.selected[@"id"] isEqual:o[@"id"]])cell.backgroundColor=Tan();
     }
     return cell;
