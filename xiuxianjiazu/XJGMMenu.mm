@@ -259,7 +259,7 @@ static NSArray<NSString *> *CategoryNames(void) {
     [self.attributePanel addSubview:self.attributeLockButton];
     self.attributeLocks=[NSMutableDictionary dictionary];
     // Reconcile only in an active game and only while locks exist.
-    self.attributeLockTimer=[NSTimer timerWithTimeInterval:3.0 target:self
+    self.attributeLockTimer=[NSTimer timerWithTimeInterval:1.0 target:self
         selector:@selector(reconcileAttributeLocks:) userInfo:nil repeats:YES];
     [NSRunLoop.mainRunLoop addTimer:self.attributeLockTimer forMode:NSRunLoopCommonModes];
     self.attributeDefs=@[];self.attributeFiltered=@[];self.attributeRawValues=@{};
@@ -539,44 +539,34 @@ static NSArray<NSString *> *CategoryNames(void) {
     if(UIApplication.sharedApplication.applicationState!=UIApplicationStateActive)return;
     NSString *world=XJGMCurrentWorldToken();
     if(!world.length || ![world isEqualToString:self.lockWorldToken]) {
+        // Keep the world isolation guard. A different save must never inherit
+        // previous actors' locked attributes.
         [self clearAttributeLocks:@"存档或游戏世界已切换；全部锁定已停止。"];
         return;
     }
-    NSTimeInterval now=NSDate.date.timeIntervalSince1970;
-    NSMutableArray<NSString *> *expired=[NSMutableArray array];
-    for(NSString *key in [self.attributeLocks allKeys]){
+    // Each lock is independent: a failure on one attribute must not remove
+    // any other lock. Read failures are retained for a later one-second tick.
+    for(NSString *key in [self.attributeLocks allKeys]) {
         NSMutableDictionary *entry=self.attributeLocks[key];
+        if(!entry)continue;
         int64_t current=0;
         int status=XJGMReadActorAttributeLive([entry[@"actorId"] intValue],
             [entry[@"attrId"] intValue],[entry[@"actorName"] UTF8String],
             [entry[@"forceId"] intValue],&current);
-        if(status!=1){[expired addObject:key];continue;}
-        if(current==[entry[@"target"] longLongValue]){
-            entry[@"retryCount"]=@0;
+        if(status!=1) {
+            entry[@"lastReadError"]=@(status);
             continue;
         }
-        // Do not repeatedly send while the game processes a prior message.
-        if(now-[entry[@"lastAttempt"] doubleValue]<5.0)continue;
-        if([entry[@"retryCount"] intValue]>=3){
-            [expired addObject:key];continue;
-        }
+        [entry removeObjectForKey:@"lastReadError"];
+        if(current==[entry[@"target"] longLongValue])continue;
+        // Exactly one GM submission per changed attribute per timer tick.
+        // Never use a global retry count to deactivate unrelated locks.
         int rc=XJGMSendActorAttribute([entry[@"actorId"] intValue],
             [entry[@"attrId"] intValue],[entry[@"target"] intValue],
             [entry[@"isPercentage"] boolValue]);
-        entry[@"lastAttempt"]=@(now);
-        entry[@"retryCount"]=@([entry[@"retryCount"] intValue]+1);
-        if(rc!=1)[expired addObject:key];
+        if(rc!=1)entry[@"lastWriteError"]=@(rc);
+        else [entry removeObjectForKey:@"lastWriteError"];
     }
-    if(expired.count){
-        for(NSString *key in expired)[self.attributeLocks removeObjectForKey:key];
-        if(self.attributesMode){
-            self.attributeText.text=[NSString stringWithFormat:
-                @"%lu 项锁定已自动停止（弟子失效、读写错误或数值无法稳定维持）。",
-                (unsigned long)expired.count];
-            [self.attributeTable reloadData];[self updateAttributeSendState];
-        }
-    }
-    if(!self.attributeLocks.count)self.lockWorldToken=nil;
 }
 - (void)toggleAttributeLock:(id)sender {
     NSDictionary *actor=self.selectedActor,*attr=self.selectedAttribute;
@@ -665,8 +655,7 @@ static NSArray<NSString *> *CategoryNames(void) {
         self.attributeLocks[key]=[@{@"actorId":actor[@"id"],@"actorName":actor[@"name"],
             @"forceId":actor[@"forceId"],@"attrId":attr[@"id"],
             @"attrName":attr[@"name"],@"isPercentage":attr[@"isPercentage"],
-            @"target":@(value),@"lastAttempt":@([[NSDate date] timeIntervalSince1970]),
-            @"retryCount":@0} mutableCopy];
+            @"target":@(value)} mutableCopy];
         [self.attributeTable reloadData];
     }
     self.attributeText.text=rc==1?
