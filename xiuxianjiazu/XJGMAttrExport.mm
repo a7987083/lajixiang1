@@ -149,6 +149,12 @@ static int exportTable(Runtime &r,void *image,const char *typeName,const char *c
   void* standardValueField=r.field(cls,"standardValue");
   void* descFmtField=r.field(cls,"descFmt");
   if(!idField||!nameField||!valueTypeField||!scoreField||!standardValueField||!descFmtField)return -108;
+  // Use the game's actual formatting classification rather than the config's
+  // valueType: the two differ for several real attributes (8/53/30/31).
+  void *core=managedImage(r,r.domain(),"gameCore.dll");
+  void *helper=core?r.fromName(core,"","AttrHelper"):nullptr;
+  void *isPercent=helper?r.method(helper,"IsPercentageAttType",1):nullptr;
+  if(!isPercent)return -114;
   NSMutableArray *entries=[NSMutableArray arrayWithCapacity:(NSUInteger)count];
   if (count) {
     checkpoint("array_new");
@@ -237,8 +243,15 @@ static int exportTable(Runtime &r,void *image,const char *typeName,const char *c
         if(len&&!chars)return -113;
         desc=[[NSString alloc] initWithCharacters:(const unichar*)chars length:(NSUInteger)len]?:@"";
       }
+      int32_t attributeId=ident;void *checkArgs[]={&attributeId};
+      void *exception=nullptr;
+      void *isPercentBox=r.invoke(isPercent,nullptr,checkArgs,&exception);
+      if(exception||!isPercentBox)return -115;
+      void *percentRaw=unbox(isPercentBox);if(!percentRaw)return -115;
+      bool percentage=*(uint8_t*)percentRaw!=0;
       [entries addObject:@{@"id":@(ident),@"name":name,@"valueType":@(valueType),
-          @"score":@(score),@"standardValue":@(standardValue),@"descFmt":desc}];
+          @"isPercentage":@(percentage),@"score":@(score),
+          @"standardValue":@(standardValue),@"descFmt":desc}];
     }
   }
   [entries sortUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
