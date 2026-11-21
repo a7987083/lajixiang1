@@ -38,6 +38,29 @@ struct Runtime {
   ThreadAttach attach;
 };
 static void* sym(void *h,const char* name) { return dlsym(h,name); }
+
+static void* findPercentMethodAcrossAssemblies(Runtime &r,void* domain) {
+  using Assemblies=const void** (*)(void*,size_t*);
+  auto enumerate=(Assemblies)sym(r.handle,"il2cpp_domain_get_assemblies");
+  if(!enumerate || !domain)return nullptr;
+  size_t count=0;
+  const void** assemblies=enumerate(domain,&count);
+  if(!assemblies || count==0 || count>512)return nullptr;
+  void* matched=nullptr;
+  for(size_t i=0;i<count;i++) {
+    if(!assemblies[i])continue;
+    void* image=r.image((void*)assemblies[i]);
+    if(!image)continue;
+    void* cls=r.fromName(image,"","AttrHelper");
+    if(!cls)continue;
+    void* method=r.method(cls,"IsPercentageAttType",1);
+    if(!method)continue;
+    // Resolve exactly once; ambiguous type matches are unsafe.
+    if(matched && method!=matched)return nullptr;
+    matched=method;
+  }
+  return matched;
+}
 static void* managedImage(Runtime &r,void* domain,const char* assemblyName) {
   void* assembly=r.assembly(domain,assemblyName);
   return assembly ? r.image(assembly) : nullptr;
@@ -311,8 +334,7 @@ static int sendOriginalActorAttribute(int32_t actorId,int32_t attributeId,int32_
   r.fieldValue(attr,typeField,&valueType);
   if(valueType!=0 && valueType!=1)return -610;
   // Game-native classification is authoritative, not UnitAttrTmpl.valueType.
-  void* helperCls=r.fromName(core,"","AttrHelper");
-  void* helperMethod=helperCls?r.method(helperCls,"IsPercentageAttType",1):nullptr;
+  void* helperMethod=findPercentMethodAcrossAssemblies(r,domain);
   if(!helperMethod)return -620;
   void* boxed=nullptr;
   if(!invoke(r,helperMethod,nullptr,attrArgs,&boxed)||!boxed)return -621;
