@@ -47,7 +47,7 @@ static void checkpoint(const char *step) {
   NSString *dir=[dirs[0] stringByAppendingPathComponent:@"XiuxianjiazuGM"];
   [[NSFileManager defaultManager] createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
   NSString *file=[dir stringByAppendingPathComponent:@"export-stage.txt"];
-  NSString *value=[NSString stringWithFormat:@"V1.2 stage=%s",step];
+  NSString *value=[NSString stringWithFormat:@"V1.3 stage=%s",step];
   [value writeToFile:file atomically:YES encoding:NSUTF8StringEncoding error:nil];
   NSLog(@"[XJGMExport] %@",value);
 }
@@ -206,8 +206,8 @@ static int exportTable(Runtime &r,void *image,const char *typeName,const char *c
         char stage[64]; snprintf(stage,sizeof(stage),"element_%d_readfields",n);
         checkpoint(stage);
       }
-      r.fieldValue(idField,item,&ident);
-      r.fieldValue(nameField,item,&managedName);
+      r.fieldValue(item,idField,&ident);
+      r.fieldValue(item,nameField,&managedName);
       if (ident<=0 || !managedName) continue;
       if (n<8 || n%64==0) {
         char stage[64]; snprintf(stage,sizeof(stage),"element_%d_readname",n);
