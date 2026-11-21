@@ -56,7 +56,8 @@ static NSArray<NSString *> *CategoryNames(void) {
 @property(nonatomic,strong) UIButton *itemsTab;
 @property(nonatomic,strong) UIButton *skillsTab;
 @property(nonatomic,strong) UIButton *attributesTab;
-@property(nonatomic,strong) UIView *attributePanel;
+@property(nonatomic,strong) UIScrollView *attributePanel;
+@property(nonatomic,assign) BOOL attributesMode;
 @property(nonatomic,strong) UITextView *attributeText;
 @property(nonatomic,strong) UIButton *attributeRefresh;
 @property(nonatomic,strong) UIButton *persistenceProbe;
@@ -105,7 +106,7 @@ static NSArray<NSString *> *CategoryNames(void) {
 - (void)viewDidLoad {
     [super viewDidLoad];self.view.backgroundColor=UIColor.clearColor;
     self.liveActors=@[];self.visibleActors=@[];
-    self.allItems=@[];self.allSkills=@[];self.filtered=@[];self.selectedCategory=0;self.page=0;self.skillsMode=NO;
+    self.allItems=@[];self.allSkills=@[];self.filtered=@[];self.selectedCategory=0;self.page=0;self.skillsMode=NO;self.attributesMode=NO;
     self.bubble=Btn(@"GM",self,@selector(toggle:));
     self.bubble.frame=CGRectMake(10,100,48,48);self.bubble.layer.cornerRadius=24;
     [self.view addSubview:self.bubble];
@@ -117,7 +118,7 @@ static NSArray<NSString *> *CategoryNames(void) {
     self.panel.layer.shadowOpacity=.36;self.panel.layer.shadowRadius=16;
     [self.view addSubview:self.panel];
 
-    UILabel *title=Txt(@"修仙家族 · GM 物品管理",16);
+    UILabel *title=Txt(@"修仙家族 · GM 管理",16);
     title.font=[UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];title.textAlignment=NSTextAlignmentCenter;
     title.tag=901;[self.panel addSubview:title];
     self.closeButton=Btn(@"收起",self,@selector(toggle:));[self.panel addSubview:self.closeButton];
@@ -125,7 +126,7 @@ static NSArray<NSString *> *CategoryNames(void) {
     self.skillsTab=Btn(@"功法列表",self,@selector(showSkills:));[self.panel addSubview:self.skillsTab];
     self.attributesTab=Btn(@"属性查看",self,@selector(showAttributes:));
     [self.panel addSubview:self.attributesTab];
-    self.reloadButton=Btn(@"重新加载",self,@selector(loadItems:));[self.panel addSubview:self.reloadButton];
+    self.reloadButton=Btn(@"重新加载",self,@selector(reloadCurrent:));[self.panel addSubview:self.reloadButton];
 
     self.query=[UITextField new];self.query.delegate=self;
     self.query.placeholder=@"名称或 ID";self.query.textColor=Ink();self.query.font=[UIFont systemFontOfSize:12];
@@ -209,14 +210,15 @@ static NSArray<NSString *> *CategoryNames(void) {
     [self.actorPicker addSubview:self.actorTable];
     self.actorStatus=Txt(@"进入游戏后刷新弟子列表",11);
     [self.actorPicker addSubview:self.actorStatus];
-    self.attributePanel=[UIView new];self.attributePanel.backgroundColor=Paper();
-    self.attributePanel.layer.cornerRadius=7;self.attributePanel.layer.borderColor=Border().CGColor;
-    self.attributePanel.layer.borderWidth=1;self.attributePanel.hidden=YES;
+    self.attributePanel=[UIScrollView new];self.attributePanel.backgroundColor=Paper();
+    self.attributePanel.alwaysBounceVertical=YES;
+    self.attributePanel.showsVerticalScrollIndicator=YES;
+    self.attributePanel.layer.cornerRadius=4;self.attributePanel.hidden=YES;
     [self.panel addSubview:self.attributePanel];
     UILabel *attrHeader=Txt(@"动态弟子属性（只读）",15);
-    attrHeader.tag=905;[self.attributePanel addSubview:attrHeader];
+    attrHeader.tag=905;attrHeader.hidden=YES;[self.attributePanel addSubview:attrHeader];
     UIButton *attrClose=Btn(@"返回",self,@selector(closeAttributes:));
-    attrClose.tag=906;[self.attributePanel addSubview:attrClose];
+    attrClose.tag=906;attrClose.hidden=YES;[self.attributePanel addSubview:attrClose];
     UIButton *attrSelect=Btn(@"选择弟子",self,@selector(chooseAttributeActor:));
     attrSelect.tag=907;[self.attributePanel addSubview:attrSelect];
     self.attributeRefresh=Btn(@"刷新属性",self,@selector(refreshAttributes:));
@@ -301,25 +303,28 @@ static NSArray<NSString *> *CategoryNames(void) {
     self.actorQuery.frame=CGRectMake(119,52,aw-133,32);
     self.actorTable.frame=CGRectMake(14,94,aw-28,MAX(110,ah-151));
     self.actorStatus.frame=CGRectMake(14,ah-49,aw-28,41);
-    self.attributePanel.frame=CGRectMake(4,4,w-8,h-8);
+    // Same main panel and toolbar as the item/skill tabs. No full-panel overlay.
+    self.attributePanel.frame=CGRectMake(m,77,inner,h-86);
     CGFloat vw=self.attributePanel.bounds.size.width,vh=self.attributePanel.bounds.size.height;
-    [self.attributePanel viewWithTag:905].frame=CGRectMake(13,10,vw-92,30);
-    [self.attributePanel viewWithTag:906].frame=CGRectMake(vw-72,10,58,28);
-    [self.attributePanel viewWithTag:907].frame=CGRectMake(13,49,105,32);
-    self.attributeRefresh.frame=CGRectMake(125,49,105,32);
-    self.attributeSearch.frame=CGRectMake(13,91,vw-26,30);
-    self.attributeTable.frame=CGRectMake(13,128,vw-26,MAX(90,vh-350));
-    self.persistenceProbe.frame=CGRectMake(13,vh-208,vw-26,31);
-    self.attributeValue.frame=CGRectMake(13,vh-169,MAX(70,(vw-34)*.48),33);
-    self.attributeSend.frame=CGRectMake(21+MAX(70,(vw-34)*.48),vh-169,
-        MAX(65,(vw-34)*.52-8),33);
-    self.attributeText.frame=CGRectMake(13,vh-128,vw-26,113);
+    CGFloat contentH=MAX(460,vh);
+    self.attributePanel.contentSize=CGSizeMake(vw,contentH);
+    [self.attributePanel viewWithTag:907].frame=CGRectMake(5,contentH-205,MAX(100,vw*.49-8),32);
+    self.attributeRefresh.frame=CGRectMake(MAX(112,vw*.49+2),contentH-205,MAX(90,vw*.51-7),32);
+    self.attributeSearch.frame=CGRectMake(5,2,vw-10,32);
+    self.attributeTable.frame=CGRectMake(5,42,vw-10,MAX(80,contentH-254));
+    CGFloat inputW=floor((vw-16)*.48);
+    self.attributeValue.frame=CGRectMake(5,contentH-165,inputW,32);
+    self.attributeSend.frame=CGRectMake(inputW+11,contentH-165,vw-inputW-16,32);
+    self.persistenceProbe.frame=CGRectMake(5,contentH-125,vw-10,30);
+    self.attributeText.frame=CGRectMake(5,contentH-88,vw-10,83);
     self.statusLabel.frame=CGRectMake(m,bottom+68,inner,40);
 }
 - (void)toggle:(id)sender {
     self.panel.hidden=!self.panel.hidden;self.bubble.hidden=!self.panel.hidden;
     if (!self.panel.hidden) {
-        [self adjustPanel];if(!(self.skillsMode?self.allSkills.count:self.allItems.count))[self loadItems:nil];
+        [self adjustPanel];
+        if(self.attributesMode)[self showAttributes:nil];
+        else if(!(self.skillsMode?self.allSkills.count:self.allItems.count))[self loadItems:nil];
     } else {
         [self.view endEditing:YES];self.actorPicker.hidden=YES;
         self.attributePanel.hidden=YES;self.attributePickPending=NO;
@@ -345,12 +350,27 @@ static NSArray<NSString *> *CategoryNames(void) {
     NSLog(@"[XJGM] attribute export count=%d",count);
 }
 
+- (void)updateModeViews {
+    BOOL attr=self.attributesMode;
+    // One shared root UI. Hide the item/skill content, not the common toolbar.
+    for(UIView *view in @[self.query,self.categoryTable,self.itemTable,self.prevButton,
+         self.nextButton,self.countLabel,self.detailLabel,self.pickedLabel,
+         self.minusButton,self.quantity,self.plusButton,self.actorButton,
+         self.sendButton,self.statusLabel]) view.hidden=attr;
+    self.attributePanel.hidden=!attr;
+    [self.reloadButton setTitle:attr?@"刷新属性":@"重新加载" forState:UIControlStateNormal];
+}
+- (void)reloadCurrent:(id)sender {
+    if(self.attributesMode)[self refreshAttributes:sender];
+    else [self loadItems:sender];
+}
 - (void)showAttributes:(id)sender {
     [self.view endEditing:YES];
-    self.attributePanel.hidden=NO;
-    self.selectedAttribute=nil;self.attributeValue.text=@"";
-    self.attributeSearch.text=@"";
-    [self.panel bringSubviewToFront:self.attributePanel];
+    BOOL newlySelected=!self.attributesMode;
+    self.attributesMode=YES;
+    if(newlySelected){self.selectedAttribute=nil;self.attributeValue.text=@"";
+        self.attributeSearch.text=@"";}
+    [self updateModeViews];
     [self adjustPanel];
     if(!self.selectedActor) {
         self.attributePickPending=YES;
@@ -364,8 +384,7 @@ static NSArray<NSString *> *CategoryNames(void) {
     [self openActors:nil];
 }
 - (void)closeAttributes:(id)sender {
-    [self.view endEditing:YES];self.attributePickPending=NO;
-    self.attributePanel.hidden=YES;
+    [self showSkills:sender];
 }
 - (void)refreshAttributes:(id)sender {
     if(!self.selectedActor) {
@@ -563,16 +582,16 @@ static NSArray<NSString *> *CategoryNames(void) {
 }
 - (void)showItems:(id)sender {
     [self.view endEditing:YES];
-    self.attributePanel.hidden=YES;self.attributePickPending=NO;
+    self.attributesMode=NO;self.attributePickPending=NO;
     self.skillsMode=NO;self.selectedActor=nil;self.selected=nil;self.selectedCategory=0;self.page=0;self.query.text=@"";
-    [self.categoryTable reloadData];[self showSelected];
+    [self.categoryTable reloadData];[self showSelected];[self updateModeViews];
     if(!self.allItems.count)[self loadItems:nil];else[self rebuildFilter];
 }
 - (void)showSkills:(id)sender {
     [self.view endEditing:YES];
-    self.attributePanel.hidden=YES;self.attributePickPending=NO;
+    self.attributesMode=NO;self.attributePickPending=NO;
     self.skillsMode=YES;self.selectedActor=nil;self.selected=nil;self.selectedCategory=0;self.page=0;self.query.text=@"";
-    [self.categoryTable reloadData];[self showSelected];
+    [self.categoryTable reloadData];[self showSelected];[self updateModeViews];
     if(!self.allSkills.count)[self loadItems:nil];else[self rebuildFilter];
 }
 - (void)loadItems:(id)sender {
@@ -652,7 +671,7 @@ static NSArray<NSString *> *CategoryNames(void) {
     NSDictionary *o=self.selected;
     BOOL canSend=self.skillsMode?(o!=nil && self.selectedActor!=nil):(o!=nil);
     self.sendButton.enabled=canSend;self.sendButton.alpha=canSend?1:.5;
-    self.actorButton.hidden=!self.skillsMode;
+    self.actorButton.hidden=!self.skillsMode || self.attributesMode;
     if(self.skillsMode)[self.actorButton setTitle:self.selectedActor?
         [NSString stringWithFormat:@"弟子：%@",self.selectedActor[@"name"]]:@"选择弟子" forState:UIControlStateNormal];
     self.quantity.hidden=self.skillsMode;self.minusButton.hidden=self.skillsMode;self.plusButton.hidden=self.skillsMode;
