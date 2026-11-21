@@ -60,7 +60,6 @@ static NSArray<NSString *> *CategoryNames(void) {
 @property(nonatomic,strong) UIScrollView *attributePanel;
 @property(nonatomic,assign) BOOL attributesMode;
 @property(nonatomic,strong) UITextView *attributeText;
-@property(nonatomic,strong) UIButton *attributeRefresh;
 @property(nonatomic,strong) UIButton *attributeLockButton;
 @property(nonatomic,strong) NSMutableDictionary<NSString*,NSMutableDictionary*> *attributeLocks;
 @property(nonatomic,strong) NSString *lockWorldToken;
@@ -221,8 +220,6 @@ static NSArray<NSString *> *CategoryNames(void) {
     [self.panel addSubview:self.attributePanel];
     UIButton *attrSelect=Btn(@"选择弟子",self,@selector(chooseAttributeActor:));
     attrSelect.tag=907;[self.attributePanel addSubview:attrSelect];
-    self.attributeRefresh=Btn(@"刷新属性",self,@selector(refreshAttributes:));
-    [self.attributePanel addSubview:self.attributeRefresh];
     self.attributeText=[UITextView new];self.attributeText.editable=NO;
     self.attributeText.backgroundColor=Panel();self.attributeText.textColor=Ink();
     self.attributeText.font=[UIFont systemFontOfSize:12];self.attributeText.text=@"选择弟子后实时读取属性数组。";
@@ -314,12 +311,9 @@ static NSArray<NSString *> *CategoryNames(void) {
     CGFloat vw=self.attributePanel.bounds.size.width,vh=self.attributePanel.bounds.size.height;
     CGFloat contentH=MAX(460,vh);
     self.attributePanel.contentSize=CGSizeMake(vw,contentH);
-    [self.attributePanel viewWithTag:907].frame=CGRectMake(5,contentH-205,MAX(100,vw*.49-8),32);
-    self.attributeRefresh.frame=CGRectMake(MAX(112,vw*.49+2),contentH-205,MAX(90,vw*.51-7),32);
     self.attributeSearch.frame=CGRectMake(5,2,vw-10,32);
     self.attributeTable.frame=CGRectMake(5,42,vw-10,MAX(80,contentH-223));
-    [self.attributePanel viewWithTag:907].frame=CGRectMake(5,contentH-173,MAX(100,vw*.49-8),32);
-    self.attributeRefresh.frame=CGRectMake(MAX(112,vw*.49+2),contentH-173,MAX(90,vw*.51-7),32);
+    [self.attributePanel viewWithTag:907].frame=CGRectMake(5,contentH-173,vw-10,32);
     CGFloat controlW=floor((vw-20)/3);
     self.attributeValue.frame=CGRectMake(5,contentH-133,controlW,32);
     self.attributeSend.frame=CGRectMake(10+controlW,contentH-133,controlW,32);
@@ -367,11 +361,11 @@ static NSArray<NSString *> *CategoryNames(void) {
          self.minusButton,self.quantity,self.plusButton,self.actorButton,
          self.sendButton,self.statusLabel]) view.hidden=attr;
     self.attributePanel.hidden=!attr;
-    [self.reloadButton setTitle:attr?@"刷新属性":@"重新加载" forState:UIControlStateNormal];
+    self.reloadButton.hidden=attr;
+    [self.reloadButton setTitle:@"重新加载" forState:UIControlStateNormal];
 }
 - (void)reloadCurrent:(id)sender {
-    if(self.attributesMode)[self refreshAttributes:sender];
-    else [self loadItems:sender];
+    if(!self.attributesMode)[self loadItems:sender];
 }
 - (void)showAttributes:(id)sender {
     [self.view endEditing:YES];
@@ -402,17 +396,16 @@ static NSArray<NSString *> *CategoryNames(void) {
     }
     self.attributeFreshReady=NO;
     self.attributeSend.enabled=NO;
-    self.attributeRefresh.enabled=NO;
     int code=XJGMExportAttributes(); // Live UnitAttrTmpl.configs, not the previous JSON.
     if(code<0) {
         self.attributeText.text=[NSString stringWithFormat:@"属性定义读取失败 E%03d。检查 export-stage.txt",-code];
-        self.attributeRefresh.enabled=YES;return;
+        return;
     }
     NSDictionary *actor=self.selectedActor;
     int count=[self reloadLiveActors:NO];
     if(count<0) {
         self.attributeText.text=@"实时弟子列表刷新失败；已取消属性读取。";
-        self.attributeRefresh.enabled=YES;return;
+        return;
     }
     BOOL stillPresent=NO;
     for(NSDictionary *a in self.liveActors) {
@@ -422,13 +415,13 @@ static NSArray<NSString *> *CategoryNames(void) {
     }
     if(!stillPresent) {
         self.selectedActor=nil;self.attributeText.text=@"弟子已经变化，请重新选择。";
-        self.attributeRefresh.enabled=YES;return;
+        return;
     }
     code=XJGMExportActorAttributes([actor[@"id"] intValue],
          [actor[@"name"] UTF8String],[actor[@"forceId"] intValue]);
     if(code<0) {
         self.attributeText.text=[NSString stringWithFormat:@"属性数值读取失败 E%03d。检查 actor-export-stage.txt",-code];
-        self.attributeRefresh.enabled=YES;return;
+        return;
     }
     NSArray *dirs=NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask,YES);
     NSString *dir=dirs.count?[dirs[0] stringByAppendingPathComponent:@"XiuxianjiazuGM"]:@"";
@@ -441,7 +434,7 @@ static NSArray<NSString *> *CategoryNames(void) {
         ![snapshot[@"actorId"] isEqual:actor[@"id"]] ||
         ![snapshot[@"actorName"] isEqual:actor[@"name"]] ||
         ![snapshot[@"forceId"] isEqual:actor[@"forceId"]]) {
-        self.attributeText.text=@"属性快照校验失败，未显示旧数据。";self.attributeRefresh.enabled=YES;return;
+        self.attributeText.text=@"属性快照校验失败，未显示旧数据。";return;
     }
     NSMutableDictionary *names=[NSMutableDictionary dictionary];
     NSMutableDictionary *raw=[NSMutableDictionary dictionary];
@@ -493,7 +486,7 @@ static NSArray<NSString *> *CategoryNames(void) {
         self.selectedAttribute[@"name"]?:@"未选择",
         @"当前值来自原始数组索引，属性名对应关系待写入后验证。"];
     [self updateAttributeSendState];
-    self.attributeRefresh.enabled=YES;
+    
 }
 
 - (void)finishAttributeInput:(id)sender {
@@ -579,6 +572,9 @@ static NSArray<NSString *> *CategoryNames(void) {
         self.attributeText.text=[NSString stringWithFormat:
             @"已停止锁定：%@ · %@；当前值不回滚。",actor[@"name"],attr[@"name"]];
         [self.attributeTable reloadData];[self updateAttributeSendState];
+        [self autoRefreshAfterAttributeActionForActor:actor
+            message:[NSString stringWithFormat:@"已停止锁定：%@ · %@；当前值不回滚。",actor[@"name"],attr[@"name"]]
+            delay:0.0];
         return;
     }
     if(self.attributeLocks.count>=8){
@@ -599,6 +595,29 @@ static NSArray<NSString *> *CategoryNames(void) {
 }
 - (void)sendAttribute:(id)sender {
     [self performAttributeAction:NO];
+}
+// GM Send() confirms submission only, not the actual gameplay state change.
+// Refresh the selected actor after the game has had a chance to process it.
+- (void)autoRefreshAfterAttributeActionForActor:(NSDictionary *)actor
+                                    message:(NSString *)message
+                                      delay:(NSTimeInterval)delay {
+    NSNumber *actorId=actor[@"id"];
+    NSString *actorName=actor[@"name"];
+    NSNumber *forceId=actor[@"forceId"];
+    __weak typeof(self) weakSelf=self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(delay*NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        typeof(self) strongSelf=weakSelf;
+        if(!strongSelf || !strongSelf.attributesMode)return;
+        NSDictionary *current=strongSelf.selectedActor;
+        if(![current[@"id"] isEqual:actorId] ||
+           ![current[@"name"] isEqual:actorName] ||
+           ![current[@"forceId"] isEqual:forceId])return;
+        [strongSelf refreshAttributes:nil];
+        if(strongSelf.attributeFreshReady)
+            strongSelf.attributeText.text=message;
+        // If refresh failed, preserve its error text rather than hiding the error.
+    });
 }
 - (void)performAttributeAction:(BOOL)shouldLock {
     [self.view endEditing:YES];
@@ -659,12 +678,14 @@ static NSArray<NSString *> *CategoryNames(void) {
             @"target":@(value)} mutableCopy];
         [self.attributeTable reloadData];
     }
-    self.attributeText.text=rc==1?
-        [NSString stringWithFormat:@"%@：%@ · %@ → %@",
-            shouldLock?@"锁定监控已开启":@"设置一次已提交",
+    NSString *message=rc==1?
+        [NSString stringWithFormat:@"%@：%@ · %@ → %@（已提交）",
+            shouldLock?@"锁定监控已开启":@"设置一次",
             actor[@"name"],attr[@"name"],entered]:
         [NSString stringWithFormat:@"属性发送失败 E%03d；未启用锁定", -rc];
+    self.attributeText.text=message;
     [self updateAttributeSendState];
+    if(rc==1)[self autoRefreshAfterAttributeActionForActor:actor message:message delay:0.35];
 }
 - (void)showItems:(id)sender {
     [self.view endEditing:YES];
