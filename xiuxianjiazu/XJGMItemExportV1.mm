@@ -47,7 +47,7 @@ static void checkpoint(const char *step) {
   NSString *dir=[dirs[0] stringByAppendingPathComponent:@"XiuxianjiazuGM"];
   [[NSFileManager defaultManager] createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
   NSString *file=[dir stringByAppendingPathComponent:@"export-stage.txt"];
-  NSString *value=[NSString stringWithFormat:@"V1.4 stage=%s",step];
+  NSString *value=[NSString stringWithFormat:@"V1.5 stage=%s",step];
   [value writeToFile:file atomically:YES encoding:NSUTF8StringEncoding error:nil];
   NSLog(@"[XJGMExport] %@",value);
 }
@@ -142,13 +142,17 @@ static int exportTable(Runtime &r,void *image,const char *typeName,const char *c
   if (exc || !boxCount) return -105;
   int32_t count=*(int32_t*)unbox(boxCount);
   if (count<0 || count>250000) return -107;
+  bool skill=strcmp(typeName,"SkillInfo")==0;
   void* idField=r.field(cls,"id");
   void* nameField=r.field(cls,"name");
-  // Verified on ItemTmpl in the target dump.cs: Int32 fields at 0x34/0x9C/0x108.
-  void* typeField=r.field(cls,"type");
-  void* childTypeField=r.field(cls,"childType");
-  void* searchTypeField=r.field(cls,"searchType");
-  if (!idField || !nameField || !typeField || !childTypeField || !searchTypeField) return -108;
+  void* typeField=r.field(cls,skill?"skillType":"type");
+  void* subtypeField=r.field(cls,skill?"skillCategory":"childType");
+  void* qualityField=r.field(cls,skill?"skillQuality":"searchType");
+  void* extraField=skill?r.field(cls,"isSelfCreation"):nullptr;
+  void* descField=skill?r.field(cls,"skillDescribe"):nullptr;
+  void* lvtextField=skill?r.field(cls,"lvtext"):nullptr;
+  if (!idField || !nameField || !typeField || !subtypeField || !qualityField ||
+      (skill && (!extraField || !descField || !lvtextField))) return -108;
   NSMutableArray *entries=[NSMutableArray arrayWithCapacity:(NSUInteger)count];
   if (count) {
     checkpoint("array_new");
@@ -204,8 +208,10 @@ static int exportTable(Runtime &r,void *image,const char *typeName,const char *c
       }
       void* actualClass=objectClass(item);
       if (!actualClass || !assignable(cls,actualClass)) return -112;
-      int32_t ident=0, itemType=0, childType=0, searchType=0;
+      int32_t ident=0, itemType=0, childType=0, quality=0, selfCreation=0;
       void* managedName=nullptr;
+      void* managedDesc=nullptr;
+      void* managedLvtext=nullptr;
       if (n<8 || n%64==0) {
         char stage[64]; snprintf(stage,sizeof(stage),"element_%d_readfields",n);
         checkpoint(stage);
@@ -214,8 +220,13 @@ static int exportTable(Runtime &r,void *image,const char *typeName,const char *c
       r.fieldValue(item,nameField,&managedName);
       // Read all scalar fields through the same proven IL2CPP field API.
       r.fieldValue(item,typeField,&itemType);
-      r.fieldValue(item,childTypeField,&childType);
-      r.fieldValue(item,searchTypeField,&searchType);
+      r.fieldValue(item,subtypeField,&childType);
+      r.fieldValue(item,qualityField,&quality);
+      if (skill) {
+        r.fieldValue(item,extraField,&selfCreation);
+        r.fieldValue(item,descField,&managedDesc);
+        r.fieldValue(item,lvtextField,&managedLvtext);
+      }
       if (ident<=0 || !managedName) continue;
       if (n<8 || n%64==0) {
         char stage[64]; snprintf(stage,sizeof(stage),"element_%d_readname",n);
@@ -227,9 +238,28 @@ static int exportTable(Runtime &r,void *image,const char *typeName,const char *c
       if (length && !chars) continue;
       NSString* name=[[NSString alloc] initWithCharacters:(const unichar*)chars length:(NSUInteger)length];
       if (!name) continue;
-      [entries addObject:@{@"id":@(ident),@"name":name,
-                            @"type":@(itemType),@"childType":@(childType),
-                            @"searchType":@(searchType)}];
+      if (skill) {
+        // Copy managed strings immediately; keep JSON independent of IL2CPP object lifetimes.
+        NSMutableDictionary *row=[@{@"id":@(ident),@"name":name,
+            @"skillType":@(itemType),@"skillCategory":@(childType),
+            @"skillQuality":@(quality),@"isSelfCreation":@(selfCreation)} mutableCopy];
+        void* optionalStrings[]={managedDesc,managedLvtext};
+        NSString* keys[]={@"skillDescribe",@"lvtext"};
+        for(int j=0;j<2;j++) {
+          void* value=optionalStrings[j];
+          if (!value) {row[keys[j]]=@"";continue;}
+          int32_t length=r.stringLength(value);
+          if(length<0 || length>16000) return -113;
+          const uint16_t* chars=r.stringChars(value);
+          if(length && !chars) return -113;
+          NSString* text=[[NSString alloc] initWithCharacters:(const unichar*)chars length:(NSUInteger)length];
+          row[keys[j]]=text?:@"";
+        }
+        [entries addObject:row];
+      } else {
+        [entries addObject:@{@"id":@(ident),@"name":name,@"type":@(itemType),
+            @"childType":@(childType),@"searchType":@(quality)}];
+      }
     }
   }
   [entries sortUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
@@ -282,23 +312,41 @@ extern "C" __attribute__((visibility("default"))) int XJGMExportItems(int *saved
   }
 }
 
-extern "C" __attribute__((visibility("default"))) int XJGMCheckItems(void) {
+static int XJGMCheckCatalog(const char* typeName) {
   @autoreleasepool {
     checkpoint("preflight_start");
-    Runtime r={}; void *image=nullptr;
+    Runtime r={};void* image=nullptr;
     int status=prepareExport(r,&image);
-    if (status!=1) return status;
-    void* cls=r.fromName(image,"config.export.excel","ItemTmpl");
-    if (!cls) return -208;
+    if(status!=1)return status;
+    void* cls=r.fromName(image,"config.export.excel",typeName);
+    if(!cls)return -208;
     void* field=r.field(cls,"configs");
-    if (!field) return -108;
+    if(!field)return -108;
     auto staticGet=(void (*)(void*,void*))sym(r.handle,"il2cpp_field_static_get_value");
-    if (!staticGet) return -101;
-    void *dict=nullptr;
+    if(!staticGet)return -101;
+    void* dict=nullptr;
     checkpoint("preflight_static_get");
     staticGet(field,&dict);
-    if (!dict) return -102;
+    if(!dict)return -102;
     checkpoint("preflight_success");
     return 1;
+  }
+}
+extern "C" __attribute__((visibility("default"))) int XJGMCheckItems(void) {
+  return XJGMCheckCatalog("ItemTmpl");
+}
+extern "C" __attribute__((visibility("default"))) int XJGMCheckSkills(void) {
+  return XJGMCheckCatalog("SkillInfo");
+}
+extern "C" __attribute__((visibility("default"))) int XJGMExportSkills(int *savedOut) {
+  if(savedOut)*savedOut=0;
+  @autoreleasepool {
+    Runtime r={};void* image=nullptr;bool saved=false;
+    checkpoint("skill_start");
+    int status=prepareExport(r,&image);
+    int result=status==1?exportTable(r,image,"SkillInfo","skill","skills.json",&saved):status;
+    if(savedOut)*savedOut=saved?1:0;
+    NSLog(@"[XJGMExportV1.5] skill result=%d saved=%d",result,saved?1:0);
+    return result;
   }
 }
