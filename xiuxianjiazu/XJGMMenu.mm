@@ -604,10 +604,10 @@ static NSArray<NSString *> *CategoryNames(void) {
     NSNumber *actorId=actor[@"id"];
     NSString *actorName=actor[@"name"];
     NSNumber *forceId=actor[@"forceId"];
-    __weak typeof(self) weakSelf=self;
+    __weak XJGMController *weakSelf=self;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(delay*NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
-        typeof(self) strongSelf=weakSelf;
+        XJGMController *strongSelf=weakSelf;
         if(!strongSelf || !strongSelf.attributesMode)return;
         NSDictionary *current=strongSelf.selectedActor;
         if(![current[@"id"] isEqual:actorId] ||
