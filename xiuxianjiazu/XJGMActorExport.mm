@@ -174,3 +174,79 @@ static int exportActors(){
 extern "C" __attribute__((visibility("default"))) int XJGMExportActors(void){
  @autoreleasepool{return exportActors();}
 }
+
+
+// P2.2.2: read-only, runtime actor attribute array snapshot.
+// The indices below are raw List<long> positions; do NOT assume semantic mapping
+// to UnitAttrTmpl.id without checking actual game UI in a later validation step.
+namespace {
+static int exportActorAttributes(int32_t actorId,const char* expectedName,int32_t expectedForceId) {
+ checkpoint("attr_start");
+ if(actorId<=0 || !expectedName || !expectedName[0])return -440;
+ APIs r={};
+ int status=setup(r);if(status!=1)return status;
+ void* domain=r.domain();if(!domain)return -404;
+ if(!r.threadCurrent()&&!r.threadAttach(domain))return -405;
+ void* assembly=r.assembly(domain,"gameCore.dll");
+ void* image=assembly?r.image(assembly):nullptr;
+ if(!image)return -406;
+ void* cacheClass=r.fromName(image,"","DataCache");
+ if(!cacheClass)return -407;
+ void* getInstance=r.method(cacheClass,"get_Instance",0);
+ void* getActor=r.method(cacheClass,"TryGetActor",1);
+ if(!getInstance||!getActor)return -441;
+ void* cache=nullptr;
+ if(!call(r,getInstance,nullptr,nullptr,&cache)||!cache)return -409;
+ void* args[]={&actorId};
+ void* actor=nullptr;
+ if(!call(r,getActor,cache,args,&actor)||!actor)return -442;
+ checkpoint("attr_actor_found");
+ void* actorCls=r.objectClass(actor);if(!actorCls)return -443;
+ void* getName=r.method(actorCls,"get_name",0);
+ void* getForce=r.method(actorCls,"get_forceId",0);
+ void* getAttr=r.method(actorCls,"GetAttr",1);
+ if(!getName||!getForce||!getAttr)return -444;
+ int32_t force=0;
+ if(intGetter(r,actor,getForce,&force)!=1)return -445;
+ void* managedName=nullptr;
+ if(!call(r,getName,actor,nullptr,&managedName))return -445;
+ NSString *name=readString(r,managedName);
+ NSString *expected=[NSString stringWithUTF8String:expectedName];
+ if(!name||!expected||![name isEqualToString:expected]||force!=expectedForceId)return -446;
+ checkpoint("attr_get_list");
+ bool falseArg=false;void* getArgs[]={&falseArg};
+ void* list=nullptr;
+ if(!call(r,getAttr,actor,getArgs,&list)||!list)return -447;
+ void* listCls=r.objectClass(list);if(!listCls)return -448;
+ void* getCount=r.method(listCls,"get_Count",0);
+ void* getItem=r.method(listCls,"get_Item",1);
+ if(!getCount||!getItem)return -449;
+ int32_t count=0;
+ if(intGetter(r,list,getCount,&count)!=1||count<0||count>4096)return -450;
+ NSMutableArray *values=[NSMutableArray arrayWithCapacity:(NSUInteger)count];
+ for(int32_t index=0;index<count;index++){
+  void* boxed=nullptr;void* indexArgs[]={&index};
+  if(!call(r,getItem,list,indexArgs,&boxed)||!boxed)return -451;
+  void* raw=r.unbox(boxed);if(!raw)return -451;
+  int64_t value=*(int64_t*)raw;
+  [values addObject:@{@"index":@(index),@"value":@(value)}];
+ }
+ checkpoint("attr_encode");
+ NSDictionary* obj=@{@"actorId":@(actorId),@"actorName":name,@"forceId":@(force),
+                     @"count":@(count),@"values":values,
+                     @"indexMappingVerified":@NO};
+ NSData* data=[NSJSONSerialization dataWithJSONObject:obj options:0 error:nil];
+ if(!data||data.length>1024*1024)return -452;
+ NSArray* dirs=NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask,YES);
+ if(!dirs.count)return -453;
+ NSString *dir=[dirs[0] stringByAppendingPathComponent:@"XiuxianjiazuGM"];
+ if(![[NSFileManager defaultManager] createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil])return -453;
+ if(![data writeToFile:[dir stringByAppendingPathComponent:@"actor-attributes.json"] options:NSDataWritingAtomic error:nil])return -454;
+ checkpoint("attr_success");
+ return count;
+}
+}
+extern "C" __attribute__((visibility("default"))) int XJGMExportActorAttributes(int32_t actorId,
+    const char* expectedName,int32_t expectedForceId) {
+ @autoreleasepool{return exportActorAttributes(actorId,expectedName,expectedForceId);}
+}
