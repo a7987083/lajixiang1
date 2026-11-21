@@ -425,6 +425,7 @@ static NSArray<NSString *> *CategoryNames(void) {
         {
             names[obj[@"id"]]=obj[@"name"];
             if([obj[@"valueType"] isKindOfClass:NSNumber.class] &&
+               [obj[@"isPercentage"] isKindOfClass:NSNumber.class] &&
                [obj[@"id"] integerValue]>=0 && [obj[@"id"] integerValue]<100)
                 [validDefs addObject:obj];
         }
@@ -446,7 +447,8 @@ static NSArray<NSString *> *CategoryNames(void) {
     for(NSDictionary *a in self.attributeDefs)
         if(self.selectedAttribute && [a[@"id"] isEqual:self.selectedAttribute[@"id"]] &&
            [a[@"name"] isEqual:self.selectedAttribute[@"name"]] &&
-           [a[@"valueType"] isEqual:self.selectedAttribute[@"valueType"]]) {retained=a;break;}
+           [a[@"valueType"] isEqual:self.selectedAttribute[@"valueType"]] &&
+           [a[@"isPercentage"] isEqual:self.selectedAttribute[@"isPercentage"]]) {retained=a;break;}
     self.selectedAttribute=retained;
     [self filterAttributeList];
     self.attributeFreshReady=YES;
@@ -474,7 +476,7 @@ static NSArray<NSString *> *CategoryNames(void) {
 }
 - (void)updateAttributeSendState {
     BOOL canSend=self.attributeFreshReady && self.selectedActor && self.selectedAttribute &&
-        ([self.selectedAttribute[@"valueType"] intValue]==0 || [self.selectedAttribute[@"valueType"] intValue]==1) &&
+        [self.selectedAttribute[@"isPercentage"] isKindOfClass:NSNumber.class] &&
         self.attributeRawValues[self.selectedAttribute[@"id"]]!=nil;
     self.attributeSend.enabled=canSend;self.attributeSend.alpha=canSend?1:.5;
 }
@@ -484,10 +486,10 @@ static NSArray<NSString *> *CategoryNames(void) {
     if(!self.attributeFreshReady || !actor || !attr) {
         self.attributeText.text=@"动态弟子或属性尚未完成校验，请刷新。";return;
     }
-    int type=[attr[@"valueType"] intValue];
-    if(type!=0&&type!=1) {
-        self.attributeText.text=@"该属性数值类型未知；已取消修改。";return;
+    if(![attr[@"isPercentage"] isKindOfClass:NSNumber.class]) {
+        self.attributeText.text=@"原生属性类型未读取，禁止发送。";return;
     }
+    int type=[attr[@"isPercentage"] boolValue]?1:0;
     NSString *entered=[self.attributeValue.text stringByTrimmingCharactersInSet:
         NSCharacterSet.whitespaceAndNewlineCharacterSet];
     // The native GM protocol accepts Int32. Input does not enforce an invented
@@ -523,7 +525,8 @@ static NSArray<NSString *> *CategoryNames(void) {
        ![newActor[@"forceId"] isEqual:actor[@"forceId"]] ||
        ![fresh[@"id"] isEqual:attr[@"id"]] ||
        ![fresh[@"name"] isEqual:attr[@"name"]] ||
-       ![fresh[@"valueType"] isEqual:attr[@"valueType"]]) {
+       ![fresh[@"valueType"] isEqual:attr[@"valueType"]] ||
+       ![fresh[@"isPercentage"] isEqual:attr[@"isPercentage"]]) {
         self.attributeText.text=@"弟子或属性已变更，本次未发送。请重新选择。";
         [self updateAttributeSendState];return;
     }
@@ -801,7 +804,7 @@ static NSArray<NSString *> *CategoryNames(void) {
     if(tableView==self.attributeTable){
         NSDictionary *a=self.attributeFiltered[(NSUInteger)indexPath.row];
         NSNumber *raw=self.attributeRawValues[a[@"id"]];
-        BOOL percentage=[a[@"valueType"] intValue]==1;
+        BOOL percentage=[a[@"isPercentage"] boolValue];
         NSString *shown=raw?(percentage?
             [NSString stringWithFormat:@"%.2f%%",raw.doubleValue/100.0]:
             raw.stringValue):@"—";
@@ -828,7 +831,7 @@ static NSArray<NSString *> *CategoryNames(void) {
         if((NSUInteger)indexPath.row>=self.attributeFiltered.count)return;
         self.selectedAttribute=self.attributeFiltered[(NSUInteger)indexPath.row];
         NSNumber *raw=self.attributeRawValues[self.selectedAttribute[@"id"]];
-        BOOL percentage=[self.selectedAttribute[@"valueType"] intValue]==1;
+        BOOL percentage=[self.selectedAttribute[@"isPercentage"] boolValue];
         NSString *shown=raw?(percentage?
             [NSString stringWithFormat:@"%.2f%%",raw.doubleValue/100.0]:raw.stringValue):@"—";
         self.attributeValue.placeholder=percentage?@"百分比，例如 12.50":@"输入整数";
