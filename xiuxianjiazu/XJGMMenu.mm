@@ -501,10 +501,10 @@ static NSArray<NSString *> *CategoryNames(void) {
     UIAlertController *confirm=[UIAlertController alertControllerWithTitle:@"确认设置属性"
         message:message preferredStyle:UIAlertControllerStyleAlert];
     [confirm addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    __weak typeof(self) weakSelf=self;
+    __weak XJGMController *weakSelf=self;
     [confirm addAction:[UIAlertAction actionWithTitle:@"确认发送" style:UIAlertActionStyleDestructive
         handler:^(__unused UIAlertAction *action){
-        typeof(self) strongSelf=weakSelf;if(!strongSelf)return;
+        XJGMController *strongSelf=weakSelf;if(!strongSelf)return;
         strongSelf.attributeSend.enabled=NO;
         [strongSelf refreshAttributes:nil];
         // Stop on identity or catalog changes. Refresh fetches both from runtime.
