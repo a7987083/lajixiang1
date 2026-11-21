@@ -268,3 +268,78 @@ static int sendOriginalSkill(int32_t actorId,int32_t skillId) {
 extern "C" __attribute__((visibility("default"))) int XJGMSendSkill(int32_t actorId,int32_t skillId) {
   @autoreleasepool{return sendOriginalSkill(actorId,skillId);}
 }
+
+
+// P2.2.3: GMAttrBlock.OnClickBtnSet native equivalent.
+// Confirmed by instruction trace in UUID-guarded UnityFramework:
+// C2S_GMComand(typeStr@0x4487DF0) -> actorId, attributeId, intValue,
+// route@0x4479768 -> GameApp.Send. Returns request submission only.
+namespace {
+static void attributeStage(const char* step) {
+  NSArray *dirs=NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask,YES);
+  if(!dirs.count)return;
+  NSString *dir=[dirs[0] stringByAppendingPathComponent:@"XiuxianjiazuGM"];
+  [[NSFileManager defaultManager] createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
+  [[NSString stringWithFormat:@"P2.2.3 stage=%s",step]
+    writeToFile:[dir stringByAppendingPathComponent:@"gm-attribute-stage.txt"]
+    atomically:YES encoding:NSUTF8StringEncoding error:nil];
+}
+static int sendOriginalActorAttribute(int32_t actorId,int32_t attributeId,int32_t value) {
+  attributeStage("start");
+  if(actorId<=0||attributeId<0||attributeId>=100||value<0||value>9999)return -601;
+  uintptr_t base=exactImageBase();if(!base)return -602;
+  attributeStage("uuid_verified");
+  Runtime r={};if(resolve(r)!=1)return -603;
+  void* domain=r.domain();if(!domain)return -604;
+  if(!r.current()&&!r.attach(domain))return -605;
+  void* cfg=managedImage(r,domain,"gameConfigs.dll");
+  void* protocol=managedImage(r,domain,"gameProtocal.dll");
+  void* core=managedImage(r,domain,"gameCore.dll");
+  if(!cfg||!protocol||!core)return -606;
+  void* attrCls=r.fromName(cfg,"config.export.excel","UnitAttrTmpl");
+  void* cacheCls=r.fromName(core,"","DataCache");
+  void* cmdCls=r.fromName(protocol,"xxjz.game","C2S_GMComand");
+  void* appCls=r.fromName(core,"","GameApp");
+  if(!attrCls||!cacheCls||!cmdCls||!appCls)return -607;
+  void* attr=nullptr;void* attrArgs[]={&attributeId};
+  if(!invoke(r,r.method(attrCls,"Find",1),nullptr,attrArgs,&attr)||!attr)return -608;
+  // Fetch and check current attribute type directly from current runtime config;
+  // percentage encoded fields must remain disabled pending normalization audit.
+  void* typeField=r.field(attrCls,"valueType");
+  if(!typeField)return -609;
+  int32_t valueType=-1;
+  r.fieldValue(attr,typeField,&valueType);
+  if(valueType!=0)return -610;
+  void* cache=nullptr;
+  if(!invoke(r,r.method(cacheCls,"get_Instance",0),nullptr,nullptr,&cache)||!cache)return -611;
+  void* actor=nullptr;void* actorArgs[]={&actorId};
+  if(!invoke(r,r.method(cacheCls,"TryGetActor",1),cache,actorArgs,&actor)||!actor)return -612;
+  attributeStage("validated_actor_and_attribute");
+  using NewObject=void*(*)(void*);
+  auto newObject=(NewObject)sym(r.handle,"il2cpp_object_new");
+  if(!newObject)return -613;
+  void* cmd=newObject(cmdCls);
+  if(!cmd||!invoke(r,r.method(cmdCls,".ctor",0),cmd,nullptr))return -614;
+  void* typeLiteral=managedLiteral(base,0x4487DF0);
+  void* routeLiteral=managedLiteral(base,0x4479768);
+  if(!typeLiteral||!routeLiteral)return -615;
+  void* typeArgs[]={typeLiteral};
+  if(!invoke(r,r.method(cmdCls,"set_typeStr",1),cmd,typeArgs))return -616;
+  void* first[]={&actorId},*second[]={&attributeId},*third[]={&value};
+  auto add=r.method(cmdCls,"AddToParams1",1);
+  if(!invoke(r,add,cmd,first)||!invoke(r,add,cmd,second)||
+     !invoke(r,add,cmd,third))return -617;
+  attributeStage("parameters_added");
+  void* app=nullptr;
+  if(!invoke(r,r.method(appCls,"get_Instance",0),nullptr,nullptr,&app)||!app)return -618;
+  void* sendArgs[]={routeLiteral,cmd};
+  attributeStage("invoke_send");
+  bool ok=invoke(r,r.method(appCls,"Send",2),app,sendArgs);
+  if(ok)attributeStage("submitted");
+  return ok?1:-619;
+}
+}
+extern "C" __attribute__((visibility("default"))) int XJGMSendActorAttribute(
+    int32_t actorId,int32_t attrId,int32_t value) {
+  @autoreleasepool{return sendOriginalActorAttribute(actorId,attrId,value);}
+}
