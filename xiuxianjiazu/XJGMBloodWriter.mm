@@ -159,6 +159,17 @@ static int runMutation(int32_t actorId,const char* expectedName,int32_t forceId,
        !boxedInt(r,boxForce,&actualForce)||actualForce!=forceId)return -825;
     if(![startWorld isEqualToString:XJGMCurrentWorldToken()])return -807;
 
+    // Template-fixed bloods are restored by the game's own normalization.
+    // Refuse deletion rather than corrupting protected template state.
+    if(mode==2){
+        void* isFixedMethod=r.method(actorCls,"IsTemplateFixedBlood",1);
+        void* fixedBox=nullptr;bool isFixed=false;
+        void* checkArgs[]={&bloodId};
+        if(!isFixedMethod ||
+           !managedCall(r,isFixedMethod,actor,checkArgs,&fixedBox) ||
+           !boxedBool(r,fixedBox,&isFixed))return -834;
+        if(isFixed)return -835;
+    }
     // The method's second parameter is a delta, not an absolute purity.
     int32_t delta=mode==2?-current:target-current;
     if(delta==0 && mode!=2)return 2;
