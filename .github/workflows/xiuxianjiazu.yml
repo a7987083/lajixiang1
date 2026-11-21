@@ -1,7 +1,7 @@
 name: Build Xiuxianjiazu GM UI
 on:
   push:
-    branches: [xiuxianjiazu, feat/xiuxianjiazu-native-item-search, feat/xiuxianjiazu-item-catalog-v1, fix/xiuxianjiazu-item-export-crash-v1, fix/xiuxianjiazu-item-export-array-v1-2, fix/xiuxianjiazu-item-export-field-args-v1-3, feat/xiuxianjiazu-external-json-ui, feat/xiuxianjiazu-gm-menu-shell]
+    branches: [xiuxianjiazu, feat/xiuxianjiazu-native-item-search, feat/xiuxianjiazu-item-catalog-v1, fix/xiuxianjiazu-item-export-crash-v1, fix/xiuxianjiazu-item-export-array-v1-2, fix/xiuxianjiazu-item-export-field-args-v1-3, feat/xiuxianjiazu-external-json-ui, feat/xiuxianjiazu-gm-menu-shell, feat/xiuxianjiazu-gm-item-send-v1]
     paths:
       - 'xiuxianjiazu/**'
       - '.github/workflows/xiuxianjiazu.yml'
@@ -20,7 +20,7 @@ jobs:
             -isysroot "$SDK" -miphoneos-version-min=13.0 \
             -framework UIKit -framework Foundation -framework QuartzCore -framework CoreGraphics \
             -Wl,-install_name,@rpath/XiuxianjiazuGM.dylib \
-            xiuxianjiazu/XJGMMenu.mm -o dist/XiuxianjiazuGM.dylib
+            xiuxianjiazu/XJGMMenu.mm xiuxianjiazu/XJGMItemSender.mm -o dist/XiuxianjiazuGM.dylib
           codesign --force --sign - --timestamp=none dist/XiuxianjiazuGM.dylib
           file dist/XiuxianjiazuGM.dylib
           shasum -a 256 dist/XiuxianjiazuGM.dylib > dist/SHA256SUMS.txt
