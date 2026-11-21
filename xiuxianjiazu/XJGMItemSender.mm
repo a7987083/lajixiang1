@@ -284,7 +284,7 @@ static void attributeStage(const char* step) {
     writeToFile:[dir stringByAppendingPathComponent:@"gm-attribute-stage.txt"]
     atomically:YES encoding:NSUTF8StringEncoding error:nil];
 }
-static int sendOriginalActorAttribute(int32_t actorId,int32_t attributeId,int32_t value) {
+static int sendOriginalActorAttribute(int32_t actorId,int32_t attributeId,int32_t value,bool expectedPercent) {
   attributeStage("start");
   if(actorId<=0||attributeId<0||attributeId>=100||value<0)return -601;
   uintptr_t base=exactImageBase();if(!base)return -602;
@@ -310,18 +310,16 @@ static int sendOriginalActorAttribute(int32_t actorId,int32_t attributeId,int32_
   int32_t valueType=-1;
   r.fieldValue(attr,typeField,&valueType);
   if(valueType!=0 && valueType!=1)return -610;
-  // UnitAttrTmpl.valueType must agree with the game's real percentage classification.
-  if(valueType==1) {
-    void* helperCls=r.fromName(core,"","AttrHelper");
-    if(!helperCls)return -620;
-    void* method=r.method(helperCls,"IsPercentageAttType",1);
-    if(!method)return -620;
-    void* boxed=nullptr;
-    if(!invoke(r,method,nullptr,attrArgs,&boxed)||!boxed)return -621;
-    auto unbox=(void*(*)(void*))sym(r.handle,"il2cpp_object_unbox");
-    if(!unbox)return -621;
-    void* raw=unbox(boxed);if(!raw || !*(uint8_t*)raw)return -622;
-  }
+  // Game-native classification is authoritative, not UnitAttrTmpl.valueType.
+  void* helperCls=r.fromName(core,"","AttrHelper");
+  void* helperMethod=helperCls?r.method(helperCls,"IsPercentageAttType",1):nullptr;
+  if(!helperMethod)return -620;
+  void* boxed=nullptr;
+  if(!invoke(r,helperMethod,nullptr,attrArgs,&boxed)||!boxed)return -621;
+  auto unbox=(void*(*)(void*))sym(r.handle,"il2cpp_object_unbox");
+  if(!unbox)return -621;
+  void* raw=unbox(boxed);if(!raw)return -621;
+  if((*(uint8_t*)raw!=0)!=expectedPercent)return -622;
   void* cache=nullptr;
   if(!invoke(r,r.method(cacheCls,"get_Instance",0),nullptr,nullptr,&cache)||!cache)return -611;
   void* actor=nullptr;void* actorArgs[]={&actorId};
@@ -352,6 +350,6 @@ static int sendOriginalActorAttribute(int32_t actorId,int32_t attributeId,int32_
 }
 }
 extern "C" __attribute__((visibility("default"))) int XJGMSendActorAttribute(
-    int32_t actorId,int32_t attrId,int32_t value) {
-  @autoreleasepool{return sendOriginalActorAttribute(actorId,attrId,value);}
+    int32_t actorId,int32_t attrId,int32_t value,bool expectedPercent) {
+  @autoreleasepool{return sendOriginalActorAttribute(actorId,attrId,value,expectedPercent);}
 }
