@@ -137,12 +137,23 @@ static int runMutation(int32_t actorId,const char* expectedName,int32_t forceId,
     void* world=nullptr;
     r.fieldValue(app,worldField,&world);
     if(!world)return -814;
-    void* worldCls=r.fromName(core,"GS","GSWorld");
-    if(!worldCls)return -815;
+    // GSWorld and GSActor are not guaranteed to be declared in gameCore.dll.
+    // Resolve the classes from the validated live instances rather than
+    // assuming an assembly. Validate namespace + name before invoking.
+    auto objectClass=(void*(*)(void*))sym(r.handle,"il2cpp_object_get_class");
+    auto className=(const char*(*)(void*))sym(r.handle,"il2cpp_class_get_name");
+    auto classNamespace=(const char*(*)(void*))sym(r.handle,"il2cpp_class_get_namespace");
+    if(!objectClass||!className||!classNamespace)return -815;
+    void* worldCls=objectClass(world);
+    if(!worldCls || !className(worldCls)||!classNamespace(worldCls)||
+       strcmp(className(worldCls),"GSWorld")!=0||
+       strcmp(classNamespace(worldCls),"GS")!=0)return -815;
     void* actor=nullptr;void* actorArgs[]={&actorId};
     if(!managedCall(r,r.method(worldCls,"FindActor",1),world,actorArgs,&actor)||!actor)return -816;
-    void* actorCls=r.fromName(core,"GS","GSActor");
-    if(!actorCls)return -817;
+    void* actorCls=objectClass(actor);
+    if(!actorCls || !className(actorCls)||!classNamespace(actorCls)||
+       strcmp(className(actorCls),"GSActor")!=0||
+       strcmp(classNamespace(actorCls),"GS")!=0)return -817;
     void* idField=r.field(actorCls,"id");
     if(!idField)return -818;
     int32_t id=0;
@@ -190,9 +201,8 @@ static int runMutation(int32_t actorId,const char* expectedName,int32_t forceId,
         void* bloodMap=nullptr;
         if(!managedCall(r,r.method(actorCls,"GetBloodMapForRead",0),
                         actor,nullptr,&bloodMap)||!bloodMap)return -828;
-        auto objectClass=(void*(*)(void*))sym(r.handle,"il2cpp_object_get_class");
-        if(!objectClass)return -828;
         void* dictionaryCls=objectClass(bloodMap);
+        if(!dictionaryCls)return -828;
         void* removeMethod=r.method(dictionaryCls,"Remove",1);
         void* keyArgs[]={&key};void* boxRemoved=nullptr;bool removed=false;
         if(!managedCall(r,removeMethod,bloodMap,keyArgs,&boxRemoved)||
