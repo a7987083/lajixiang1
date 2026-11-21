@@ -493,40 +493,28 @@ static NSArray<NSString *> *CategoryNames(void) {
         self.attributeText.text=@"仅允许输入 0～9999 的整数；未发送。";return;
     }
     int32_t value=(int32_t)entered.intValue;
-    // An explicit confirmation is required before a state-changing GM message.
-    NSNumber *old=self.attributeRawValues[attr[@"id"]];
-    NSString *message=[NSString stringWithFormat:
-        @"弟子：%@\n属性：%@\n当前原始值（候选）：%@\n新值：%d\n\n此次命令会修改游戏状态。",
-        actor[@"name"],attr[@"name"],old?:@"未知",value];
-    UIAlertController *confirm=[UIAlertController alertControllerWithTitle:@"确认设置属性"
-        message:message preferredStyle:UIAlertControllerStyleAlert];
-    [confirm addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    __weak XJGMController *weakSelf=self;
-    [confirm addAction:[UIAlertAction actionWithTitle:@"确认发送" style:UIAlertActionStyleDestructive
-        handler:^(__unused UIAlertAction *action){
-        XJGMController *strongSelf=weakSelf;if(!strongSelf)return;
-        strongSelf.attributeSend.enabled=NO;
-        [strongSelf refreshAttributes:nil];
-        // Stop on identity or catalog changes. Refresh fetches both from runtime.
-        NSDictionary *fresh=strongSelf.selectedAttribute;
-        NSDictionary *newActor=strongSelf.selectedActor;
-        if(!strongSelf.attributeFreshReady || !fresh || !newActor || ![newActor[@"id"] isEqual:actor[@"id"]] ||
-           ![newActor[@"name"] isEqual:actor[@"name"]] ||
-           ![newActor[@"forceId"] isEqual:actor[@"forceId"]] ||
-           ![fresh[@"id"] isEqual:attr[@"id"]] ||
-           ![fresh[@"name"] isEqual:attr[@"name"]] ||
-           ![fresh[@"valueType"] isEqual:attr[@"valueType"]]) {
-           strongSelf.attributeText.text=@"弟子或属性已变更，请重新选择；本次未发送。";
-           [strongSelf updateAttributeSendState];return;
-        }
-        int rc=XJGMSendActorAttribute([actor[@"id"] intValue],[attr[@"id"] intValue],value);
-        strongSelf.attributeText.text=rc==1?
-            [NSString stringWithFormat:@"请求已发送：%@ / %@ → %d\n请刷新并核对游戏实际效果。",
-                actor[@"name"],attr[@"name"],value]:
-            [NSString stringWithFormat:@"属性发送 E%03d；检查 gm-attribute-stage.txt",-rc];
-        [strongSelf updateAttributeSendState];
-    }]];
-    [self presentViewController:confirm animated:YES completion:nil];
+    // Inline execution, no UIAlertController or other modal confirmation.
+    // Still fail closed if any actor identity or attribute definition has changed.
+    self.attributeSend.enabled=NO;
+    [self refreshAttributes:nil];
+    NSDictionary *fresh=self.selectedAttribute,*newActor=self.selectedActor;
+    if(!self.attributeFreshReady || !fresh || !newActor ||
+       ![newActor[@"id"] isEqual:actor[@"id"]] ||
+       ![newActor[@"name"] isEqual:actor[@"name"]] ||
+       ![newActor[@"forceId"] isEqual:actor[@"forceId"]] ||
+       ![fresh[@"id"] isEqual:attr[@"id"]] ||
+       ![fresh[@"name"] isEqual:attr[@"name"]] ||
+       ![fresh[@"valueType"] isEqual:attr[@"valueType"]]) {
+        self.attributeText.text=@"弟子或属性已变更，本次未发送。请重新选择。";
+        [self updateAttributeSendState];return;
+    }
+    int rc=XJGMSendActorAttribute([actor[@"id"] intValue],[attr[@"id"] intValue],value);
+    // Submission is not proof of persistence: avoid claiming saved/permanent.
+    self.attributeText.text=rc==1?
+        [NSString stringWithFormat:@"已提交：%@ · %@ → %d\\n重新进入游戏后再验证是否持久生效。",
+            actor[@"name"],attr[@"name"],value]:
+        [NSString stringWithFormat:@"属性发送失败 E%03d；检查 gm-attribute-stage.txt",-rc];
+    [self updateAttributeSendState];
 }
 - (void)showItems:(id)sender {
     [self.view endEditing:YES];
