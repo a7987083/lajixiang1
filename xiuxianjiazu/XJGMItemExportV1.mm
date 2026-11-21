@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
+#include <stdio.h>
 #include <dlfcn.h>
 #include <mach-o/dyld.h>
 #include <mach-o/loader.h>
@@ -46,7 +47,7 @@ static void checkpoint(const char *step) {
   NSString *dir=[dirs[0] stringByAppendingPathComponent:@"XiuxianjiazuGM"];
   [[NSFileManager defaultManager] createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
   NSString *file=[dir stringByAppendingPathComponent:@"export-stage.txt"];
-  NSString *value=[NSString stringWithFormat:@"V1.1 stage=%s",step];
+  NSString *value=[NSString stringWithFormat:@"V1.2 stage=%s",step];
   [value writeToFile:file atomically:YES encoding:NSUTF8StringEncoding error:nil];
   NSLog(@"[XJGMExport] %@",value);
 }
@@ -155,17 +156,63 @@ static int exportTable(Runtime &r,void *image,const char *typeName,const char *c
     checkpoint("invoke_copy_to");
     r.invoke(copyTo,values,params,&exc);
     if (exc || arrayLength(array)!=(uintptr_t)count) return -107;
-    // Target is arm64 Unity IL2CPP managed reference array.
-    void* const* elements=(void* const*)((uintptr_t)array+0x20);
-    checkpoint("read_elements");
+    // Do not dereference the array header or assume its element offset.
+    // Use the managed System.Array.GetValue(Int32) API to retrieve a GC-managed object.
+    auto getCorlib=(void* (*)())sym(r.handle,"il2cpp_get_corlib");
+    auto classMethods=(void* (*)(void*,void**))sym(r.handle,"il2cpp_class_get_methods");
+    auto methodName=(const char* (*)(void*))sym(r.handle,"il2cpp_method_get_name");
+    auto methodCount=(uint32_t (*)(void*))sym(r.handle,"il2cpp_method_get_param_count");
+    auto methodParam=(void* (*)(void*,uint32_t))sym(r.handle,"il2cpp_method_get_param");
+    auto typeKind=(int (*)(void*))sym(r.handle,"il2cpp_type_get_type");
+    auto assignable=(bool (*)(void*,void*))sym(r.handle,"il2cpp_class_is_assignable_from");
+    if (!getCorlib || !classMethods || !methodName || !methodCount ||
+        !methodParam || !typeKind || !assignable) return -110;
+    void* corlib=getCorlib();
+    if (!corlib) return -110;
+    void* systemArray=r.fromName(corlib,"System","Array");
+    if (!systemArray) return -110;
+    void* getValue=nullptr;
+    void* iterator=nullptr;
+    // There are GetValue(Int32) and GetValue(Int64) overloads.
+    // Inspect the signature; never select by name and arity alone.
+    while (void* m=classMethods(systemArray,&iterator)) {
+      const char* name=methodName(m);
+      if (!name || strcmp(name,"GetValue")!=0 || methodCount(m)!=1) continue;
+      void* type=methodParam(m,0);
+      if (type && typeKind(type)==0x08) { getValue=m; break; } // IL2CPP_TYPE_I4
+    }
+    if (!getValue) return -110;
+    checkpoint("managed_array_getvalue");
     for (int32_t n=0;n<count;n++) {
-      void* item=elements[n];
+      if (n<8 || n%64==0) {
+        char stage[64]; snprintf(stage,sizeof(stage),"element_%d_getvalue",n);
+        checkpoint(stage);
+      }
+      int32_t index=n;
+      void* getArgs[]={&index};
+      exc=nullptr;
+      void* item=r.invoke(getValue,array,getArgs,&exc);
+      if (exc) return -111;
       if (!item) continue;
+      if (n<8 || n%64==0) {
+        char stage[64]; snprintf(stage,sizeof(stage),"element_%d_verifyclass",n);
+        checkpoint(stage);
+      }
+      void* actualClass=objectClass(item);
+      if (!actualClass || !assignable(cls,actualClass)) return -112;
       int32_t ident=0;
       void* managedName=nullptr;
+      if (n<8 || n%64==0) {
+        char stage[64]; snprintf(stage,sizeof(stage),"element_%d_readfields",n);
+        checkpoint(stage);
+      }
       r.fieldValue(idField,item,&ident);
       r.fieldValue(nameField,item,&managedName);
       if (ident<=0 || !managedName) continue;
+      if (n<8 || n%64==0) {
+        char stage[64]; snprintf(stage,sizeof(stage),"element_%d_readname",n);
+        checkpoint(stage);
+      }
       int32_t length=r.stringLength(managedName);
       if (length<0 || length>4096) continue;
       const uint16_t* chars=r.stringChars(managedName);
