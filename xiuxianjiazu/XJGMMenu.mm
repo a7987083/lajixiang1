@@ -66,6 +66,7 @@ static NSArray<NSString *> *CategoryNames(void) {
 @property(nonatomic,strong) NSArray<NSDictionary *> *attributeFiltered;
 @property(nonatomic,strong) NSDictionary *selectedAttribute;
 @property(nonatomic,strong) NSDictionary *attributeRawValues;
+@property(nonatomic,assign) BOOL attributeFreshReady;
 @property(nonatomic,assign) BOOL attributePickPending;
 @property(nonatomic,strong) UIButton *actorButton;
 @property(nonatomic,strong) UIView *actorPicker;
@@ -365,6 +366,8 @@ static NSArray<NSString *> *CategoryNames(void) {
     if(!self.selectedActor) {
         self.attributeText.text=@"请先选择弟子。";return;
     }
+    self.attributeFreshReady=NO;
+    self.attributeSend.enabled=NO;
     self.attributeRefresh.enabled=NO;
     int code=XJGMExportAttributes(); // Live UnitAttrTmpl.configs, not the previous JSON.
     if(code<0) {
@@ -446,6 +449,7 @@ static NSArray<NSString *> *CategoryNames(void) {
            [a[@"valueType"] isEqual:self.selectedAttribute[@"valueType"]]) {retained=a;break;}
     self.selectedAttribute=retained;
     [self filterAttributeList];
+    self.attributeFreshReady=YES;
     self.attributeText.text=[NSString stringWithFormat:@"弟子：%@ · %lu 条属性\n已选：%@\n%@",
         actor[@"name"],(unsigned long)self.attributeDefs.count,
         self.selectedAttribute[@"name"]?:@"未选择",
@@ -469,7 +473,7 @@ static NSArray<NSString *> *CategoryNames(void) {
     self.attributeFiltered=result;[self.attributeTable reloadData];
 }
 - (void)updateAttributeSendState {
-    BOOL canSend=self.selectedActor && self.selectedAttribute &&
+    BOOL canSend=self.attributeFreshReady && self.selectedActor && self.selectedAttribute &&
         [self.selectedAttribute[@"valueType"] intValue]==0 &&
         self.attributeRawValues[self.selectedAttribute[@"id"]]!=nil;
     self.attributeSend.enabled=canSend;self.attributeSend.alpha=canSend?1:.5;
@@ -506,7 +510,7 @@ static NSArray<NSString *> *CategoryNames(void) {
         // Stop on identity or catalog changes. Refresh fetches both from runtime.
         NSDictionary *fresh=strongSelf.selectedAttribute;
         NSDictionary *newActor=strongSelf.selectedActor;
-        if(!fresh || !newActor || ![newActor[@"id"] isEqual:actor[@"id"]] ||
+        if(!strongSelf.attributeFreshReady || !fresh || !newActor || ![newActor[@"id"] isEqual:actor[@"id"]] ||
            ![newActor[@"name"] isEqual:actor[@"name"]] ||
            ![newActor[@"forceId"] isEqual:actor[@"forceId"]] ||
            ![fresh[@"id"] isEqual:attr[@"id"]] ||
