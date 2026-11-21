@@ -250,3 +250,117 @@ extern "C" __attribute__((visibility("default"))) int XJGMExportActorAttributes(
     const char* expectedName,int32_t expectedForceId) {
  @autoreleasepool{return exportActorAttributes(actorId,expectedName,expectedForceId);}
 }
+
+
+// Read-only persistence root-cause sampler. No GSActor mutation, save or hook.
+// Compares runtime attValue with baseAtt serialized by GSActor.SaveData.
+namespace {
+static int sampleGSActorPersistence(int32_t actorId,int32_t attributeId,const char* expectedName,int32_t forceId) {
+ checkpoint("persist_start");
+ if(actorId<=0||attributeId<0||attributeId>=4096||!expectedName)return -701;
+ APIs r={};int status=setup(r);if(status!=1)return status;
+ void* domain=r.domain();if(!domain)return -702;
+ if(!r.threadCurrent()&&!r.threadAttach(domain))return -703;
+ void* assembly=r.assembly(domain,"gameCore.dll");
+ void* img=assembly?r.image(assembly):nullptr;
+ if(!img)return -704;
+ void* appCls=r.fromName(img,"","GameApp");
+ void* worldCls=r.fromName(img,"GS","GSWorld");
+ void* actorCls=r.fromName(img,"GS","GSActor");
+ if(!appCls||!worldCls||!actorCls)return -705;
+ auto field=(void*(*)(void*,const char*))dlsym(r.handle,"il2cpp_class_get_field_from_name");
+ auto fieldVal=(void(*)(void*,void*,void*))dlsym(r.handle,"il2cpp_field_get_value");
+ auto arrLength=(uintptr_t(*)(void*))dlsym(r.handle,"il2cpp_array_length");
+ auto corlib=(void*(*)())dlsym(r.handle,"il2cpp_get_corlib");
+ auto methods=(void*(*)(void*,void**))dlsym(r.handle,"il2cpp_class_get_methods");
+ auto methodName=(const char*(*)(void*))dlsym(r.handle,"il2cpp_method_get_name");
+ auto methodParams=(uint32_t(*)(void*))dlsym(r.handle,"il2cpp_method_get_param_count");
+ auto methodParam=(void*(*)(void*,uint32_t))dlsym(r.handle,"il2cpp_method_get_param");
+ auto typeCode=(int(*)(void*))dlsym(r.handle,"il2cpp_type_get_type");
+ if(!field||!fieldVal||!arrLength||!corlib||!methods||!methodName||
+    !methodParams||!methodParam||!typeCode)return -706;
+ void* app=nullptr;
+ if(!call(r,r.method(appCls,"get_Instance",0),nullptr,nullptr,&app)||!app)return -707;
+ void* worldField=field(appCls,"CustomGSWorld");if(!worldField)return -708;
+ void* world=nullptr;fieldVal(app,worldField,&world);
+ if(!world)return -709;
+ void* actor=nullptr;void* args[]={&actorId};
+ if(!call(r,r.method(worldCls,"FindActor",1),world,args,&actor)||!actor)return -710;
+ checkpoint("persist_actor");
+ void* idField=field(actorCls,"id");
+ void* nameMethod=r.method(actorCls,"get_name",0);
+ void* forceMethod=r.method(actorCls,"get_forceId",0);
+ if(!idField||!nameMethod||!forceMethod)return -711;
+ int32_t actualId=0,actualForce=0;fieldVal(actor,idField,&actualId);
+ if(intGetter(r,actor,forceMethod,&actualForce)!=1)return -712;
+ void* managedName=nullptr;
+ if(!call(r,nameMethod,actor,nullptr,&managedName))return -713;
+ NSString* actualName=readString(r,managedName);
+ NSString* expected=[NSString stringWithUTF8String:expectedName];
+ if(actualId!=actorId||actualForce!=forceId||!actualName||
+    ![actualName isEqualToString:expected])return -714;
+ // Pick the Int32 Array.GetValue overload explicitly (not GetValue(Int64)).
+ void* arrayClass=r.fromName(corlib(),"System","Array");
+ if(!arrayClass)return -715;
+ void* it=nullptr,*getValue=nullptr;
+ while(void* m=methods(arrayClass,&it)) {
+   const char* name=methodName(m);
+   if(name&&strcmp(name,"GetValue")==0&&methodParams(m)==1) {
+     void* param=methodParam(m,0);
+     if(param&&typeCode(param)==0x08){getValue=m;break;}
+   }
+ }
+ if(!getValue)return -716;
+ const char* sources[]={"baseAtt","attValue","attMod","baseAttPct",
+    "bodyRealmBaseAtt","bodyRealmBaseAttPct",
+    "heavenlyTreasureBaseAtt","heavenlyTreasureBaseAttPct"};
+ NSMutableDictionary* fields=[NSMutableDictionary dictionary];
+ for(const char* source:sources) {
+    NSString* label=[NSString stringWithUTF8String:source];
+    void* f=field(actorCls,source);
+    if(!f){fields[label]=@{@"status":@"missing_field"};continue;}
+    void* arr=nullptr;fieldVal(actor,f,&arr);
+    if(!arr){fields[label]=@{@"status":@"null_array"};continue;}
+    uintptr_t count=arrLength(arr);
+    if(count>4096||count==0){fields[label]=@{@"status":@"invalid_length"};continue;}
+    if((uintptr_t)attributeId>=count) {
+      fields[label]=@{@"length":@(count),@"status":@"index_out_of_range"};continue;
+    }
+    int32_t index=attributeId;void* getArgs[]={&index},*boxed=nullptr;
+    if(!call(r,getValue,arr,getArgs,&boxed)||!boxed) {
+      fields[label]=@{@"length":@(count),@"status":@"read_failed"};continue;
+    }
+    void* raw=r.unbox(boxed);
+    if(!raw){fields[label]=@{@"length":@(count),@"status":@"unbox_failed"};continue;}
+    fields[label]=@{@"length":@(count),@"value":@(*(int64_t*)raw)};
+ }
+ // Process-instance identifier distinguishes re-entry from reload of same process.
+ static NSString *runId=nil;
+ static dispatch_once_t once;
+ dispatch_once(&once,^{runId=NSUUID.UUID.UUIDString;});
+ NSDictionary *entry=@{@"process":runId,@"timestamp":@([[NSDate date] timeIntervalSince1970]),
+  @"actorId":@(actorId),@"actorName":actualName,@"forceId":@(forceId),
+  @"attributeIndex":@(attributeId),@"sources":fields};
+ NSArray* dirs=NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask,YES);
+ if(!dirs.count)return -717;
+ NSString* dir=[dirs[0] stringByAppendingPathComponent:@"XiuxianjiazuGM"];
+ if(![[NSFileManager defaultManager] createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil])return -717;
+ NSString* dest=[dir stringByAppendingPathComponent:@"persistence-diagnostic.json"];
+ NSData* previous=[NSData dataWithContentsOfFile:dest];
+ id old=previous?[NSJSONSerialization JSONObjectWithData:previous options:0 error:nil]:nil;
+ NSMutableArray* history=[NSMutableArray array];
+ if([old isKindOfClass:NSArray.class]) {
+   NSUInteger start=[old count]>23?[old count]-23:0;
+   [history addObjectsFromArray:[old subarrayWithRange:NSMakeRange(start,[old count]-start)]];
+ }
+ [history addObject:entry];
+ NSData* output=[NSJSONSerialization dataWithJSONObject:history options:0 error:nil];
+ if(!output||![output writeToFile:dest options:NSDataWritingAtomic error:nil])return -718;
+ checkpoint("persist_success");
+ return (int)history.count;
+}
+}
+extern "C" __attribute__((visibility("default"))) int XJGMSamplePersistence(
+  int32_t actorId,int32_t attributeIndex,const char* expectedName,int32_t forceId) {
+ @autoreleasepool{return sampleGSActorPersistence(actorId,attributeIndex,expectedName,forceId);}
+}
