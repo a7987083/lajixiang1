@@ -538,9 +538,10 @@ static NSArray<NSString *> *CategoryNames(void) {
     if(!self.attributeLocks.count)return;
     if(UIApplication.sharedApplication.applicationState!=UIApplicationStateActive)return;
     NSString *world=XJGMCurrentWorldToken();
-    if(!world.length || ![world isEqualToString:self.lockWorldToken]) {
-        // Keep the world isolation guard. A different save must never inherit
-        // previous actors' locked attributes.
+    // An unavailable world token can be transient during scene transitions.
+    // Pause checks without deleting locks; a *different valid* UUID resets them.
+    if(!world.length)return;
+    if(![world isEqualToString:self.lockWorldToken]) {
         [self clearAttributeLocks:@"存档或游戏世界已切换；全部锁定已停止。"];
         return;
     }
