@@ -205,11 +205,11 @@ static NSArray<NSString *> *CategoryNames(void) {
     CGFloat m=9,inner=w-2*m;
     [self.panel viewWithTag:901].frame=CGRectMake(m,7,w-75,28);
     self.closeButton.frame=CGRectMake(w-61,9,51,27);
-    self.itemsTab.frame=CGRectMake(m,41,94,28);
-    self.skillsTab.frame=CGRectMake(m+82,41,76,28);
-    self.itemsTab.frame=CGRectMake(m,41,76,28);
-    self.attributesTab.frame=CGRectMake(m+164,41,76,28);
-    self.reloadButton.frame=CGRectMake(w-104,41,95,28);
+    CGFloat tabWidth=floor((inner-18)/4);
+    self.itemsTab.frame=CGRectMake(m,41,tabWidth,28);
+    self.skillsTab.frame=CGRectMake(m+tabWidth+6,41,tabWidth,28);
+    self.attributesTab.frame=CGRectMake(m+(tabWidth+6)*2,41,tabWidth,28);
+    self.reloadButton.frame=CGRectMake(m+(tabWidth+6)*3,41,tabWidth,28);
     self.query.frame=CGRectMake(m,77,inner,31);
 
     // Compact iPhone portrait: categories 24%, list 35%, details remaining 41%.
