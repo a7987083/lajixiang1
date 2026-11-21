@@ -222,10 +222,11 @@ static NSArray<NSString *> *CategoryNames(void) {
     attrSelect.tag=907;[self.attributePanel addSubview:attrSelect];
     self.attributeText=[UITextView new];self.attributeText.editable=NO;
     self.attributeText.backgroundColor=Panel();self.attributeText.textColor=Ink();
-    self.attributeText.font=[UIFont systemFontOfSize:12];self.attributeText.text=@"选择弟子后实时读取属性数组。";
+    self.attributeText.font=[UIFont systemFontOfSize:12];self.attributeText.text=@"选择弟子后自动读取属性。";
+    self.attributeText.layer.cornerRadius=5;
     [self.attributePanel addSubview:self.attributeText];
     self.attributeSearch=[UITextField new];
-    self.attributeSearch.placeholder=@"搜索动态属性名称";
+    self.attributeSearch.placeholder=@"搜索属性名称或 ID";
     self.attributeSearch.font=[UIFont systemFontOfSize:12];self.attributeSearch.textColor=Ink();
     self.attributeSearch.backgroundColor=Panel();self.attributeSearch.layer.borderColor=Border().CGColor;
     self.attributeSearch.layer.borderWidth=1;self.attributeSearch.returnKeyType=UIReturnKeyDone;
@@ -234,7 +235,7 @@ static NSArray<NSString *> *CategoryNames(void) {
     [self.attributePanel addSubview:self.attributeSearch];
     self.attributeTable=[[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStylePlain];
     self.attributeTable.delegate=self;self.attributeTable.dataSource=self;
-    self.attributeTable.rowHeight=37;self.attributeTable.backgroundColor=Panel();
+    self.attributeTable.rowHeight=45;self.attributeTable.backgroundColor=Panel();
     [self.attributeTable registerClass:UITableViewCell.class forCellReuseIdentifier:@"cell"];
     [self.attributePanel addSubview:self.attributeTable];
     self.attributeValue=[UITextField new];self.attributeValue.placeholder=@"输入属性数值";
@@ -273,11 +274,14 @@ static NSArray<NSString *> *CategoryNames(void) {
     CGFloat m=9,inner=w-2*m;
     [self.panel viewWithTag:901].frame=CGRectMake(m,7,w-75,28);
     self.closeButton.frame=CGRectMake(w-61,9,51,27);
-    CGFloat tabWidth=floor((inner-18)/4);
-    self.itemsTab.frame=CGRectMake(m,41,tabWidth,28);
-    self.skillsTab.frame=CGRectMake(m+tabWidth+6,41,tabWidth,28);
-    self.attributesTab.frame=CGRectMake(m+(tabWidth+6)*2,41,tabWidth,28);
-    self.reloadButton.frame=CGRectMake(m+(tabWidth+6)*3,41,tabWidth,28);
+    // The attribute page has no reload button: share the full toolbar width.
+    CGFloat tabGap=6;
+    CGFloat tabWidth=floor((inner-tabGap*(self.attributesMode?2:3))/(self.attributesMode?3:4));
+    self.itemsTab.frame=CGRectMake(m,41,tabWidth,30);
+    self.skillsTab.frame=CGRectMake(m+tabWidth+tabGap,41,tabWidth,30);
+    self.attributesTab.frame=CGRectMake(m+(tabWidth+tabGap)*2,41,tabWidth,30);
+    if(!self.attributesMode)
+        self.reloadButton.frame=CGRectMake(m+(tabWidth+tabGap)*3,41,tabWidth,30);
     self.query.frame=CGRectMake(m,77,inner,31);
 
     // Compact iPhone portrait: categories 24%, list 35%, details remaining 41%.
@@ -311,15 +315,18 @@ static NSArray<NSString *> *CategoryNames(void) {
     CGFloat vw=self.attributePanel.bounds.size.width,vh=self.attributePanel.bounds.size.height;
     CGFloat contentH=MAX(460,vh);
     self.attributePanel.contentSize=CGSizeMake(vw,contentH);
-    self.attributeSearch.frame=CGRectMake(5,2,vw-10,32);
-    self.attributeTable.frame=CGRectMake(5,42,vw-10,MAX(80,contentH-223));
-    [self.attributePanel viewWithTag:907].frame=CGRectMake(5,contentH-173,vw-10,32);
+    // Selected actor is always visible at the top, above search and list.
+    [self.attributePanel viewWithTag:907].frame=CGRectMake(5,3,vw-10,33);
+    self.attributeSearch.frame=CGRectMake(5,43,vw-10,33);
+    self.attributeTable.frame=CGRectMake(5,83,vw-10,MAX(80,contentH-226));
     CGFloat controlW=floor((vw-20)/3);
     self.attributeValue.frame=CGRectMake(5,contentH-133,controlW,32);
     self.attributeSend.frame=CGRectMake(10+controlW,contentH-133,controlW,32);
     self.attributeLockButton.frame=CGRectMake(15+2*controlW,contentH-133,
         vw-20-2*controlW,32);
     self.attributeText.frame=CGRectMake(5,contentH-94,vw-10,89);
+    self.attributeTable.layer.cornerRadius=5;
+    self.attributeValue.layer.cornerRadius=5;
     self.statusLabel.frame=CGRectMake(m,bottom+68,inner,40);
 }
 - (void)toggle:(id)sender {
@@ -379,7 +386,7 @@ static NSArray<NSString *> *CategoryNames(void) {
         self.attributeFreshReady=NO;self.attributeDefs=@[];self.attributeFiltered=@[];
         self.attributeRawValues=@{};self.attributeSend.enabled=NO;self.attributeSend.alpha=.5;
         [self.attributeTable reloadData];
-        self.attributeText.text=@"点击下方「选择弟子」后，实时读取该弟子的属性。";
+        self.attributeText.text=@"点击上方「选择弟子」，自动读取属性。";
         UIButton *choose=(UIButton *)[self.attributePanel viewWithTag:907];
         [choose setTitle:@"选择弟子" forState:UIControlStateNormal];
     } else {
@@ -638,7 +645,7 @@ static NSArray<NSString *> *CategoryNames(void) {
     [self.view endEditing:YES];
     NSDictionary *actor=self.selectedActor,*attr=self.selectedAttribute;
     if(!self.attributeFreshReady || !actor || !attr) {
-        self.attributeText.text=@"动态弟子或属性尚未完成校验，请刷新。";return;
+        self.attributeText.text=@"弟子或属性校验未完成，请重新选择弟子。";return;
     }
     if(![attr[@"isPercentage"] isKindOfClass:NSNumber.class]) {
         self.attributeText.text=@"原生属性类型未读取，禁止发送。";return;
@@ -975,10 +982,19 @@ static NSArray<NSString *> *CategoryNames(void) {
         NSString *key=[self lockKeyForActor:self.selectedActor attribute:a];
         NSDictionary *lock=key?self.attributeLocks[key]:nil;
         BOOL lockError=lock[@"lastReadError"]!=nil || lock[@"lastWriteError"]!=nil;
-        NSString *state=lock?(lockError?@"   锁定异常":@"   已锁定"):@"";
-        cell.textLabel.text=[NSString stringWithFormat:@"%@   当前：%@%@",
-            a[@"name"],shown,state];
-        cell.backgroundColor=(self.selectedAttribute && [self.selectedAttribute[@"id"] isEqual:a[@"id"]])?Tan():Panel();
+        NSString *state=@"";
+        if(lock){
+            int64_t target=[lock[@"target"] longLongValue];
+            NSString *targetShown=percentage?
+                [NSString stringWithFormat:@"%.2f%%",(double)target/100.0]:
+                [NSString stringWithFormat:@"%lld",(long long)target];
+            state=[NSString stringWithFormat:@" · %@：%@",
+                lockError?@"锁定异常":@"已锁定",targetShown];
+        }
+        BOOL selected=self.selectedAttribute && [self.selectedAttribute[@"id"] isEqual:a[@"id"]];
+        cell.textLabel.text=[NSString stringWithFormat:@"%@%@  当前：%@%@",
+            selected?@"▸ ":@"",a[@"name"],shown,state];
+        cell.backgroundColor=selected?Tan():Panel();
     } else if(tableView==self.actorTable){
         NSDictionary *a=self.visibleActors[(NSUInteger)indexPath.row];
         cell.textLabel.text=a[@"name"];
@@ -1005,9 +1021,17 @@ static NSArray<NSString *> *CategoryNames(void) {
             [NSString stringWithFormat:@"%.2f%%",raw.doubleValue/100.0]:raw.stringValue):@"—";
         self.attributeValue.placeholder=percentage?@"百分比，例如 12.50":@"输入整数";
         self.attributeValue.text=@"";
+        NSString *key=[self lockKeyForActor:self.selectedActor attribute:self.selectedAttribute];
+        NSDictionary *lock=key?self.attributeLocks[key]:nil;
+        NSString *target=@"未锁定";
+        if(lock){
+            int64_t value=[lock[@"target"] longLongValue];
+            target=percentage?[NSString stringWithFormat:@"%.2f%%",(double)value/100.0]:
+                [NSString stringWithFormat:@"%lld",(long long)value];
+        }
         self.attributeText.text=[NSString stringWithFormat:
-            @"弟子：%@\n属性：%@\n当前值：%@\n百分比按游戏原始格式换算；未知游戏上限不作假设。",
-            self.selectedActor[@"name"]?:@"未选择",self.selectedAttribute[@"name"],shown];
+            @"弟子：%@ · %@\n当前：%@ · 锁定目标：%@",
+            self.selectedActor[@"name"]?:@"未选择",self.selectedAttribute[@"name"],shown,target];
         [self updateAttributeSendState];
         [self.attributeTable reloadData];
     } else if(tableView==self.actorTable){
