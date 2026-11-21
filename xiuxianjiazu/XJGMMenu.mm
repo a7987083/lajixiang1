@@ -82,7 +82,6 @@ static NSArray<NSString *> *CategoryNames(void) {
 @property(nonatomic,strong) NSArray<NSDictionary *> *visibleActors;
 @property(nonatomic,strong) NSDictionary *selectedActor;
 @property(nonatomic,strong) UILabel *actorStatus;
-@property(nonatomic,strong) UIButton *reloadButton;
 @property(nonatomic,strong) UIButton *prevButton;
 @property(nonatomic,strong) UIButton *nextButton;
 @property(nonatomic,strong) UIButton *minusButton;
@@ -129,7 +128,6 @@ static NSArray<NSString *> *CategoryNames(void) {
     self.skillsTab=Btn(@"功法列表",self,@selector(showSkills:));[self.panel addSubview:self.skillsTab];
     self.attributesTab=Btn(@"属性查看",self,@selector(showAttributes:));
     [self.panel addSubview:self.attributesTab];
-    self.reloadButton=Btn(@"重新加载",self,@selector(reloadCurrent:));[self.panel addSubview:self.reloadButton];
 
     self.query=[UITextField new];self.query.delegate=self;
     self.query.placeholder=@"名称或 ID";self.query.textColor=Ink();self.query.font=[UIFont systemFontOfSize:12];
@@ -274,14 +272,13 @@ static NSArray<NSString *> *CategoryNames(void) {
     CGFloat m=9,inner=w-2*m;
     [self.panel viewWithTag:901].frame=CGRectMake(m,7,w-75,28);
     self.closeButton.frame=CGRectMake(w-61,9,51,27);
-    // The attribute page has no reload button: share the full toolbar width.
+    // Three equal-width tabs across all modes; catalog loading stays automatic.
     CGFloat tabGap=6;
-    CGFloat tabWidth=floor((inner-tabGap*(self.attributesMode?2:3))/(self.attributesMode?3:4));
+    CGFloat tabWidth=floor((inner-tabGap*2)/3);
     self.itemsTab.frame=CGRectMake(m,41,tabWidth,30);
     self.skillsTab.frame=CGRectMake(m+tabWidth+tabGap,41,tabWidth,30);
-    self.attributesTab.frame=CGRectMake(m+(tabWidth+tabGap)*2,41,tabWidth,30);
-    if(!self.attributesMode)
-        self.reloadButton.frame=CGRectMake(m+(tabWidth+tabGap)*3,41,tabWidth,30);
+    self.attributesTab.frame=CGRectMake(m+(tabWidth+tabGap)*2,41,
+        inner-2*(tabWidth+tabGap),30);
     self.query.frame=CGRectMake(m,77,inner,31);
 
     // Compact iPhone portrait: categories 24%, list 35%, details remaining 41%.
@@ -357,11 +354,6 @@ static NSArray<NSString *> *CategoryNames(void) {
          self.minusButton,self.quantity,self.plusButton,self.actorButton,
          self.sendButton,self.statusLabel]) view.hidden=attr;
     self.attributePanel.hidden=!attr;
-    self.reloadButton.hidden=attr;
-    [self.reloadButton setTitle:@"重新加载" forState:UIControlStateNormal];
-}
-- (void)reloadCurrent:(id)sender {
-    if(!self.attributesMode)[self loadItems:sender];
 }
 - (void)showAttributes:(id)sender {
     [self.view endEditing:YES];
