@@ -77,6 +77,7 @@ static NSArray<NSString *> *CategoryNames(void) {
 @property(nonatomic,strong) NSDictionary<NSNumber *,NSDictionary *> *actorBloodValues;
 @property(nonatomic,assign) BOOL bloodMode;
 @property(nonatomic,assign) BOOL bloodPickPending;
+@property(nonatomic,assign) BOOL bloodFreshReady;
 @property(nonatomic,strong) UIScrollView *attributePanel;
 @property(nonatomic,assign) BOOL attributesMode;
 @property(nonatomic,strong) UITextView *attributeText;
@@ -445,6 +446,11 @@ static NSArray<NSString *> *CategoryNames(void) {
     [self.view endEditing:YES];
     self.bloodMode=YES;self.attributesMode=NO;self.attributePickPending=NO;
     self.skillsMode=NO;self.bloodPickPending=NO;
+    if(!self.selectedActor){
+        self.actorBloodValues=@{};self.selectedBlood=nil;
+        self.bloodValueField.text=@"";
+        self.bloodFreshReady=NO;
+    }
     [self updateModeViews];[self adjustPanel];
     [self loadBloodCatalog];
 }
@@ -453,6 +459,7 @@ static NSArray<NSString *> *CategoryNames(void) {
     [self openActors:nil];
 }
 - (void)loadBloodCatalog {
+    self.bloodFreshReady=NO;[self updateBloodActionState];
     int rc=XJGMExportBloodCatalog();
     if(rc<0){
         self.bloodDetail.text=[NSString stringWithFormat:
@@ -481,7 +488,7 @@ static NSArray<NSString *> *CategoryNames(void) {
     else{
         [self.bloodActorButton setTitle:@"选择弟子" forState:UIControlStateNormal];
         self.bloodDetail.text=[NSString stringWithFormat:
-            @"已加载 %lu 项血脉配置。选择弟子查看已有血脉及浓度。\n血脉写入尚未验证，当前仅供读取。",
+            @"已加载 %lu 项血脉配置。请选择弟子查看和修改血脉。",
             (unsigned long)self.allBloods.count];
     }
 }
@@ -499,6 +506,7 @@ static NSArray<NSString *> *CategoryNames(void) {
 }
 - (void)reloadActorBloods {
     NSDictionary *actor=self.selectedActor;
+    self.bloodFreshReady=NO;[self updateBloodActionState];
     if(!actor)return;
     int rc=XJGMExportActorBloods([actor[@"id"] intValue],[actor[@"name"] UTF8String],
                                  [actor[@"forceId"] intValue]);
@@ -506,7 +514,7 @@ static NSArray<NSString *> *CategoryNames(void) {
         self.actorBloodValues=@{};
         self.bloodDetail.text=[NSString stringWithFormat:
             @"弟子血脉读取失败 E%03d；不使用历史快照。",-rc];
-        [self.bloodTable reloadData];return;
+        [self.bloodTable reloadData];[self updateBloodActionState];return;
     }
     NSArray *dirs=NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask,YES);
     NSString *dir=dirs.count?[dirs[0] stringByAppendingPathComponent:@"XiuxianjiazuGM"]:@"";
@@ -518,7 +526,7 @@ static NSArray<NSString *> *CategoryNames(void) {
        ![result[@"forceId"] isEqual:actor[@"forceId"]] ||
        ![result[@"bloods"] isKindOfClass:NSArray.class] ||
        [result[@"bloods"] count]!=(NSUInteger)rc){
-        self.actorBloodValues=@{};self.bloodDetail.text=@"血脉快照校验失败。";return;
+        self.actorBloodValues=@{};self.bloodDetail.text=@"血脉快照校验失败。";[self updateBloodActionState];return;
     }
     NSMutableDictionary *owned=[NSMutableDictionary dictionary];
     for(id blood in result[@"bloods"]){
@@ -526,6 +534,7 @@ static NSArray<NSString *> *CategoryNames(void) {
            [blood[@"id"] isKindOfClass:NSNumber.class])owned[blood[@"id"]]=blood;
     }
     self.actorBloodValues=[owned copy];
+    self.bloodFreshReady=YES;
     [self.bloodActorButton setTitle:[NSString stringWithFormat:@"弟子：%@",actor[@"name"]]
                           forState:UIControlStateNormal];
     [self.bloodTable reloadData];[self showSelectedBlood];[self updateBloodActionState];
@@ -535,7 +544,7 @@ static NSArray<NSString *> *CategoryNames(void) {
     [self.bloodValueField resignFirstResponder];
 }
 - (void)updateBloodActionState {
-    BOOL selected=self.selectedBlood!=nil && self.selectedActor!=nil;
+    BOOL selected=self.bloodFreshReady && self.selectedBlood!=nil && self.selectedActor!=nil;
     BOOL exists=selected && self.actorBloodValues[self.selectedBlood[@"id"]]!=nil;
     self.bloodSetButton.enabled=exists;
     self.bloodRemoveButton.enabled=exists;
@@ -577,8 +586,8 @@ static NSArray<NSString *> *CategoryNames(void) {
 - (void)performBloodOperation:(int)mode {
     [self.view endEditing:YES];
     NSDictionary *actor=self.selectedActor,*blood=self.selectedBlood;
-    if(!actor||!blood){
-        self.bloodDetail.text=@"请选择弟子和血脉。";return;
+    if(!self.bloodFreshReady || !actor || !blood){
+        self.bloodDetail.text=@"请先选择弟子和血脉，并确认实时读取成功。";return;
     }
     NSString *entered=[self.bloodValueField.text stringByTrimmingCharactersInSet:
         NSCharacterSet.whitespaceAndNewlineCharacterSet];
