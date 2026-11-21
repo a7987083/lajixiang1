@@ -4,6 +4,8 @@
 
 extern "C" int XJGMExportItems(int *savedOut);
 extern "C" int XJGMCheckItems(void);
+extern "C" int XJGMExportSkills(int *savedOut);
+extern "C" int XJGMCheckSkills(void);
 
 // Keep the floating window/bubble lifecycle and drag behavior unchanged.
 // This build deliberately has NO catalog enumeration, GM request sender, or timers.
@@ -40,9 +42,11 @@ static UIButton *Button(NSString *title,id target,SEL action) {
 @property(nonatomic,strong) UILabel *status;
 @property(nonatomic,strong) UITextField *search;
 @property(nonatomic,strong) UIButton *searchButton;
+@property(nonatomic,strong) UIButton *skillButton;
 @property(nonatomic,strong) UIButton *closeButton;
 @property(nonatomic,strong) UILabel *heading;
 @property(nonatomic,assign) BOOL preflightPassed;
+@property(nonatomic,assign) BOOL skillPreflightPassed;
 @end
 
 @implementation XJGMController
@@ -71,12 +75,12 @@ static UIButton *Button(NSString *title,id target,SEL action) {
     self.panel.hidden=YES;
     [self.view addSubview:self.panel];
 
-    self.heading=Label(@"物品 · 配置导出 V1",17);
+    self.heading=Label(@"物品 / 功法 · 配置导出 V1.5",17);
     self.heading.font=[UIFont systemFontOfSize:17 weight:UIFontWeightBold];
     [self.panel addSubview:self.heading];
     self.closeButton=Button(@"收起",self,@selector(toggle:));
     [self.panel addSubview:self.closeButton];
-    self.subtitle=Label(@"只读读取 ItemTmpl.configs，导出完整物品 ID 与名称。不调用 GMItemBlock，也不发送 GM 命令。",11);
+    self.subtitle=Label(@"只读导出 ItemTmpl / SkillInfo，分别保存 items.json / skills.json。不会发送 GM 命令。",11);
     self.subtitle.textColor=Muted();
     [self.panel addSubview:self.subtitle];
 
@@ -96,6 +100,10 @@ static UIButton *Button(NSString *title,id target,SEL action) {
     self.searchButton.backgroundColor=Accent();
     [self.searchButton setTitleColor:[UIColor colorWithRed:.08 green:.15 blue:.17 alpha:1] forState:UIControlStateNormal];
     [self.panel addSubview:self.searchButton];
+    self.skillButton=Button(@"检查功法配置",self,@selector(runSkill:));
+    self.skillButton.backgroundColor=Accent();
+    [self.skillButton setTitleColor:[UIColor colorWithRed:.08 green:.15 blue:.17 alpha:1] forState:UIControlStateNormal];
+    [self.panel addSubview:self.skillButton];
 
     self.status=Label(@"未导出 · 等游戏加载配置后点击按钮",12);
     self.status.textColor=Muted();
@@ -113,7 +121,8 @@ static UIButton *Button(NSString *title,id target,SEL action) {
     self.closeButton.frame=CGRectMake(w-71,15,54,29);
     self.subtitle.frame=CGRectMake(m,51,inner,39);
     self.search.frame=CGRectMake(m,99,inner,39);
-    self.searchButton.frame=CGRectMake(m,148,inner,40);
+    self.searchButton.frame=CGRectMake(m,148,(inner-9)/2,40);
+    self.skillButton.frame=CGRectMake(m+(inner-9)/2+9,148,(inner-9)/2,40);
     self.status.frame=CGRectMake(m,200,inner,MAX(40,h-207));
 }
 - (void)toggle:(id)sender {
@@ -131,6 +140,31 @@ static UIButton *Button(NSString *title,id target,SEL action) {
     [g setTranslation:CGPointZero inView:self.view];
 }
 - (BOOL)textFieldShouldReturn:(UITextField *)textField { return NO; }
+- (void)runSkill:(id)sender {
+    [self.view endEditing:YES];
+    self.skillButton.enabled=NO;
+    if (!self.skillPreflightPassed) {
+        int preflight=XJGMCheckSkills();
+        self.skillButton.enabled=YES;
+        if (preflight==1) {
+            self.skillPreflightPassed=YES;
+            [self.skillButton setTitle:@"确认导出功法" forState:UIControlStateNormal];
+            self.status.text=@"功法预检通过，再次点击导出。";
+        } else {
+            self.status.text=[NSString stringWithFormat:@"功法预检 E%03d：配置尚未就绪",-preflight];
+        }
+        return;
+    }
+    int saved=0;
+    int result=XJGMExportSkills(&saved);
+    self.skillButton.enabled=YES;
+    self.skillPreflightPassed=NO;
+    [self.skillButton setTitle:@"检查功法配置" forState:UIControlStateNormal];
+    if (result>=0 && saved) self.status.text=[NSString stringWithFormat:@"已导出 %d 条：Documents/XiuxianjiazuGM/skills.json",result];
+    else self.status.text=[NSString stringWithFormat:@"功法导出 E%03d；可查看 export-stage.txt",-result];
+    NSLog(@"[XJGMExportV1.5] skill result=%d saved=%d",result,saved);
+}
+
 - (void)runSearch:(id)sender {
     [self.view endEditing:YES];
     self.searchButton.enabled=NO;
