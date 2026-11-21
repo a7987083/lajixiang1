@@ -58,7 +58,7 @@ static NSArray<NSString *> *CategoryNames(void) {
 @property(nonatomic,strong) UITextField *query;
 @property(nonatomic,strong) UITextField *quantity;
 @property(nonatomic,strong) UILabel *countLabel;
-@property(nonatomic,strong) UILabel *detailLabel;
+@property(nonatomic,strong) UITextView *detailLabel;
 @property(nonatomic,strong) UILabel *pickedLabel;
 @property(nonatomic,strong) UILabel *statusLabel;
 @property(nonatomic,strong) UITableView *categoryTable;
@@ -119,7 +119,11 @@ static NSArray<NSString *> *CategoryNames(void) {
     self.nextButton=Btn(@">",self,@selector(next:));
     [self.panel addSubview:self.prevButton];[self.panel addSubview:self.nextButton];
 
-    self.detailLabel=Txt(@"物品说明\n\n选择左侧分类，再点击物品查看名称、ID 和类型信息。",11);
+    self.detailLabel=[UITextView new];
+    self.detailLabel.text=@"物品说明\n\n选择左侧分类，再点击物品查看名称、ID 和类型信息。";
+    self.detailLabel.font=[UIFont systemFontOfSize:11];
+    self.detailLabel.textColor=Ink();self.detailLabel.editable=NO;
+    self.detailLabel.selectable=YES;self.detailLabel.scrollEnabled=YES;
     self.detailLabel.backgroundColor=Panel();
     self.detailLabel.layer.borderWidth=.8;self.detailLabel.layer.borderColor=Border().CGColor;
     self.detailLabel.textAlignment=NSTextAlignmentLeft;
