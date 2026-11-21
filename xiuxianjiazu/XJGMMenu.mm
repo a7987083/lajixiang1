@@ -511,7 +511,7 @@ static NSArray<NSString *> *CategoryNames(void) {
     int rc=XJGMSendActorAttribute([actor[@"id"] intValue],[attr[@"id"] intValue],value);
     // Submission is not proof of persistence: avoid claiming saved/permanent.
     self.attributeText.text=rc==1?
-        [NSString stringWithFormat:@"已提交：%@ · %@ → %d\\n重新进入游戏后再验证是否持久生效。",
+        [NSString stringWithFormat:@"已提交：%@ · %@ → %d\n重新进入游戏后再验证是否持久生效。",
             actor[@"name"],attr[@"name"],value]:
         [NSString stringWithFormat:@"属性发送失败 E%03d；检查 gm-attribute-stage.txt",-rc];
     [self updateAttributeSendState];
