@@ -48,6 +48,7 @@ static NSArray<NSString *> *CategoryNames(void) {
 @property(nonatomic,strong) UIButton *bubble;
 @property(nonatomic,strong) UIButton *closeButton;
 @property(nonatomic,strong) UIButton *itemsTab;
+@property(nonatomic,strong) UIButton *skillsTab;
 @property(nonatomic,strong) UIButton *reloadButton;
 @property(nonatomic,strong) UIButton *prevButton;
 @property(nonatomic,strong) UIButton *nextButton;
@@ -63,6 +64,8 @@ static NSArray<NSString *> *CategoryNames(void) {
 @property(nonatomic,strong) UITableView *categoryTable;
 @property(nonatomic,strong) UITableView *itemTable;
 @property(nonatomic,strong) NSArray<NSDictionary *> *allItems;
+@property(nonatomic,strong) NSArray<NSDictionary *> *allSkills;
+@property(nonatomic,assign) BOOL skillsMode;
 @property(nonatomic,strong) NSArray<NSDictionary *> *filtered;
 @property(nonatomic,strong) NSDictionary *selected;
 @property(nonatomic,assign) NSInteger selectedCategory;
@@ -72,7 +75,7 @@ static NSArray<NSString *> *CategoryNames(void) {
 @implementation XJGMController
 - (void)viewDidLoad {
     [super viewDidLoad];self.view.backgroundColor=UIColor.clearColor;
-    self.allItems=@[];self.filtered=@[];self.selectedCategory=0;self.page=0;
+    self.allItems=@[];self.allSkills=@[];self.filtered=@[];self.selectedCategory=0;self.page=0;self.skillsMode=NO;
     self.bubble=Btn(@"GM",self,@selector(toggle:));
     self.bubble.frame=CGRectMake(10,100,48,48);self.bubble.layer.cornerRadius=24;
     [self.view addSubview:self.bubble];
@@ -89,7 +92,8 @@ static NSArray<NSString *> *CategoryNames(void) {
     title.tag=901;[self.panel addSubview:title];
     self.closeButton=Btn(@"收起",self,@selector(toggle:));[self.panel addSubview:self.closeButton];
     self.itemsTab=Btn(@"物品功能",self,@selector(showItems:));[self.panel addSubview:self.itemsTab];
-    self.reloadButton=Btn(@"加载 JSON",self,@selector(loadItems:));[self.panel addSubview:self.reloadButton];
+    self.skillsTab=Btn(@"功法列表",self,@selector(showSkills:));[self.panel addSubview:self.skillsTab];
+    self.reloadButton=Btn(@"重新加载",self,@selector(loadItems:));[self.panel addSubview:self.reloadButton];
 
     self.query=[UITextField new];self.query.delegate=self;
     self.query.placeholder=@"名称或 ID";self.query.textColor=Ink();self.query.font=[UIFont systemFontOfSize:12];
@@ -156,6 +160,7 @@ static NSArray<NSString *> *CategoryNames(void) {
     [self.panel viewWithTag:901].frame=CGRectMake(m,7,w-75,28);
     self.closeButton.frame=CGRectMake(w-61,9,51,27);
     self.itemsTab.frame=CGRectMake(m,41,94,28);
+    self.skillsTab.frame=CGRectMake(m+100,41,94,28);
     self.reloadButton.frame=CGRectMake(w-104,41,95,28);
     self.query.frame=CGRectMake(m,77,inner,31);
 
@@ -181,7 +186,7 @@ static NSArray<NSString *> *CategoryNames(void) {
 - (void)toggle:(id)sender {
     self.panel.hidden=!self.panel.hidden;self.bubble.hidden=!self.panel.hidden;
     if (!self.panel.hidden) {
-        [self adjustPanel];if(!self.allItems.count)[self loadItems:nil];
+        [self adjustPanel];if(!(self.skillsMode?self.allSkills.count:self.allItems.count))[self loadItems:nil];
     } else [self.view endEditing:YES];
 }
 - (void)drag:(UIPanGestureRecognizer *)g {
@@ -191,20 +196,33 @@ static NSArray<NSString *> *CategoryNames(void) {
         MAX(ry,MIN(self.view.bounds.size.height-ry,c.y+d.y)));
     [g setTranslation:CGPointZero inView:self.view];
 }
-- (void)showItems:(id)sender {[self.view endEditing:YES];}
+- (void)showItems:(id)sender {
+    [self.view endEditing:YES];
+    self.skillsMode=NO;self.selected=nil;self.selectedCategory=0;self.page=0;self.query.text=@"";
+    [self.categoryTable reloadData];[self showSelected];
+    if(!self.allItems.count)[self loadItems:nil];else[self rebuildFilter];
+}
+- (void)showSkills:(id)sender {
+    [self.view endEditing:YES];
+    self.skillsMode=YES;self.selected=nil;self.selectedCategory=0;self.page=0;self.query.text=@"";
+    [self.categoryTable reloadData];[self showSelected];
+    if(!self.allSkills.count)[self loadItems:nil];else[self rebuildFilter];
+}
 - (void)loadItems:(id)sender {
     NSArray *dirs=NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask,YES);
+    NSString *filename=self.skillsMode?@"skills.json":@"items.json";
     NSString *path=dirs.count?[[dirs[0] stringByAppendingPathComponent:@"XiuxianjiazuGM"]
-                         stringByAppendingPathComponent:@"items.json"]:nil;
+                         stringByAppendingPathComponent:filename]:nil;
     NSData *bytes=path?[NSData dataWithContentsOfFile:path options:0 error:nil]:nil;
     if(!bytes || bytes.length>8*1024*1024){
-        self.allItems=@[];self.filtered=@[];self.selected=nil;
-        self.statusLabel.text=@"缺少 Documents/XiuxianjiazuGM/items.json（或文件超过 8MB）";
+        if(self.skillsMode)self.allSkills=@[];else self.allItems=@[];
+        self.filtered=@[];self.selected=nil;
+        self.statusLabel.text=[NSString stringWithFormat:@"缺少 Documents/XiuxianjiazuGM/%@（或超过 8MB）",filename];
         [self.itemTable reloadData];[self showSelected];return;
     }
     NSError *error=nil;id root=[NSJSONSerialization JSONObjectWithData:bytes options:0 error:&error];
     if (![root isKindOfClass:NSArray.class]) {
-        self.statusLabel.text=@"items.json 格式错误：顶层应为数组";return;
+        self.statusLabel.text=[NSString stringWithFormat:@"%@ 格式错误：顶层应为数组",filename];return;
     }
     NSMutableArray *valid=[NSMutableArray array];NSMutableSet *seen=[NSMutableSet set];
     for(id obj in (NSArray *)root) {
@@ -213,12 +231,23 @@ static NSArray<NSString *> *CategoryNames(void) {
         if(![ident isKindOfClass:NSNumber.class]||![raw isKindOfClass:NSString.class])continue;
         if([ident integerValue]<=0||[seen containsObject:ident])continue;
         [seen addObject:ident];NSString *clean=CleanName(raw);
-        [valid addObject:@{@"id":ident,@"name":clean,@"raw":raw,
-            @"type":[o[@"type"] isKindOfClass:NSNumber.class]?o[@"type"]:@(-1),
-            @"childType":[o[@"childType"] isKindOfClass:NSNumber.class]?o[@"childType"]:@(-1),
-            @"searchType":[o[@"searchType"] isKindOfClass:NSNumber.class]?o[@"searchType"]:@(-1)}];
+        if(self.skillsMode) {
+            [valid addObject:@{@"id":ident,@"name":clean,@"raw":raw,
+                @"skillQuality":[o[@"skillQuality"] isKindOfClass:NSNumber.class]?o[@"skillQuality"]:@(-1),
+                @"skillCategory":[o[@"skillCategory"] isKindOfClass:NSNumber.class]?o[@"skillCategory"]:@(-1),
+                @"skillType":[o[@"skillType"] isKindOfClass:NSNumber.class]?o[@"skillType"]:@(-1),
+                @"isSelfCreation":[o[@"isSelfCreation"] isKindOfClass:NSNumber.class]?o[@"isSelfCreation"]:@(-1),
+                @"skillDescribe":[o[@"skillDescribe"] isKindOfClass:NSString.class]?CleanName(o[@"skillDescribe"]):@"",
+                @"lvtext":[o[@"lvtext"] isKindOfClass:NSString.class]?o[@"lvtext"]:@""}];
+        } else {
+            [valid addObject:@{@"id":ident,@"name":clean,@"raw":raw,
+                @"type":[o[@"type"] isKindOfClass:NSNumber.class]?o[@"type"]:@(-1),
+                @"childType":[o[@"childType"] isKindOfClass:NSNumber.class]?o[@"childType"]:@(-1),
+                @"searchType":[o[@"searchType"] isKindOfClass:NSNumber.class]?o[@"searchType"]:@(-1)}];
+        }
     }
-    self.allItems=[valid copy];self.selected=nil;self.selectedCategory=0;self.page=0;
+    if(self.skillsMode)self.allSkills=[valid copy];else self.allItems=[valid copy];
+    self.selected=nil;self.selectedCategory=0;self.page=0;
     [self.categoryTable reloadData];[self showSelected];[self rebuildFilter];
 }
 - (void)rebuildFilter {
