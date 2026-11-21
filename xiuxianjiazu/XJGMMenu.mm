@@ -3,6 +3,7 @@
 #import <dispatch/dispatch.h>
 
 extern "C" int XJGMExportItems(int *savedOut);
+extern "C" int XJGMCheckItems(void);
 
 // Keep the floating window/bubble lifecycle and drag behavior unchanged.
 // This build deliberately has NO catalog enumeration, GM request sender, or timers.
@@ -41,6 +42,7 @@ static UIButton *Button(NSString *title,id target,SEL action) {
 @property(nonatomic,strong) UIButton *searchButton;
 @property(nonatomic,strong) UIButton *closeButton;
 @property(nonatomic,strong) UILabel *heading;
+@property(nonatomic,assign) BOOL preflightPassed;
 @end
 
 @implementation XJGMController
@@ -90,7 +92,7 @@ static UIButton *Button(NSString *title,id target,SEL action) {
     self.search.leftViewMode=UITextFieldViewModeAlways;
     self.search.enabled=NO;self.search.delegate=self;
     [self.panel addSubview:self.search];
-    self.searchButton=Button(@"导出物品 ID 列表",self,@selector(runSearch:));
+    self.searchButton=Button(@"检查物品配置",self,@selector(runSearch:));
     self.searchButton.backgroundColor=Accent();
     [self.searchButton setTitleColor:[UIColor colorWithRed:.08 green:.15 blue:.17 alpha:1] forState:UIControlStateNormal];
     [self.panel addSubview:self.searchButton];
@@ -132,10 +134,24 @@ static UIButton *Button(NSString *title,id target,SEL action) {
 - (void)runSearch:(id)sender {
     [self.view endEditing:YES];
     self.searchButton.enabled=NO;
+    if (!self.preflightPassed) {
+        int preflight=XJGMCheckItems();
+        self.searchButton.enabled=YES;
+        if (preflight==1) {
+            self.preflightPassed=YES;
+            [self.searchButton setTitle:@"确认导出物品列表" forState:UIControlStateNormal];
+            self.status.text=@"预检通过。再次点击读取配置；异常时查看 export-stage.txt";
+        } else {
+            self.status.text=[NSString stringWithFormat:@"预检 E%03d：配置未就绪或无法访问",-preflight];
+        }
+        return;
+    }
     int saved=0;
-    // Manually invoked on the app's UI thread, never from constructor or retry timer.
+    // Export only after a successful explicit preflight.
     int result=XJGMExportItems(&saved);
     self.searchButton.enabled=YES;
+    self.preflightPassed=NO;
+    [self.searchButton setTitle:@"检查物品配置" forState:UIControlStateNormal];
     if (result>=0 && saved) {
         self.status.text=[NSString stringWithFormat:@"已导出 %d 条：Documents/XiuxianjiazuGM/items.json",result];
     } else if (result==-102) {
