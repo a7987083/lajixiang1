@@ -442,7 +442,7 @@ static NSArray<NSString *> *CategoryNames(void) {
         message:@"只尝试调用目标版本的 OnVideoAdComplete(2)，不会直接构造 C2S_AdvertReward。此操作可能触发游戏自己的网络请求；本地调用成功不代表奖励到账。请仅在授权测试环境使用。"
         preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    __weak typeof(self) weakSelf=self;
+    __weak XJGMController *weakSelf=self;
     [alert addAction:[UIAlertAction actionWithTitle:@"执行一次" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
         (void)action;
         int status=XJGMTestAdComplete(2);
