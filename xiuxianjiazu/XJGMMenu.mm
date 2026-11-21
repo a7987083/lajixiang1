@@ -8,6 +8,7 @@ extern "C" int XJGMSendItem(int32_t itemId,int32_t count);
 extern "C" int XJGMExportActors(void);
 extern "C" int XJGMSendSkill(int32_t actorId,int32_t skillId);
 extern "C" int XJGMExportAttributes(void);
+extern "C" int XJGMExportActorAttributes(int32_t actorId,const char* expectedName,int32_t expectedForceId);
 static UIWindow *sWindow=nil;
 static UIColor *Paper(void) { return [UIColor colorWithRed:.92 green:.88 blue:.80 alpha:1]; }
 static UIColor *Panel(void) { return [UIColor colorWithRed:.97 green:.95 blue:.89 alpha:1]; }
@@ -53,6 +54,10 @@ static NSArray<NSString *> *CategoryNames(void) {
 @property(nonatomic,strong) UIButton *itemsTab;
 @property(nonatomic,strong) UIButton *skillsTab;
 @property(nonatomic,strong) UIButton *attributesTab;
+@property(nonatomic,strong) UIView *attributePanel;
+@property(nonatomic,strong) UITextView *attributeText;
+@property(nonatomic,strong) UIButton *attributeRefresh;
+@property(nonatomic,assign) BOOL attributePickPending;
 @property(nonatomic,strong) UIButton *actorButton;
 @property(nonatomic,strong) UIView *actorPicker;
 @property(nonatomic,strong) UITextField *actorQuery;
@@ -106,7 +111,7 @@ static NSArray<NSString *> *CategoryNames(void) {
     self.closeButton=Btn(@"收起",self,@selector(toggle:));[self.panel addSubview:self.closeButton];
     self.itemsTab=Btn(@"物品功能",self,@selector(showItems:));[self.panel addSubview:self.itemsTab];
     self.skillsTab=Btn(@"功法列表",self,@selector(showSkills:));[self.panel addSubview:self.skillsTab];
-    self.attributesTab=Btn(@"导出属性",self,@selector(exportAttributes:));
+    self.attributesTab=Btn(@"属性查看",self,@selector(showAttributes:));
     [self.panel addSubview:self.attributesTab];
     self.reloadButton=Btn(@"重新加载",self,@selector(loadItems:));[self.panel addSubview:self.reloadButton];
 
@@ -192,6 +197,22 @@ static NSArray<NSString *> *CategoryNames(void) {
     [self.actorPicker addSubview:self.actorTable];
     self.actorStatus=Txt(@"进入游戏后刷新弟子列表",11);
     [self.actorPicker addSubview:self.actorStatus];
+    self.attributePanel=[UIView new];self.attributePanel.backgroundColor=Paper();
+    self.attributePanel.layer.cornerRadius=7;self.attributePanel.layer.borderColor=Border().CGColor;
+    self.attributePanel.layer.borderWidth=1;self.attributePanel.hidden=YES;
+    [self.panel addSubview:self.attributePanel];
+    UILabel *attrHeader=Txt(@"动态弟子属性（只读）",15);
+    attrHeader.tag=905;[self.attributePanel addSubview:attrHeader];
+    UIButton *attrClose=Btn(@"返回",self,@selector(closeAttributes:));
+    attrClose.tag=906;[self.attributePanel addSubview:attrClose];
+    UIButton *attrSelect=Btn(@"选择弟子",self,@selector(chooseAttributeActor:));
+    attrSelect.tag=907;[self.attributePanel addSubview:attrSelect];
+    self.attributeRefresh=Btn(@"刷新属性",self,@selector(refreshAttributes:));
+    [self.attributePanel addSubview:self.attributeRefresh];
+    self.attributeText=[UITextView new];self.attributeText.editable=NO;
+    self.attributeText.backgroundColor=Panel();self.attributeText.textColor=Ink();
+    self.attributeText.font=[UIFont systemFontOfSize:12];self.attributeText.text=@"选择弟子后实时读取属性数组。";
+    [self.attributePanel addSubview:self.attributeText];
     [self adjustPanel];
 }
 - (void)viewDidLayoutSubviews {
@@ -238,6 +259,13 @@ static NSArray<NSString *> *CategoryNames(void) {
     self.actorQuery.frame=CGRectMake(119,52,aw-133,32);
     self.actorTable.frame=CGRectMake(14,94,aw-28,MAX(110,ah-151));
     self.actorStatus.frame=CGRectMake(14,ah-49,aw-28,41);
+    self.attributePanel.frame=CGRectMake(4,4,w-8,h-8);
+    CGFloat vw=self.attributePanel.bounds.size.width,vh=self.attributePanel.bounds.size.height;
+    [self.attributePanel viewWithTag:905].frame=CGRectMake(13,10,vw-92,30);
+    [self.attributePanel viewWithTag:906].frame=CGRectMake(vw-72,10,58,28);
+    [self.attributePanel viewWithTag:907].frame=CGRectMake(13,49,105,32);
+    self.attributeRefresh.frame=CGRectMake(125,49,105,32);
+    self.attributeText.frame=CGRectMake(13,91,vw-26,MAX(120,vh-105));
     self.statusLabel.frame=CGRectMake(m,bottom+68,inner,40);
 }
 - (void)toggle:(id)sender {
@@ -246,6 +274,7 @@ static NSArray<NSString *> *CategoryNames(void) {
         [self adjustPanel];if(!(self.skillsMode?self.allSkills.count:self.allItems.count))[self loadItems:nil];
     } else {
         [self.view endEditing:YES];self.actorPicker.hidden=YES;
+        self.attributePanel.hidden=YES;self.attributePickPending=NO;
         self.selectedActor=nil;self.liveActors=@[];self.visibleActors=@[];
         [self showSelected];
     }
@@ -267,14 +296,101 @@ static NSArray<NSString *> *CategoryNames(void) {
     else self.statusLabel.text=[NSString stringWithFormat:@"属性表导出 E%03d；检查 export-stage.txt",-count];
     NSLog(@"[XJGM] attribute export count=%d",count);
 }
+
+- (void)showAttributes:(id)sender {
+    [self.view endEditing:YES];
+    self.attributePanel.hidden=NO;
+    [self adjustPanel];
+    if(!self.selectedActor) {
+        self.attributePickPending=YES;
+        [self openActors:nil];
+    } else {
+        [self refreshAttributes:nil];
+    }
+}
+- (void)chooseAttributeActor:(id)sender {
+    self.attributePickPending=YES;
+    [self openActors:nil];
+}
+- (void)closeAttributes:(id)sender {
+    [self.view endEditing:YES];self.attributePickPending=NO;
+    self.attributePanel.hidden=YES;
+}
+- (void)refreshAttributes:(id)sender {
+    if(!self.selectedActor) {
+        self.attributeText.text=@"请先选择弟子。";return;
+    }
+    self.attributeRefresh.enabled=NO;
+    int code=XJGMExportAttributes(); // Live UnitAttrTmpl.configs, not the previous JSON.
+    if(code<0) {
+        self.attributeText.text=[NSString stringWithFormat:@"属性定义读取失败 E%03d。检查 export-stage.txt",-code];
+        self.attributeRefresh.enabled=YES;return;
+    }
+    NSDictionary *actor=self.selectedActor;
+    int count=[self reloadLiveActors:NO];
+    if(count<0) {
+        self.attributeText.text=@"实时弟子列表刷新失败；已取消属性读取。";
+        self.attributeRefresh.enabled=YES;return;
+    }
+    BOOL stillPresent=NO;
+    for(NSDictionary *a in self.liveActors) {
+        if([a[@"id"] isEqual:actor[@"id"]] &&
+           [a[@"name"] isEqual:actor[@"name"]] &&
+           [a[@"forceId"] isEqual:actor[@"forceId"]]){stillPresent=YES;break;}
+    }
+    if(!stillPresent) {
+        self.selectedActor=nil;self.attributeText.text=@"弟子已经变化，请重新选择。";
+        self.attributeRefresh.enabled=YES;return;
+    }
+    code=XJGMExportActorAttributes([actor[@"id"] intValue],
+         [actor[@"name"] UTF8String],[actor[@"forceId"] intValue]);
+    if(code<0) {
+        self.attributeText.text=[NSString stringWithFormat:@"属性数值读取失败 E%03d。检查 actor-export-stage.txt",-code];
+        self.attributeRefresh.enabled=YES;return;
+    }
+    NSArray *dirs=NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask,YES);
+    NSString *dir=dirs.count?[dirs[0] stringByAppendingPathComponent:@"XiuxianjiazuGM"]:@"";
+    NSData *defsData=[NSData dataWithContentsOfFile:[dir stringByAppendingPathComponent:@"attributes.json"]];
+    NSData *valsData=[NSData dataWithContentsOfFile:[dir stringByAppendingPathComponent:@"actor-attributes.json"]];
+    id defs=defsData?[NSJSONSerialization JSONObjectWithData:defsData options:0 error:nil]:nil;
+    id snapshot=valsData?[NSJSONSerialization JSONObjectWithData:valsData options:0 error:nil]:nil;
+    if(![defs isKindOfClass:NSArray.class] || ![snapshot isKindOfClass:NSDictionary.class] ||
+        ![snapshot[@"values"] isKindOfClass:NSArray.class] ||
+        ![snapshot[@"actorId"] isEqual:actor[@"id"]] ||
+        ![snapshot[@"actorName"] isEqual:actor[@"name"]] ||
+        ![snapshot[@"forceId"] isEqual:actor[@"forceId"]]) {
+        self.attributeText.text=@"属性快照校验失败，未显示旧数据。";self.attributeRefresh.enabled=YES;return;
+    }
+    NSMutableDictionary *names=[NSMutableDictionary dictionary];
+    for(id obj in (NSArray*)defs) {
+        if([obj isKindOfClass:NSDictionary.class] &&
+           [obj[@"id"] isKindOfClass:NSNumber.class] && [obj[@"name"] isKindOfClass:NSString.class])
+            names[obj[@"id"]]=obj[@"name"];
+    }
+    NSMutableString *view=[NSMutableString stringWithFormat:@"弟子：%@\n定义：%lu 项 · 原始属性：%d 项\n\n"
+        "⚠ 数组索引与属性 ID 的映射尚未实机确认；以下名称只是候选对照，数值为原始 List<long> 数据。\n\n",
+        actor[@"name"],(unsigned long)names.count,code];
+    for(id entry in snapshot[@"values"]) {
+        if(![entry isKindOfClass:NSDictionary.class] ||
+           ![entry[@"index"] isKindOfClass:NSNumber.class] ||
+           ![entry[@"value"] isKindOfClass:NSNumber.class])continue;
+        NSString *candidate=names[entry[@"index"]]?:@"未匹配";
+        [view appendFormat:@"[%@] %@（候选）  %@\n",
+            entry[@"index"],candidate,entry[@"value"]];
+    }
+    self.attributeText.text=view;
+    self.attributeRefresh.enabled=YES;
+}
 - (void)showItems:(id)sender {
     [self.view endEditing:YES];
+    self.attributePanel.hidden=YES;self.attributePickPending=NO;
     self.skillsMode=NO;self.selectedActor=nil;self.selected=nil;self.selectedCategory=0;self.page=0;self.query.text=@"";
     [self.categoryTable reloadData];[self showSelected];
     if(!self.allItems.count)[self loadItems:nil];else[self rebuildFilter];
 }
 - (void)showSkills:(id)sender {
     [self.view endEditing:YES];
+    self.attributePanel.hidden=YES;self.attributePickPending=NO;
     self.skillsMode=YES;self.selectedActor=nil;self.selected=nil;self.selectedCategory=0;self.page=0;self.query.text=@"";
     [self.categoryTable reloadData];[self showSelected];
     if(!self.allSkills.count)[self loadItems:nil];else[self rebuildFilter];
@@ -446,7 +562,7 @@ static NSArray<NSString *> *CategoryNames(void) {
     NSLog(@"[XJGM] send ID=%d count=%d result=%d",ident,count,rc);
 }
 - (void)openActors:(id)sender {
-    if(!self.skillsMode)return;
+    if(!self.skillsMode && !self.attributePickPending)return;
     [self.view endEditing:YES];self.actorPicker.hidden=NO;
     self.actorQuery.text=@"";
     [self reloadLiveActors:YES];
@@ -548,6 +664,10 @@ static NSArray<NSString *> *CategoryNames(void) {
         self.selectedActor=self.visibleActors[(NSUInteger)indexPath.row];
         self.actorPicker.hidden=YES;[self.view endEditing:YES];
         [self showSelected];
+        if(self.attributePickPending) {
+            self.attributePickPending=NO;
+            [self refreshAttributes:nil];
+        }
     } else if(tableView==self.categoryTable){
         self.selectedCategory=indexPath.row;self.selected=nil;[self showSelected];[self.categoryTable reloadData];[self rebuildFilter];
     } else {
