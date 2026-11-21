@@ -317,7 +317,7 @@ static NSArray<NSString *> *CategoryNames(void) {
     self.bloodValueField.delegate=self;
     UIToolbar *bloodBar=[[UIToolbar alloc] initWithFrame:CGRectMake(0,0,320,44)];
     UIBarButtonItem *bloodDone=[[UIBarButtonItem alloc] initWithTitle:@"完成"
-        style:UIBarButtonItemStyleDone target:self action:@selector(finishAttributeInput:)];
+        style:UIBarButtonItemStyleDone target:self action:@selector(finishBloodInput:)];
     bloodBar.items=@[[[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace
         target:nil action:nil],bloodDone];
     self.bloodValueField.inputAccessoryView=bloodBar;
@@ -531,6 +531,9 @@ static NSArray<NSString *> *CategoryNames(void) {
     [self.bloodTable reloadData];[self showSelectedBlood];[self updateBloodActionState];
 }
 
+- (void)finishBloodInput:(id)sender {
+    [self.bloodValueField resignFirstResponder];
+}
 - (void)updateBloodActionState {
     BOOL selected=self.selectedBlood!=nil && self.selectedActor!=nil;
     BOOL exists=selected && self.actorBloodValues[self.selectedBlood[@"id"]]!=nil;
@@ -548,6 +551,28 @@ static NSArray<NSString *> *CategoryNames(void) {
 }
 - (void)removeBlood:(id)sender {
     [self performBloodOperation:2];
+}
+
+- (void)verifyBloodWriteForActor:(NSDictionary *)actor blood:(NSDictionary *)blood
+                            mode:(int)mode target:(int32_t)target
+                         message:(NSString *)message {
+    NSString *world=XJGMCurrentWorldToken();
+    __weak XJGMController *weakSelf=self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(0.55*NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        XJGMController *strongSelf=weakSelf;
+        if(!strongSelf || !strongSelf.bloodMode ||
+           ![strongSelf.selectedActor[@"id"] isEqual:actor[@"id"]] ||
+           ![strongSelf.selectedActor[@"name"] isEqual:actor[@"name"]] ||
+           ![strongSelf.selectedBlood[@"id"] isEqual:blood[@"id"]] ||
+           ![world isEqualToString:XJGMCurrentWorldToken()])return;
+        [strongSelf reloadActorBloods];
+        NSDictionary *entry=strongSelf.actorBloodValues[blood[@"id"]];
+        BOOL matches=mode==2?!entry:(entry && [entry[@"purity"] intValue]==target);
+        NSString *state=matches?@"实时读数已确认":@"尚未在实时快照中确认，勿当作持久生效";
+        strongSelf.bloodDetail.text=[NSString stringWithFormat:@"%@ · %@\n%@",
+            message,state,strongSelf.bloodDetail.text?:@""];
+    });
 }
 - (void)performBloodOperation:(int)mode {
     [self.view endEditing:YES];
@@ -572,28 +597,31 @@ static NSArray<NSString *> *CategoryNames(void) {
     if(!world.length){
         self.bloodDetail.text=@"世界尚未就绪，未执行修改。";return;
     }
-    // No unchecked saved snapshots or direct offsets; writer checks live actor,
-    // current world UUID and current blood before performing any mutation.
+    // Fail-closed on game/build or actor mismatches; runtime writer re-checks
+    // current BloodData and world identity independently of UI cache.
     int rc=XJGMWriteActorBlood([actor[@"id"] intValue],[actor[@"name"] UTF8String],
        [actor[@"forceId"] intValue],[blood[@"id"] intValue],target,mode);
-    // Always reload live state, including on partial failures.
     if(self.bloodMode &&
        [self.selectedActor[@"id"] isEqual:actor[@"id"]] &&
-       [self.selectedActor[@"name"] isEqual:actor[@"name"]]){
+       [self.selectedActor[@"name"] isEqual:actor[@"name"]])
         [self reloadActorBloods];
-    }
     NSString *verb=mode==0?@"修改浓度":(mode==1?@"添加血脉":@"移除血脉");
-    NSString *message=rc==1?
-        [NSString stringWithFormat:@"%@：%@（实时读数符合目标；存档后需复测）",verb,blood[@"name"]]:
-        (rc==2?@"目标浓度与当前相同，无需修改。":
-        [NSString stringWithFormat:@"%@ E%03d，可能已部分修改；请检查刷新后的实际数值。",verb,-rc]);
-    self.bloodDetail.text=[NSString stringWithFormat:@"%@\n%@",message,self.bloodDetail.text?:@""];
+    NSString *message=rc==2?@"目标浓度与当前相同，无需修改。":
+        (rc==1?[NSString stringWithFormat:@"%@已执行：%@",verb,blood[@"name"]]:
+        [NSString stringWithFormat:@"%@ E%03d。",verb,-rc]);
+    if(rc==1||rc==-832||rc==-833){
+        [self verifyBloodWriteForActor:actor blood:blood mode:mode
+                               target:target message:message];
+    } else {
+        self.bloodDetail.text=[NSString stringWithFormat:@"%@\n%@",
+            message,self.bloodDetail.text?:@""];
+    }
 }
 - (void)showSelectedBlood {
     NSDictionary *blood=self.selectedBlood;
     if(!blood){
         self.bloodDetail.text=[NSString stringWithFormat:
-            @"弟子：%@ · 当前 %lu 条血脉\n点击左侧血脉查看详情。\n尚未接入经验证的修改协议。",
+            @"弟子：%@ · 当前 %lu 条血脉\n点击血脉查看详情并修改。",
             self.selectedActor[@"name"]?:@"未选择",
             (unsigned long)self.actorBloodValues.count];return;
     }
@@ -1255,6 +1283,8 @@ static NSArray<NSString *> *CategoryNames(void) {
     if(tableView==self.bloodTable){
         if((NSUInteger)indexPath.row>=self.filteredBloods.count)return;
         self.selectedBlood=self.filteredBloods[(NSUInteger)indexPath.row];
+        NSDictionary *current=self.actorBloodValues[self.selectedBlood[@"id"]];
+        self.bloodValueField.text=current?[current[@"purity"] stringValue]:@"";
         [self showSelectedBlood];
         [self.bloodTable reloadData];
         [self updateBloodActionState];
