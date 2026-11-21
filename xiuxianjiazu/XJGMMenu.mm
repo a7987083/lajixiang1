@@ -215,10 +215,6 @@ static NSArray<NSString *> *CategoryNames(void) {
     self.attributePanel.showsVerticalScrollIndicator=YES;
     self.attributePanel.layer.cornerRadius=4;self.attributePanel.hidden=YES;
     [self.panel addSubview:self.attributePanel];
-    UILabel *attrHeader=Txt(@"动态弟子属性（只读）",15);
-    attrHeader.tag=905;attrHeader.hidden=YES;[self.attributePanel addSubview:attrHeader];
-    UIButton *attrClose=Btn(@"返回",self,@selector(closeAttributes:));
-    attrClose.tag=906;attrClose.hidden=YES;[self.attributePanel addSubview:attrClose];
     UIButton *attrSelect=Btn(@"选择弟子",self,@selector(chooseAttributeActor:));
     attrSelect.tag=907;[self.attributePanel addSubview:attrSelect];
     self.attributeRefresh=Btn(@"刷新属性",self,@selector(refreshAttributes:));
@@ -373,8 +369,12 @@ static NSArray<NSString *> *CategoryNames(void) {
     [self updateModeViews];
     [self adjustPanel];
     if(!self.selectedActor) {
-        self.attributePickPending=YES;
-        [self openActors:nil];
+        self.attributeFreshReady=NO;self.attributeDefs=@[];self.attributeFiltered=@[];
+        self.attributeRawValues=@{};self.attributeSend.enabled=NO;self.attributeSend.alpha=.5;
+        [self.attributeTable reloadData];
+        self.attributeText.text=@"点击下方「选择弟子」后，实时读取该弟子的属性。";
+        UIButton *choose=(UIButton *)[self.attributePanel viewWithTag:907];
+        [choose setTitle:@"选择弟子" forState:UIControlStateNormal];
     } else {
         [self refreshAttributes:nil];
     }
@@ -382,9 +382,6 @@ static NSArray<NSString *> *CategoryNames(void) {
 - (void)chooseAttributeActor:(id)sender {
     self.attributePickPending=YES;
     [self openActors:nil];
-}
-- (void)closeAttributes:(id)sender {
-    [self showSkills:sender];
 }
 - (void)refreshAttributes:(id)sender {
     if(!self.selectedActor) {
@@ -476,6 +473,8 @@ static NSArray<NSString *> *CategoryNames(void) {
     self.selectedAttribute=retained;
     [self filterAttributeList];
     self.attributeFreshReady=YES;
+    UIButton *choose=(UIButton *)[self.attributePanel viewWithTag:907];
+    [choose setTitle:[NSString stringWithFormat:@"弟子：%@",actor[@"name"]] forState:UIControlStateNormal];
     self.attributeText.text=[NSString stringWithFormat:@"弟子：%@ · %lu 条属性\n已选：%@\n%@",
         actor[@"name"],(unsigned long)self.attributeDefs.count,
         self.selectedAttribute[@"name"]?:@"未选择",
