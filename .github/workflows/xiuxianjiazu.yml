@@ -1,7 +1,7 @@
 name: Build Xiuxianjiazu GM UI
 on:
   push:
-    branches: [xiuxianjiazu, feat/xiuxianjiazu-native-item-search, feat/xiuxianjiazu-item-catalog-v1, fix/xiuxianjiazu-item-export-crash-v1, fix/xiuxianjiazu-item-export-array-v1-2]
+    branches: [xiuxianjiazu, feat/xiuxianjiazu-native-item-search, feat/xiuxianjiazu-item-catalog-v1, fix/xiuxianjiazu-item-export-crash-v1, fix/xiuxianjiazu-item-export-array-v1-2, fix/xiuxianjiazu-item-export-field-args-v1-3]
     paths:
       - 'xiuxianjiazu/**'
       - '.github/workflows/xiuxianjiazu.yml'
