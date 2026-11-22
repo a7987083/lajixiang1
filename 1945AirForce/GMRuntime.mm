@@ -33,6 +33,10 @@ struct API {
  void (*free_fn)(void *);
  Il2CppString *(*string_new)(const char *);
  const char *(*class_get_name)(Il2CppClass *);
+ Il2CppClass *(*class_get_parent)(Il2CppClass *);
+ const MethodInfo *(*class_get_method_from_name)(Il2CppClass *, const char *, int);
+ Il2CppClass *(*object_get_class)(Il2CppObject *);
+ bool (*class_is_assignable_from)(Il2CppClass *, Il2CppClass *);
 };
 static API gAPI={};
 static NSString *GMDiagnostic(NSString *code, NSString *detail) {
@@ -69,16 +73,61 @@ static bool LoadAPI(void) {
  RESOLVE(free_fn,"free");
  RESOLVE(string_new,"string_new");
  RESOLVE(class_get_name,"class_get_name");
+ RESOLVE(class_get_parent,"class_get_parent");
+ RESOLVE(class_get_method_from_name,"class_get_method_from_name");
+ RESOLVE(object_get_class,"object_get_class");
+ RESOLVE(class_is_assignable_from,"class_is_assignable_from");
  #undef RESOLVE
  if(!(gAPI.domain_get && gAPI.domain_get_assemblies && gAPI.assembly_get_image &&
       gAPI.image_get_name && gAPI.class_from_name && gAPI.class_get_methods &&
       gAPI.method_get_name && gAPI.method_get_param_count && gAPI.method_get_param &&
       gAPI.method_get_flags && gAPI.type_get_name && gAPI.runtime_invoke &&
-      gAPI.thread_current && gAPI.thread_attach)) {
+      gAPI.thread_current && gAPI.thread_attach && gAPI.class_get_parent &&
+      gAPI.class_get_method_from_name && gAPI.object_get_class &&
+      gAPI.class_is_assignable_from && gAPI.class_get_name)) {
   memset(&gAPI,0,sizeof(gAPI));return false;
  }
  gAPI.handle=h;
  return true;
+}
+// Only the game's existing PersistentSingleton<T> accessor is considered.
+// Never fabricate a MonoBehaviour with il2cpp_object_new.
+static Il2CppObject *ResolveSingleton(Il2CppClass *cls, NSString **diagnostic) {
+ Il2CppClass *parent=gAPI.class_get_parent(cls);
+ const char *parentName=parent?gAPI.class_get_name(parent):nullptr;
+ if(!parentName || strncmp(parentName,"PersistentSingleton",19)!=0) {
+  *diagnostic=GMDiagnostic(@"E112",@"非已知 PersistentSingleton 类型，无可信实例来源");
+  return nullptr;
+ }
+ // Query inherited method on the closed derived type first (generic inflation).
+ const MethodInfo *getter=gAPI.class_get_method_from_name(cls,"get_Instance",0);
+ if(!getter) {
+  *diagnostic=GMDiagnostic(@"E113",@"未解析到已闭合的 get_Instance 方法");
+  return nullptr;
+ }
+ uint32_t aux=0;
+ if(!(gAPI.method_get_flags(getter,&aux)&0x0010u)) {
+  *diagnostic=GMDiagnostic(@"E114",@"单例访问器不是静态方法");
+  return nullptr;
+ }
+ Il2CppException *error=nullptr;
+ Il2CppObject *obj=gAPI.runtime_invoke(getter,nullptr,nullptr,&error);
+ if(error) {
+  *diagnostic=GMDiagnostic(@"E115",@"get_Instance 抛出托管异常");
+  return nullptr;
+ }
+ if(!obj) {
+  *diagnostic=GMDiagnostic(@"E116",@"get_Instance 返回 null，未执行");
+  return nullptr;
+ }
+ Il2CppClass *actual=gAPI.object_get_class(obj);
+ if(!actual || !gAPI.class_is_assignable_from(cls,actual)) {
+  *diagnostic=GMDiagnostic(@"E117",@"单例实例类型不符，拒绝调用");
+  return nullptr;
+ }
+ // UnityEngine.Object native destroyed semantics are not established here.
+ *diagnostic=GMDiagnostic(@"OK",@"PersistentSingleton 实例已解析；Unity 原生生命周期仍需实机确认");
+ return obj;
 }
 static NSString *Invoke(NSString *assembly,NSString *namespaceText,NSString *className,
                         NSString *method,NSString *parameter,BOOL perform) {
@@ -114,8 +163,13 @@ static NSString *Invoke(NSString *assembly,NSString *namespaceText,NSString *cla
  uint32_t iflags=0;
  uint32_t flags=gAPI.method_get_flags(found,&iflags);
  const bool isStatic=(flags & 0x0010u)!=0;
- if(!isStatic)return GMDiagnostic(@"E107",@"方法解析成功，但属于实例方法；当前未找到可信 this，已拒绝执行");
- if(!perform)return GMDiagnostic(@"OK",@"静态方法已解析（未执行）");
+ Il2CppObject *instance=nullptr;
+ NSString *instanceStatus=@"";
+ if(!isStatic){
+  instance=ResolveSingleton(cls,&instanceStatus);
+  if(!instance)return instanceStatus;
+ }
+ if(!perform)return GMDiagnostic(@"OK",isStatic?@"静态方法解析成功（未执行）":@"已通过 PersistentSingleton 取得实例（未执行）");
  if(!gAPI.thread_current())return GMDiagnostic(@"E108",@"Runtime 线程附加失败");
  void *args[1]={nullptr};
  int32_t val=0;
@@ -132,10 +186,10 @@ static NSString *Invoke(NSString *assembly,NSString *namespaceText,NSString *cla
   val=(int32_t)n;args[0]=&val;
  }
  Il2CppException *ex=nullptr;
- Il2CppObject *ret=gAPI.runtime_invoke(found,nullptr,hasArg?args:nullptr,&ex);
+ Il2CppObject *ret=gAPI.runtime_invoke(found,instance,hasArg?args:nullptr,&ex);
  if(ex)return GMDiagnostic(@"E111",@"托管异常（不代表执行成功）");
  (void)ret;
- return GMDiagnostic(@"OK",@"Runtime 调用已返回；游戏数据与服务器持久化未验证");
+ return GMDiagnostic(@"OK",isStatic?@"静态调用已返回，实际副作用未验证":@"单例方法调用已返回；资源同步/持久化未验证");
 }
 
 static UIColor *Accent(void){return [UIColor colorWithRed:.12 green:.80 blue:.95 alpha:1];}
@@ -201,9 +255,9 @@ static UITextField *MakeField(NSString *placeholder, NSString *value){
  _fields=fields;
  UIButton *resolve=[self button:@"解析 / 检测实例" action:@selector(resolve)];
  resolve.tag=710;[_panel addSubview:resolve];
- UIButton *execute=[self button:@"执行静态方法" action:@selector(execute)];
+ UIButton *execute=[self button:@"执行方法" action:@selector(execute)];
  execute.tag=711;[_panel addSubview:execute];
- _result=MakeLabel(@"就绪：当前仅执行静态方法；实例方法安全拒绝。",12);
+ _result=MakeLabel(@"就绪：支持静态方法与已验证类型的 PersistentSingleton；其他实例方法安全拒绝。",12);
  [_panel addSubview:_result];
 }
 - (void)viewDidLayoutSubviews {
