@@ -13,7 +13,7 @@ jobs:
           set -euxo pipefail
           SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
           mkdir -p dist
-          xcrun clang++ -std=c++17 -fobjc-arc -arch arm64 -dynamiclib -isysroot "$SDK" -miphoneos-version-min=13.0 -framework UIKit -framework Foundation -Wl,-install_name,@rpath/1945AirForceGM.dylib 1945AirForce/GMRuntime.mm -o dist/1945AirForceGM.dylib
+          xcrun clang++ -std=c++17 -fobjc-arc -arch arm64 -dynamiclib -isysroot "$SDK" -miphoneos-version-min=13.0 -framework UIKit -framework Foundation -framework CoreGraphics -Wl,-install_name,@rpath/1945AirForceGM.dylib 1945AirForce/GMRuntime.mm -o dist/1945AirForceGM.dylib
           codesign --force --sign - --timestamp=none dist/1945AirForceGM.dylib
           file dist/1945AirForceGM.dylib
           shasum -a 256 dist/1945AirForceGM.dylib | tee dist/SHA256SUMS.txt
