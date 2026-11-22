@@ -5,7 +5,6 @@
 #include <stdint.h>
 #include <limits.h>
 extern "C" int XJGMSendItem(int32_t itemId,int32_t count);
-extern "C" int XJGMProbeRecruitState(void);
 extern "C" int XJGMExportActors(void);
 extern "C" int XJGMSendSkill(int32_t actorId,int32_t skillId);
 extern "C" int XJGMExportAttributes(void);
@@ -17,7 +16,6 @@ extern "C" int XJGMExportBloodCatalog(void);
 extern "C" int XJGMExportActorBloods(int32_t actorId,const char* expectedName,int32_t expectedForceId);
 extern "C" int XJGMWriteActorBlood(int32_t actorId,const char* expectedName,int32_t forceId,
                                    int32_t bloodId,int32_t target,int32_t mode);
-extern "C" UIColor* XJGMNativeQualityColor(int32_t kind,int32_t id,int32_t quality);
 static UIWindow *sWindow=nil;
 static UIColor *Paper(void) { return [UIColor colorWithRed:.92 green:.88 blue:.80 alpha:1]; }
 static UIColor *Panel(void) { return [UIColor colorWithRed:.97 green:.95 blue:.89 alpha:1]; }
@@ -25,27 +23,6 @@ static UIColor *Tan(void) { return [UIColor colorWithRed:.79 green:.67 blue:.58 
 static UIColor *Border(void) { return [UIColor colorWithRed:.59 green:.49 blue:.42 alpha:1]; }
 static UIColor *Ink(void) { return [UIColor colorWithRed:.25 green:.19 blue:.17 alpha:1]; }
 static UIColor *Dim(void) { return [UIColor colorWithRed:.45 green:.37 blue:.32 alpha:1]; }
-// Color just the item/skill/blood name; metadata keeps the original UI palette.
-static void XJGMColorNameInLabel(UILabel *label,NSString *full,NSString *name,UIColor *color) {
-    if(!color||!name.length||!full.length)return;
-    NSRange range=[full rangeOfString:name];
-    if(range.location==NSNotFound)return;
-    NSMutableAttributedString *rich=[[NSMutableAttributedString alloc] initWithString:full
-        attributes:@{NSForegroundColorAttributeName:Ink(),
-                     NSFontAttributeName:label.font?:[UIFont systemFontOfSize:11]}];
-    [rich addAttribute:NSForegroundColorAttributeName value:color range:range];
-    label.attributedText=rich;
-}
-static void XJGMColorNameInDetail(UITextView *view,NSString *name,UIColor *color) {
-    if(!color||!name.length||!view.text.length)return;
-    NSRange range=[view.text rangeOfString:name];
-    if(range.location==NSNotFound)return;
-    NSMutableAttributedString *rich=[[NSMutableAttributedString alloc] initWithString:view.text
-        attributes:@{NSForegroundColorAttributeName:Ink(),
-                     NSFontAttributeName:view.font?:[UIFont systemFontOfSize:12]}];
-    [rich addAttribute:NSForegroundColorAttributeName value:color range:range];
-    view.attributedText=rich;
-}
 static UILabel *Txt(NSString *v,CGFloat size) {
     UILabel *x=[UILabel new];x.text=v;x.textColor=Ink();x.font=[UIFont systemFontOfSize:size];
     x.numberOfLines=0;return x;
@@ -85,7 +62,6 @@ static NSArray<NSString *> *CategoryNames(void) {
 @property(nonatomic,strong) UIButton *skillsTab;
 @property(nonatomic,strong) UIButton *attributesTab;
 @property(nonatomic,strong) UIButton *bloodTab;
-@property(nonatomic,strong) UIButton *recruitProbeTab;
 @property(nonatomic,strong) UIScrollView *bloodPanel;
 @property(nonatomic,strong) UIButton *bloodActorButton;
 @property(nonatomic,strong) UITextField *bloodSearch;
@@ -175,8 +151,6 @@ static NSArray<NSString *> *CategoryNames(void) {
     [self.panel addSubview:self.attributesTab];
     self.bloodTab=Btn(@"血脉管理",self,@selector(showBloods:));
     [self.panel addSubview:self.bloodTab];
-    self.recruitProbeTab=Btn(@"招募诊断",self,@selector(probeRecruit:));
-    [self.panel addSubview:self.recruitProbeTab];
 
     self.query=[UITextField new];self.query.delegate=self;
     self.query.placeholder=@"名称或 ID";self.query.textColor=Ink();self.query.font=[UIFont systemFontOfSize:12];
@@ -369,13 +343,11 @@ static NSArray<NSString *> *CategoryNames(void) {
     [self.panel viewWithTag:901].frame=CGRectMake(m,7,w-75,28);
     self.closeButton.frame=CGRectMake(w-61,9,51,27);
     CGFloat tabGap=5;
-    CGFloat tabWidth=floor((inner-tabGap*4)/5);
+    CGFloat tabWidth=floor((inner-tabGap*3)/4);
     self.itemsTab.frame=CGRectMake(m,41,tabWidth,30);
     self.skillsTab.frame=CGRectMake(m+tabWidth+tabGap,41,tabWidth,30);
     self.attributesTab.frame=CGRectMake(m+(tabWidth+tabGap)*2,41,tabWidth,30);
     self.bloodTab.frame=CGRectMake(m+(tabWidth+tabGap)*3,41,tabWidth,30);
-    self.recruitProbeTab.frame=CGRectMake(m+(tabWidth+tabGap)*4,41,
-        inner-4*(tabWidth+tabGap),30);
     self.query.frame=CGRectMake(m,77,inner,31);
 
     // Compact iPhone portrait: categories 24%, list 35%, details remaining 41%.
@@ -436,17 +408,6 @@ static NSArray<NSString *> *CategoryNames(void) {
         bw-20-bloodButtonW*2,33);
     self.bloodDetail.frame=CGRectMake(5,bloodContentH-158,bw-10,153);
     self.statusLabel.frame=CGRectMake(m,bottom+68,inner,40);
-}
-- (void)probeRecruit:(id)sender {
-    (void)sender;
-    int status=XJGMProbeRecruitState();
-    NSString *body=status==1 ?
-        @"已取得游戏世界与势力集合。详情：Documents/XiuxianjiazuGM/recruit-probe.json。只读检查，不代表弟子已生成。" :
-        [NSString stringWithFormat:@"只读诊断失败：E%d。详情：Documents/XiuxianjiazuGM/recruit-probe.json",-status];
-    UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"招募业务诊断"
-        message:body preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil]];
-    [self presentViewController:alert animated:YES completion:nil];
 }
 - (void)toggle:(id)sender {
     self.panel.hidden=!self.panel.hidden;self.bubble.hidden=!self.panel.hidden;
@@ -679,8 +640,6 @@ static NSArray<NSString *> *CategoryNames(void) {
         @"%@  ID：%@\n品质：%@ · 类型：%@\n弟子：%@ · 浓度：%@ · %@\n%@",
         blood[@"name"],blood[@"id"],blood[@"quality"],blood[@"bloodType"],
         self.selectedActor[@"name"]?:@"未选择",purity,active,blood[@"description"]?:@""];
-    XJGMColorNameInDetail(self.bloodDetail,blood[@"name"],
-        XJGMNativeQualityColor(2,[blood[@"id"] intValue],[blood[@"quality"] intValue]));
     [self updateBloodActionState];
 }
 - (void)showAttributes:(id)sender {
@@ -1132,9 +1091,6 @@ static NSArray<NSString *> *CategoryNames(void) {
     } else {
         self.detailLabel.text=[NSString stringWithFormat:@"物品说明\n\n%@",o[@"name"]];
     }
-    UIColor *quality=XJGMNativeQualityColor(self.skillsMode?1:0,
-        [o[@"id"] intValue],self.skillsMode?[o[@"skillQuality"] intValue]:-1);
-    XJGMColorNameInDetail(self.detailLabel,o[@"name"],quality);
 }
 - (void)decrease:(id)sender {
     NSInteger n=MAX(1,MIN(9999,self.quantity.text.integerValue-1));
@@ -1291,8 +1247,6 @@ static NSArray<NSString *> *CategoryNames(void) {
         NSString *purity=owned?[NSString stringWithFormat:@" · 浓度 %@",owned[@"purity"]]:@"";
         cell.textLabel.text=[NSString stringWithFormat:@"%@%@",
             blood[@"name"]?:@"",purity];
-        XJGMColorNameInLabel(cell.textLabel,cell.textLabel.text,blood[@"name"],
-            XJGMNativeQualityColor(2,[blood[@"id"] intValue],[blood[@"quality"] intValue]));
         cell.backgroundColor=[self.selectedBlood[@"id"] isEqual:blood[@"id"]]?Tan():Panel();
     } else if(tableView==self.attributeTable){
         NSDictionary *a=self.attributeFiltered[(NSUInteger)indexPath.row];
@@ -1329,9 +1283,6 @@ static NSArray<NSString *> *CategoryNames(void) {
         NSUInteger index=(NSUInteger)self.page*[self pageSize]+(NSUInteger)indexPath.row;
         NSDictionary *o=self.filtered[index];
         cell.textLabel.text=o[@"name"];
-        XJGMColorNameInLabel(cell.textLabel,cell.textLabel.text,o[@"name"],
-            XJGMNativeQualityColor(self.skillsMode?1:0,[o[@"id"] intValue],
-                                   self.skillsMode?[o[@"skillQuality"] intValue]:-1));
         if(self.selected && [self.selected[@"id"] isEqual:o[@"id"]])cell.backgroundColor=Tan();
     }
     return cell;
