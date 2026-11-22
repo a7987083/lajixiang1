@@ -410,7 +410,7 @@ static UITextField *MakeField(NSString *placeholder, NSString *value){
 }
 @end
 @interface GMController:UIViewController <UITextFieldDelegate>
-@property(nonatomic,strong) UIView *panel;
+@property(nonatomic,strong) UIScrollView *panel;
 @property(nonatomic,strong) UIButton *bubble;
 @property(nonatomic,strong) NSArray<UITextField *> *fields;
 @property(nonatomic,strong) UILabel *result;
@@ -432,14 +432,14 @@ static UITextField *MakeField(NSString *placeholder, NSString *value){
  [self.view addSubview:_bubble];
  UIPanGestureRecognizer *pan=[[UIPanGestureRecognizer alloc]initWithTarget:self action:@selector(drag:)];
  [_bubble addGestureRecognizer:pan];
- _panel=[UIView new];_panel.backgroundColor=[UIColor colorWithRed:.055 green:.075 blue:.11 alpha:.97];
+ _panel=[UIScrollView new];_panel.alwaysBounceVertical=YES;_panel.keyboardDismissMode=UIScrollViewKeyboardDismissModeOnDrag;_panel.backgroundColor=[UIColor colorWithRed:.055 green:.075 blue:.11 alpha:.97];
  _panel.layer.cornerRadius=13;_panel.layer.borderColor=Accent().CGColor;_panel.layer.borderWidth=1;
  _panel.hidden=YES;[self.view addSubview:_panel];
  UILabel *title=MakeLabel(@"1945 Air Force · IL2CPP GM",16);
  title.font=[UIFont boldSystemFontOfSize:16];title.frame=CGRectMake(14,12,270,28);[_panel addSubview:title];
  UIButton *close=[self button:@"收起" action:@selector(toggle)];
  close.tag=700;[_panel addSubview:close];
- NSArray *placeholders=@[@"Assembly",@"Namespace（可为空）",@"Class",@"Method",@"Int32 参数（可为空）"];
+ NSArray *placeholders=@[@"Assembly",@"Namespace（可为空）",@"Class",@"Method",@"参数：按顺序用 | 分隔，空=0 参数"];
  NSArray *values=@[@"Assembly-CSharp",@"",@"DataCheat",@"AddGem",@"1000"];
  NSMutableArray *fields=[NSMutableArray array];
  for(NSUInteger i=0;i<placeholders.count;i++){
@@ -447,24 +447,30 @@ static UITextField *MakeField(NSString *placeholder, NSString *value){
   f.tag=800+i;[_panel addSubview:f];[fields addObject:f];
  }
  _fields=fields;
- UIButton *resolve=[self button:@"解析 / 检测实例" action:@selector(resolve)];
- resolve.tag=710;[_panel addSubview:resolve];
- UIButton *execute=[self button:@"执行方法" action:@selector(execute)];
- execute.tag=711;[_panel addSubview:execute];
- _result=MakeLabel(@"就绪：支持静态方法与已验证类型的 PersistentSingleton；其他实例方法安全拒绝。",12);
+ NSArray *titles=@[@"方法详情",@"继承关系",@"获取实例",@"执行方法",@"保存配置",@"恢复配置"];
+ NSArray *selectors=@[@"inspect",@"classInfo",@"resolve",@"execute",@"saveConfig",@"loadConfig"];
+ for(NSUInteger i=0;i<titles.count;i++){
+  UIButton *button=[self button:titles[i] action:NSSelectorFromString(selectors[i])];
+  button.tag=710+(NSInteger)i;
+  [_panel addSubview:button];
+ }
+ _result=MakeLabel(@"就绪：支持 0–8 参数的 Int32/UInt32/Int64/UInt64/Float/Double/Bool/String，按 | 分隔。先查看方法详情确认签名。",12);
  [_panel addSubview:_result];
 }
 - (void)viewDidLayoutSubviews {
  [super viewDidLayoutSubviews];
  CGFloat width=MIN(350,MAX(290,self.view.bounds.size.width-20));
- CGFloat height=346;
+ CGFloat height=MIN(510,MAX(270,self.view.bounds.size.height-32));
  _panel.frame=CGRectMake((self.view.bounds.size.width-width)*.5,
-                         MAX(25,(self.view.bounds.size.height-height)*.5),width,height);
+                         MAX(8,(self.view.bounds.size.height-height)*.5),width,height);
+ _panel.contentSize=CGSizeMake(width,505);
  [[_panel viewWithTag:700]setFrame:CGRectMake(width-69,12,55,27)];
  for(NSUInteger i=0;i<_fields.count;i++)_fields[i].frame=CGRectMake(14,49+i*43,width-28,35);
- [[_panel viewWithTag:710]setFrame:CGRectMake(14,272,(width-38)*.5,32)];
- [[_panel viewWithTag:711]setFrame:CGRectMake(24+(width-38)*.5,272,(width-38)*.5,32)];
- _result.frame=CGRectMake(14,307,width-28,32);
+ for(NSUInteger i=0;i<6;i++){
+  CGFloat buttonW=(width-38)*.5;
+  [[_panel viewWithTag:710+(NSInteger)i]setFrame:CGRectMake(i%2?24+buttonW:14,272+(i/2)*39,buttonW,34)];
+ }
+ _result.frame=CGRectMake(14,396,width-28,104);
 }
 - (void)toggle {
  self.expanded=!self.expanded;self.panel.hidden=!self.expanded;self.bubble.hidden=self.expanded;
@@ -478,15 +484,29 @@ static UITextField *MakeField(NSString *placeholder, NSString *value){
  p.y=MAX(24,MIN(self.view.bounds.size.height-24,p.y));
  self.bubble.center=p;[pan setTranslation:CGPointZero inView:self.view];
 }
-- (void)resolve{[self run:NO];}
-- (void)execute{[self run:YES];}
-- (void)run:(BOOL)perform {
+- (void)inspect{[self run:0];}
+- (void)classInfo{[self run:3];}
+- (void)resolve{[self run:1];}
+- (void)execute{[self run:2];}
+- (void)saveConfig{
+ NSMutableArray *values=[NSMutableArray array];
+ for(UITextField *field in self.fields)[values addObject:field.text?:@""];
+ [NSUserDefaults.standardUserDefaults setObject:values forKey:@"zonoe.1945gm.runtime-config.v2"];
+ self.result.text=@"OK：已保存方法配置，不保存实例指针或 GCHandle";
+}
+- (void)loadConfig{
+ NSArray *values=[NSUserDefaults.standardUserDefaults objectForKey:@"zonoe.1945gm.runtime-config.v2"];
+ if(![values isKindOfClass:NSArray.class]||values.count!=self.fields.count){self.result.text=@"没有已保存配置";return;}
+ for(NSUInteger i=0;i<values.count;i++)if([values[i] isKindOfClass:NSString.class])self.fields[i].text=values[i];
+ self.result.text=@"OK：方法配置已恢复";
+}
+- (void)run:(NSInteger)mode {
  [self.view endEditing:YES];
  NSString *(^clean)(NSUInteger)=^NSString *(NSUInteger i){
   return [self.fields[i].text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]?:@"";
  };
  if(!clean(2).length||!clean(3).length){self.result.text=@"E100：类名和方法名不能为空";return;}
- self.result.text=Invoke(clean(0),clean(1),clean(2),clean(3),clean(4),perform);
+ self.result.text=Invoke(clean(0),clean(1),clean(2),clean(3),clean(4),mode);
  NSLog(@"[1945GM] %@",self.result.text);
 }
 - (BOOL)textFieldShouldReturn:(UITextField *)f{[f resignFirstResponder];return YES;}
