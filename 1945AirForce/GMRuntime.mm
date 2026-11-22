@@ -204,18 +204,67 @@ static NSArray<NSString *> *GMArgs(NSString *raw) {
  return out;
 }
 static const MethodInfo *GMFindMethod(Il2CppClass *klass,NSString *method,NSUInteger argc,
-                                      NSString **error) {
+                                      NSArray<NSString *> *exactTypes,NSString **error) {
  void *iter=nullptr;
  const MethodInfo *match=nullptr;
  NSUInteger count=0;
  while(const MethodInfo *m=gAPI.class_get_methods(klass,&iter)) {
   const char *name=gAPI.method_get_name(m);
   if(!name||strcmp(name,method.UTF8String)||gAPI.method_get_param_count(m)!=argc)continue;
+  if(exactTypes){
+   BOOL same=exactTypes.count==argc;
+   for(uint32_t i=0;same&&i<argc;i++)
+    same=[GMTypeName(gAPI.method_get_param(m,i)) isEqualToString:exactTypes[i]];
+   if(!same)continue;
+  }
   match=m;count++;
  }
  if(count==1)return match;
- if(error)*error=GMDiagnostic(count?@"E106":@"E105",count?@"存在同名同参数数量的重载，请先区分签名":@"未找到方法或参数数量不匹配");
+ if(error)*error=GMDiagnostic(count?@"E106":@"E105",count?@"重载签名存在歧义，拒绝猜测":@"方法或参数类型不匹配");
  return nullptr;
+}
+static BOOL GMSupportedType(NSString *type) {
+ return [@[@"System.Boolean",@"System.Int32",@"System.UInt32",@"System.Int64",
+           @"System.UInt64",@"System.Single",@"System.Double",@"System.String"] containsObject:type];
+}
+static NSArray<NSDictionary<NSString *,id> *> *GMEnumerateDataCheat(NSString **error) {
+ if(!LoadAPI()){if(error)*error=@"E101：IL2CPP 导出未就绪";return @[];}
+ Il2CppDomain *domain=gAPI.domain_get();
+ if(!domain){if(error)*error=@"E102：IL2CPP Domain 未就绪";return @[];}
+ if(!gAPI.thread_current())gAPI.thread_attach(domain);
+ if(!gAPI.thread_current()){if(error)*error=@"E108：线程附加失败";return @[];}
+ Il2CppClass *klass=GMResolveClass(@"Assembly-CSharp",@"",@"DataCheat");
+ if(!klass){if(error)*error=@"E104：Assembly-CSharp.DataCheat 不存在";return @[];}
+ NSMutableArray<NSDictionary<NSString *,id> *> *out=[NSMutableArray array];
+ void *iter=nullptr;
+ NSUInteger count=0;
+ while(const MethodInfo *method=gAPI.class_get_methods(klass,&iter)){
+  if(++count>4096)break;
+  const char *raw=gAPI.method_get_name(method);
+  if(!raw)continue;
+  NSString *name=[NSString stringWithUTF8String:raw];
+  NSUInteger argc=gAPI.method_get_param_count(method);
+  BOOL supported=argc<=8 && ![name hasPrefix:@"."];
+  NSMutableArray<NSString *> *types=[NSMutableArray array];
+  for(NSUInteger i=0;i<MIN(argc,(NSUInteger)16);i++){
+   NSString *type=GMTypeName(gAPI.method_get_param(method,(uint32_t)i));
+   [types addObject:type];
+   if(!GMSupportedType(type))supported=NO;
+  }
+  if(argc>16)supported=NO;
+  uint32_t aux=0;
+  BOOL isStatic=(gAPI.method_get_flags(method,&aux)&0x10u)!=0;
+  NSString *label=[NSString stringWithFormat:@"%@(%@) → %@",
+                    name,[types componentsJoinedByString:@", "],
+                    GMTypeName(gAPI.method_get_return_type(method))];
+  [out addObject:@{@"method":name,@"argc":@(argc),@"types":types,
+                   @"signature":label,@"isStatic":@(isStatic),@"supported":@(supported)}];
+ }
+ [out sortUsingComparator:^NSComparisonResult(NSDictionary *a,NSDictionary *b){
+  return [a[@"method"] localizedStandardCompare:b[@"method"]];
+ }];
+ if(error)*error=[NSString stringWithFormat:@"DataCheat 已枚举 %lu 个方法（直接声明）",(unsigned long)out.count];
+ return out;
 }
 static NSString *GMDescribeMethod(const MethodInfo *m,Il2CppClass *cls) {
  uint32_t impl=0;
@@ -347,7 +396,8 @@ static NSString *GMReturnValue(const Il2CppType *type,Il2CppObject *result) {
  return [NSString stringWithFormat:@"%@ · object=%p",name,result];
 }
 static NSString *Invoke(NSString *assembly,NSString *namespaceText,NSString *className,
-                        NSString *method,NSString *parameter,NSInteger mode) {
+                        NSString *method,NSString *parameter,NSInteger mode,
+                        NSArray<NSString *> *exactTypes) {
  if(!LoadAPI())return GMDiagnostic(@"E101",@"IL2CPP Runtime 导出不可用");
  Il2CppDomain *domain=gAPI.domain_get();
  if(!domain)return GMDiagnostic(@"E102",@"IL2CPP Domain 尚未就绪");
@@ -359,7 +409,7 @@ static NSString *Invoke(NSString *assembly,NSString *namespaceText,NSString *cla
  NSArray<NSString *> *values=GMArgs(parameter);
  if(values.count>8)return GMDiagnostic(@"E109",@"最多支持八个参数");
  NSString *findError=nil;
- const MethodInfo *found=GMFindMethod(cls,method,values.count,&findError);
+ const MethodInfo *found=GMFindMethod(cls,method,values.count,exactTypes,&findError);
  if(!found)return findError?:@"E105";
  if(mode==0)return [@"OK：方法详情\n" stringByAppendingString:GMDescribeMethod(found,cls)];
  uint32_t iflags=0;
