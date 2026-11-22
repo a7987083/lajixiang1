@@ -6,6 +6,10 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
+#include <float.h>
+#include <math.h>
+#include <limits.h>
 
 // IL2CPP ABI declarations: resolved at runtime; no Unity headers needed.
 struct Il2CppDomain; struct Il2CppAssembly; struct Il2CppImage;
@@ -37,6 +41,14 @@ struct API {
  const MethodInfo *(*class_get_method_from_name)(Il2CppClass *, const char *, int);
  Il2CppClass *(*object_get_class)(Il2CppObject *);
  bool (*class_is_assignable_from)(Il2CppClass *, Il2CppClass *);
+ const char *(*class_get_namespace)(Il2CppClass *);
+ const Il2CppType *(*class_get_type)(Il2CppClass *);
+ Il2CppClass *(*class_from_type)(const Il2CppType *);
+ void *(*class_get_field_from_name)(Il2CppClass *, const char *);
+ int (*field_get_flags)(const void *);
+ const Il2CppType *(*field_get_type)(const void *);
+ void (*field_static_get_value)(const void *, void *);
+
 };
 static API gAPI={};
 static NSString *GMDiagnostic(NSString *code, NSString *detail) {
@@ -77,6 +89,14 @@ static bool LoadAPI(void) {
  RESOLVE(class_get_method_from_name,"class_get_method_from_name");
  RESOLVE(object_get_class,"object_get_class");
  RESOLVE(class_is_assignable_from,"class_is_assignable_from");
+ RESOLVE(class_get_namespace,"class_get_namespace");
+ RESOLVE(class_get_type,"class_get_type");
+ RESOLVE(class_from_type,"class_from_type");
+ RESOLVE(class_get_field_from_name,"class_get_field_from_name");
+ RESOLVE(field_get_flags,"field_get_flags");
+ RESOLVE(field_get_type,"field_get_type");
+ RESOLVE(field_static_get_value,"field_static_get_value");
+
  #undef RESOLVE
  if(!(gAPI.domain_get && gAPI.domain_get_assemblies && gAPI.assembly_get_image &&
       gAPI.image_get_name && gAPI.class_from_name && gAPI.class_get_methods &&
@@ -129,67 +149,241 @@ static Il2CppObject *ResolveSingleton(Il2CppClass *cls, NSString **diagnostic) {
  *diagnostic=GMDiagnostic(@"OK",@"PersistentSingleton 实例已解析；Unity 原生生命周期仍需实机确认");
  return obj;
 }
+
+static NSString *GMTrim(NSString *s) {
+ return [s?:@"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+}
+static NSString *GMTypeName(const Il2CppType *type) {
+ if(!type||!gAPI.type_get_name)return @"?";
+ char *raw=gAPI.type_get_name(type);
+ NSString *name=raw?[NSString stringWithUTF8String:raw]:@"?";
+ if(raw&&gAPI.free_fn)gAPI.free_fn(raw);
+ return name?:@"?";
+}
+static Il2CppClass *GMResolveClass(NSString *assembly,NSString *ns,NSString *name) {
+ Il2CppDomain *domain=gAPI.domain_get();
+ size_t count=0;
+ const Il2CppAssembly **assemblies=domain?gAPI.domain_get_assemblies(domain,&count):nullptr;
+ if(!assemblies||!count||count>8192)return nullptr;
+ NSString *wanted=GMTrim(assembly);
+ if(!wanted.length)wanted=@"Assembly-CSharp";
+ NSString *normalized=[wanted hasSuffix:@".dll"]?[wanted substringToIndex:wanted.length-4]:wanted;
+ for(size_t i=0;i<count;i++){
+  const Il2CppImage *img=gAPI.assembly_get_image(assemblies[i]);
+  const char *raw=img?gAPI.image_get_name(img):nullptr;
+  if(!raw)continue;
+  NSString *image=[NSString stringWithUTF8String:raw];
+  NSString *imageBase=[image hasSuffix:@".dll"]?[image substringToIndex:image.length-4]:image;
+  if([imageBase caseInsensitiveCompare:normalized]!=NSOrderedSame)continue;
+  Il2CppClass *klass=gAPI.class_from_name(img,(ns?:@"").UTF8String,name.UTF8String);
+  if(klass)return klass;
+ }
+ return nullptr;
+}
+static NSString *GMHierarchy(Il2CppClass *klass) {
+ NSMutableArray<NSString *> *lines=[NSMutableArray array];
+ Il2CppClass *cur=klass;
+ for(unsigned i=0;i<12&&cur;i++){
+  const char *name=gAPI.class_get_name(cur);
+  const char *ns=gAPI.class_get_namespace?gAPI.class_get_namespace(cur):nullptr;
+  NSString *n=name?[NSString stringWithUTF8String:name]:@"?";
+  NSString *prefix=ns&&*ns?[NSString stringWithFormat:@"%s.",ns]:@"";
+  [lines addObject:[prefix stringByAppendingString:n]];
+  Il2CppClass *next=gAPI.class_get_parent(cur);
+  if(next==cur)break;
+  cur=next;
+ }
+ return [lines componentsJoinedByString:@" → "];
+}
+static NSArray<NSString *> *GMArgs(NSString *raw) {
+ NSString *s=GMTrim(raw);
+ if(!s.length)return @[];
+ NSArray *parts=[s componentsSeparatedByString:@"|"];
+ NSMutableArray *out=[NSMutableArray array];
+ for(NSString *part in parts)[out addObject:GMTrim(part)];
+ return out;
+}
+static const MethodInfo *GMFindMethod(Il2CppClass *klass,NSString *method,NSUInteger argc,
+                                      NSString **error) {
+ void *iter=nullptr;
+ const MethodInfo *match=nullptr;
+ NSUInteger count=0;
+ while(const MethodInfo *m=gAPI.class_get_methods(klass,&iter)) {
+  const char *name=gAPI.method_get_name(m);
+  if(!name||strcmp(name,method.UTF8String)||gAPI.method_get_param_count(m)!=argc)continue;
+  match=m;count++;
+ }
+ if(count==1)return match;
+ if(error)*error=GMDiagnostic(count?@"E106":@"E105",count?@"存在同名同参数数量的重载，请先区分签名":@"未找到方法或参数数量不匹配");
+ return nullptr;
+}
+static NSString *GMDescribeMethod(const MethodInfo *m,Il2CppClass *cls) {
+ uint32_t impl=0;
+ BOOL isStatic=(gAPI.method_get_flags(m,&impl)&0x10u)!=0;
+ NSMutableArray *parts=[NSMutableArray array];
+ for(uint32_t i=0;i<gAPI.method_get_param_count(m);i++)
+  [parts addObject:GMTypeName(gAPI.method_get_param(m,i))];
+ return [NSString stringWithFormat:@"%@ · %@(%@) → %@\n继承：%@",
+         isStatic?@"Static":@"Instance",
+         [NSString stringWithUTF8String:gAPI.method_get_name(m)]?:@"?",
+         [parts componentsJoinedByString:@", "],
+         GMTypeName(gAPI.method_get_return_type(m)),GMHierarchy(cls)];
+}
+// Conservative fallback for already-instantiated singleton static fields.
+// Never treat a primitive field as an object pointer.
+static Il2CppObject *GMStaticSingleton(Il2CppClass *klass,NSString **status) {
+ if(!gAPI.class_get_field_from_name||!gAPI.field_get_flags||
+    !gAPI.field_get_type||!gAPI.field_static_get_value||!gAPI.class_from_type)return nullptr;
+ const char *names[]={"Instance","instance","_instance","s_Instance","s_instance"};
+ for(Il2CppClass *cur=klass;cur;){
+  for(const char *key:names){
+   void *field=gAPI.class_get_field_from_name(cur,key);
+   if(!field || !(gAPI.field_get_flags(field)&0x10))continue;
+   const Il2CppType *type=gAPI.field_get_type(field);
+   Il2CppClass *fieldClass=type?gAPI.class_from_type(type):nullptr;
+   if(!fieldClass||!gAPI.class_is_assignable_from(fieldClass,klass))continue;
+   Il2CppObject *obj=nullptr;
+   gAPI.field_static_get_value(field,&obj);
+   if(obj&&gAPI.class_is_assignable_from(klass,gAPI.object_get_class(obj))){
+    if(status)*status=[NSString stringWithFormat:@"静态字段 %s 已解析",key];
+    return obj;
+   }
+  }
+  Il2CppClass *next=gAPI.class_get_parent(cur);
+  if(next==cur)break;
+  cur=next;
+ }
+ return nullptr;
+}
+static Il2CppObject *GMExistingInstance(Il2CppClass *klass,NSString **status) {
+ NSString *singletonStatus=@"";
+ Il2CppObject *obj=ResolveSingleton(klass,&singletonStatus); // keep validated standalone baseline
+ if(obj){
+  if(status)*status=@"PersistentSingleton<T>.get_Instance 已获取";
+  return obj;
+ }
+ obj=GMStaticSingleton(klass,status);
+ if(obj)return obj;
+ if(status)*status=[NSString stringWithFormat:@"%@；也未找到有效静态实例字段",singletonStatus];
+ return nullptr;
+}
+static BOOL GMParseSigned(NSString *value,int64_t *out) {
+ const char *raw=GMTrim(value).UTF8String;
+ if(!raw||!*raw)return NO;
+ char *end=nullptr;errno=0;
+ long long v=strtoll(raw,&end,0);
+ if(errno||end==raw||*end)return NO;
+ *out=v;return YES;
+}
+static BOOL GMParseUnsigned(NSString *value,uint64_t *out) {
+ NSString *str=GMTrim(value);
+ if(!str.length||[str hasPrefix:@"-"])return NO;
+ char *end=nullptr;errno=0;
+ unsigned long long v=strtoull(str.UTF8String,&end,0);
+ if(errno||end==str.UTF8String||*end)return NO;
+ *out=v;return YES;
+}
+static BOOL GMEncodeArgument(NSString *type,NSString *value,uint64_t *slot,void **pointer,
+                             NSString **error) {
+ NSString *v=GMTrim(value);
+ if([type isEqualToString:@"System.String"]){
+  if(!gAPI.string_new){if(error)*error=@"il2cpp_string_new 不可用";return NO;}
+  *pointer=gAPI.string_new(v.UTF8String);
+  return *pointer!=nullptr;
+ }
+ if([type isEqualToString:@"System.Boolean"]){
+  BOOL b=[@[@"1",@"true",@"yes",@"on"] containsObject:v.lowercaseString];
+  BOOL f=[@[@"0",@"false",@"no",@"off"] containsObject:v.lowercaseString];
+  if(!b&&!f){if(error)*error=@"Boolean 只接受 true/false 或 1/0";return NO;}
+  uint8_t x=b?1:0;memcpy(slot,&x,sizeof(x));*pointer=slot;return YES;
+ }
+ if([type isEqualToString:@"System.Single"]||[type isEqualToString:@"System.Double"]){
+  const char *raw=v.UTF8String;char *end=nullptr;errno=0;
+  double x=strtod(raw,&end);
+  if(!raw||end==raw||*end||errno||!isfinite(x)){if(error)*error=@"浮点值无效";return NO;}
+  if([type isEqualToString:@"System.Single"]){
+   if(x>FLT_MAX||x< -FLT_MAX){if(error)*error=@"Single 超出范围";return NO;}
+   float f=(float)x;memcpy(slot,&f,sizeof(f));
+  } else memcpy(slot,&x,sizeof(x));
+  *pointer=slot;return YES;
+ }
+ BOOL isUnsigned=[type isEqualToString:@"System.UInt32"]||[type isEqualToString:@"System.UInt64"];
+ BOOL isSigned=[type isEqualToString:@"System.Int32"]||[type isEqualToString:@"System.Int64"];
+ if(isSigned){
+  int64_t val=0;
+  if(!GMParseSigned(v,&val)||([type isEqualToString:@"System.Int32"]&&(val<INT32_MIN||val>INT32_MAX))){
+   if(error)*error=@"有符号整数不合法";return NO;
+  }
+  if([type isEqualToString:@"System.Int32"]){int32_t x=(int32_t)val;memcpy(slot,&x,sizeof(x));}
+  else memcpy(slot,&val,sizeof(val));
+  *pointer=slot;return YES;
+ }
+ if(isUnsigned){
+  uint64_t val=0;
+  if(!GMParseUnsigned(v,&val)||([type isEqualToString:@"System.UInt32"]&&val>UINT32_MAX)){
+   if(error)*error=@"无符号整数不合法";return NO;
+  }
+  if([type isEqualToString:@"System.UInt32"]){uint32_t x=(uint32_t)val;memcpy(slot,&x,sizeof(x));}
+  else memcpy(slot,&val,sizeof(val));
+  *pointer=slot;return YES;
+ }
+ if(error)*error=[NSString stringWithFormat:@"暂不支持参数类型 %@（ref/out、结构体与对象参数拒绝执行）",type];
+ return NO;
+}
+static NSString *GMReturnValue(const Il2CppType *type,Il2CppObject *result) {
+ NSString *name=GMTypeName(type);
+ if([name isEqualToString:@"System.Void"])return @"Void";
+ if(!result)return [NSString stringWithFormat:@"%@ = null",name];
+ void *unboxed=gAPI.object_unbox?gAPI.object_unbox(result):nullptr;
+ if(unboxed){
+  if([name isEqualToString:@"System.Int32"]){int32_t x=0;memcpy(&x,unboxed,4);return [NSString stringWithFormat:@"Int32 = %d",x];}
+  if([name isEqualToString:@"System.UInt32"]){uint32_t x=0;memcpy(&x,unboxed,4);return [NSString stringWithFormat:@"UInt32 = %u",x];}
+  if([name isEqualToString:@"System.Int64"]){int64_t x=0;memcpy(&x,unboxed,8);return [NSString stringWithFormat:@"Int64 = %lld",(long long)x];}
+  if([name isEqualToString:@"System.UInt64"]){uint64_t x=0;memcpy(&x,unboxed,8);return [NSString stringWithFormat:@"UInt64 = %llu",(unsigned long long)x];}
+  if([name isEqualToString:@"System.Single"]){float x=0;memcpy(&x,unboxed,4);return [NSString stringWithFormat:@"Float = %g",(double)x];}
+  if([name isEqualToString:@"System.Double"]){double x=0;memcpy(&x,unboxed,8);return [NSString stringWithFormat:@"Double = %.9g",x];}
+  if([name isEqualToString:@"System.Boolean"]){uint8_t x=0;memcpy(&x,unboxed,1);return x?@"Boolean = true":@"Boolean = false";}
+ }
+ return [NSString stringWithFormat:@"%@ · object=%p",name,result];
+}
 static NSString *Invoke(NSString *assembly,NSString *namespaceText,NSString *className,
-                        NSString *method,NSString *parameter,BOOL perform) {
+                        NSString *method,NSString *parameter,NSInteger mode) {
  if(!LoadAPI())return GMDiagnostic(@"E101",@"IL2CPP Runtime 导出不可用");
  Il2CppDomain *domain=gAPI.domain_get();
  if(!domain)return GMDiagnostic(@"E102",@"IL2CPP Domain 尚未就绪");
  if(!gAPI.thread_current())gAPI.thread_attach(domain);
- size_t count=0;
- const Il2CppAssembly **assemblies=gAPI.domain_get_assemblies(domain,&count);
- if(!assemblies||count==0||count>8192)return GMDiagnostic(@"E103",@"程序集列表不可用");
- Il2CppClass *cls=nullptr;
- for(size_t i=0;i<count;i++){
-  const Il2CppImage *img=gAPI.assembly_get_image(assemblies[i]);
-  const char *name=img?gAPI.image_get_name(img):nullptr;
-  if(!name)continue;
-  NSString *n=[NSString stringWithUTF8String:name];
-  NSString *expected=assembly.length?assembly:@"Assembly-CSharp";
-  if(![n isEqualToString:expected] && ![n isEqualToString:[expected stringByAppendingString:@".dll"]])continue;
-  cls=gAPI.class_from_name(img,namespaceText.UTF8String,className.UTF8String);
-  if(cls)break;
- }
- if(!cls)return GMDiagnostic(@"E104",@"未找到程序集中的类（检查命名空间）");
- void *iter=nullptr;const MethodInfo *found=nullptr;NSUInteger matches=0;
- BOOL hasArg=parameter.length>0;
- while(const MethodInfo *m=gAPI.class_get_methods(cls,&iter)){
-  if(strcmp(gAPI.method_get_name(m),method.UTF8String)!=0)continue;
-  uint32_t pc=gAPI.method_get_param_count(m);
-  if(pc!=(hasArg?1u:0u))continue;
-  found=m;matches++;
- }
- if(!matches)return GMDiagnostic(@"E105",@"方法或参数数量不匹配");
- if(matches>1)return GMDiagnostic(@"E106",@"同名重载不明确，拒绝猜测参数签名");
- uint32_t iflags=0;
- uint32_t flags=gAPI.method_get_flags(found,&iflags);
- const bool isStatic=(flags & 0x0010u)!=0;
- Il2CppObject *instance=nullptr;
- NSString *instanceStatus=@"";
- if(!isStatic){
-  instance=ResolveSingleton(cls,&instanceStatus);
-  if(!instance)return instanceStatus;
- }
- if(!perform)return GMDiagnostic(@"OK",isStatic?@"静态方法解析成功（未执行）":@"已通过 PersistentSingleton 取得实例（未执行）");
  if(!gAPI.thread_current())return GMDiagnostic(@"E108",@"Runtime 线程附加失败");
- void *args[1]={nullptr};
- int32_t val=0;
- if(hasArg){
-  const Il2CppType *type=gAPI.method_get_param(found,0);
-  char *typeName=type?gAPI.type_get_name(type):nullptr;
-  NSString *tn=typeName?[NSString stringWithUTF8String:typeName]:@"";
-  if(typeName&&gAPI.free_fn)gAPI.free_fn(typeName);
-  if(![tn isEqualToString:@"System.Int32"])return GMDiagnostic(@"E109",@"当前仅支持一个 System.Int32 参数");
-  NSScanner *scanner=[NSScanner scannerWithString:parameter];
-  NSInteger n=0;
-  if(![scanner scanInteger:&n]||!scanner.isAtEnd||n<INT32_MIN||n>INT32_MAX)
-   return GMDiagnostic(@"E110",@"Int32 参数不合法");
-  val=(int32_t)n;args[0]=&val;
+ Il2CppClass *cls=GMResolveClass(assembly,namespaceText,className);
+ if(!cls)return GMDiagnostic(@"E104",@"未找到程序集中的类");
+ if(mode==3)return [NSString stringWithFormat:@"OK：Class %@\n%@",className,GMHierarchy(cls)];
+ NSArray<NSString *> *values=GMArgs(parameter);
+ if(values.count>8)return GMDiagnostic(@"E109",@"最多支持八个参数");
+ NSString *findError=nil;
+ const MethodInfo *found=GMFindMethod(cls,method,values.count,&findError);
+ if(!found)return findError?:@"E105";
+ if(mode==0)return [@"OK：方法详情\n" stringByAppendingString:GMDescribeMethod(found,cls)];
+ uint32_t iflags=0;
+ BOOL isStatic=(gAPI.method_get_flags(found,&iflags)&0x10u)!=0;
+ NSString *status=@"";
+ Il2CppObject *instance=nullptr;
+ if(!isStatic){
+  instance=GMExistingInstance(cls,&status);
+  if(!instance)return [NSString stringWithFormat:@"FAILED_INSTANCE：%@",status];
+ }
+ if(mode==1)return [NSString stringWithFormat:@"OK：%@\n%@",isStatic?@"静态方法无需实例":status,GMDescribeMethod(found,cls)];
+ uint64_t slots[8]={};
+ void *args[8]={};
+ for(NSUInteger i=0;i<values.count;i++){
+  NSString *type=GMTypeName(gAPI.method_get_param(found,(uint32_t)i));
+  NSString *argError=nil;
+  if(!GMEncodeArgument(type,values[i],&slots[i],&args[i],&argError))
+   return [NSString stringWithFormat:@"FAILED_ARGUMENT_%lu：%@",(unsigned long)(i+1),argError?:@"类型编码失败"];
  }
  Il2CppException *ex=nullptr;
- Il2CppObject *ret=gAPI.runtime_invoke(found,instance,hasArg?args:nullptr,&ex);
- if(ex)return GMDiagnostic(@"E111",@"托管异常（不代表执行成功）");
- (void)ret;
- return GMDiagnostic(@"OK",isStatic?@"静态调用已返回，实际副作用未验证":@"单例方法调用已返回；资源同步/持久化未验证");
+ Il2CppObject *result=gAPI.runtime_invoke(found,instance,values.count?args:nullptr,&ex);
+ if(ex)return GMDiagnostic(@"E111",@"IL2CPP 托管异常，执行失败");
+ return [NSString stringWithFormat:@"OK：方法已返回（副作用需实机验证）\n%@",
+         GMReturnValue(gAPI.method_get_return_type(found),result)];
 }
 
 static UIColor *Accent(void){return [UIColor colorWithRed:.12 green:.80 blue:.95 alpha:1];}
