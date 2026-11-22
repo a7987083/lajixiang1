@@ -459,12 +459,19 @@ static UITextField *MakeField(NSString *placeholder, NSString *value){
  return v;
 }
 @end
-@interface GMController:UIViewController <UITextFieldDelegate>
+@interface GMController:UIViewController <UITextFieldDelegate, UITableViewDataSource, UITableViewDelegate, UISearchBarDelegate>
 @property(nonatomic,strong) UIScrollView *panel;
 @property(nonatomic,strong) UIButton *bubble;
 @property(nonatomic,strong) NSArray<UITextField *> *fields;
 @property(nonatomic,strong) UILabel *result;
 @property(nonatomic,assign) BOOL expanded;
+@property(nonatomic,strong) UIView *methodBrowser;
+@property(nonatomic,strong) UISearchBar *methodSearch;
+@property(nonatomic,strong) UITableView *methodTable;
+@property(nonatomic,copy) NSArray<NSDictionary<NSString *,id> *> *allCheatMethods;
+@property(nonatomic,copy) NSArray<NSDictionary<NSString *,id> *> *filteredCheatMethods;
+@property(nonatomic,copy) NSArray<NSString *> *selectedParamTypes;
+@property(nonatomic,copy) NSString *selectedMethodName;
 @end
 @implementation GMController
 - (UIButton *)button:(NSString *)title action:(SEL)action {
@@ -497,15 +504,44 @@ static UITextField *MakeField(NSString *placeholder, NSString *value){
   f.tag=800+i;[_panel addSubview:f];[fields addObject:f];
  }
  _fields=fields;
- NSArray *titles=@[@"方法详情",@"继承关系",@"获取实例",@"执行方法",@"保存配置",@"恢复配置"];
- NSArray *selectors=@[@"inspect",@"classInfo",@"resolve",@"execute",@"saveConfig",@"loadConfig"];
+ NSArray *titles=@[@"DataCheat 功能",@"方法详情",@"获取实例",@"执行方法",@"继承关系",@"保存配置",@"恢复配置"];
+ NSArray *selectors=@[@"browseDataCheat",@"inspect",@"resolve",@"execute",@"classInfo",@"saveConfig",@"loadConfig"];
  for(NSUInteger i=0;i<titles.count;i++){
   UIButton *button=[self button:titles[i] action:NSSelectorFromString(selectors[i])];
   button.tag=710+(NSInteger)i;
   [_panel addSubview:button];
  }
- _result=MakeLabel(@"就绪：支持 0–8 参数的 Int32/UInt32/Int64/UInt64/Float/Double/Bool/String，按 | 分隔。先查看方法详情确认签名。",12);
+ _result=MakeLabel(@"点击「DataCheat 功能」直接显示游戏中的全部 DataCheat 方法；选择后按需填写参数再执行。",12);
  [_panel addSubview:_result];
+ _methodBrowser=[UIView new];
+ _methodBrowser.backgroundColor=[UIColor colorWithRed:.055 green:.075 blue:.11 alpha:.99];
+ _methodBrowser.layer.cornerRadius=13;
+ _methodBrowser.layer.borderWidth=1;
+ _methodBrowser.layer.borderColor=Accent().CGColor;
+ _methodBrowser.hidden=YES;
+ [self.view addSubview:_methodBrowser];
+ UILabel *browserTitle=MakeLabel(@"DataCheat · 全部方法",16);
+ browserTitle.font=[UIFont boldSystemFontOfSize:16];
+ browserTitle.tag=910;
+ [_methodBrowser addSubview:browserTitle];
+ UIButton *back=[self button:@"返回" action:@selector(closeMethodBrowser)];
+ back.tag=911;
+ [_methodBrowser addSubview:back];
+ _methodSearch=[[UISearchBar alloc]initWithFrame:CGRectZero];
+ _methodSearch.placeholder=@"搜索方法名 / 参数类型";
+ _methodSearch.searchBarStyle=UISearchBarStyleMinimal;
+ _methodSearch.delegate=self;
+ _methodSearch.tag=912;
+ [_methodBrowser addSubview:_methodSearch];
+ _methodTable=[[UITableView alloc]initWithFrame:CGRectZero style:UITableViewStylePlain];
+ _methodTable.backgroundColor=UIColor.clearColor;
+ _methodTable.separatorColor=[UIColor colorWithWhite:.25 alpha:1];
+ _methodTable.dataSource=self;
+ _methodTable.delegate=self;
+ _methodTable.rowHeight=68;
+ [_methodBrowser addSubview:_methodTable];
+ _allCheatMethods=@[];
+ _filteredCheatMethods=@[];
 }
 - (void)viewDidLayoutSubviews {
  [super viewDidLayoutSubviews];
@@ -513,17 +549,22 @@ static UITextField *MakeField(NSString *placeholder, NSString *value){
  CGFloat height=MIN(510,MAX(270,self.view.bounds.size.height-32));
  _panel.frame=CGRectMake((self.view.bounds.size.width-width)*.5,
                          MAX(8,(self.view.bounds.size.height-height)*.5),width,height);
- _panel.contentSize=CGSizeMake(width,505);
+ _panel.contentSize=CGSizeMake(width,565);
  [[_panel viewWithTag:700]setFrame:CGRectMake(width-69,12,55,27)];
  for(NSUInteger i=0;i<_fields.count;i++)_fields[i].frame=CGRectMake(14,49+i*43,width-28,35);
- for(NSUInteger i=0;i<6;i++){
+ for(NSUInteger i=0;i<7;i++){
   CGFloat buttonW=(width-38)*.5;
   [[_panel viewWithTag:710+(NSInteger)i]setFrame:CGRectMake(i%2?24+buttonW:14,272+(i/2)*39,buttonW,34)];
  }
- _result.frame=CGRectMake(14,396,width-28,104);
+ _result.frame=CGRectMake(14,432,width-28,115);
+ _methodBrowser.frame=_panel.frame;
+ [[_methodBrowser viewWithTag:910]setFrame:CGRectMake(14,11,width-90,31)];
+ [[_methodBrowser viewWithTag:911]setFrame:CGRectMake(width-67,13,54,29)];
+ _methodSearch.frame=CGRectMake(5,45,width-10,48);
+ _methodTable.frame=CGRectMake(8,96,width-16,height-104);
 }
 - (void)toggle {
- self.expanded=!self.expanded;self.panel.hidden=!self.expanded;self.bubble.hidden=self.expanded;
+ self.expanded=!self.expanded;self.panel.hidden=!self.expanded;self.methodBrowser.hidden=YES;self.bubble.hidden=self.expanded;
  if(!self.expanded)[self.view endEditing:YES];
  [self.view setNeedsLayout];
 }
@@ -533,6 +574,84 @@ static UITextField *MakeField(NSString *placeholder, NSString *value){
  p.x=MAX(24,MIN(self.view.bounds.size.width-24,p.x));
  p.y=MAX(24,MIN(self.view.bounds.size.height-24,p.y));
  self.bubble.center=p;[pan setTranslation:CGPointZero inView:self.view];
+}
+- (void)browseDataCheat {
+ [self.view endEditing:YES];
+ NSString *status=nil;
+ NSArray *methods=GMEnumerateDataCheat(&status);
+ self.allCheatMethods=methods;
+ self.filteredCheatMethods=methods;
+ self.methodSearch.text=@"";
+ [self.methodTable reloadData];
+ self.result.text=status?:@"DataCheat 方法枚举失败";
+ if(!methods.count){self.panel.hidden=NO;return;}
+ self.panel.hidden=YES;
+ self.methodBrowser.hidden=NO;
+ self.bubble.hidden=YES;
+ self.expanded=YES;
+ [self.view setNeedsLayout];
+}
+- (void)closeMethodBrowser {
+ [self.view endEditing:YES];
+ self.methodBrowser.hidden=YES;
+ self.panel.hidden=NO;
+ [self.view setNeedsLayout];
+}
+- (void)searchBar:(UISearchBar *)searchBar textDidChange:(NSString *)searchText {
+ NSString *query=[searchText lowercaseString];
+ if(!query.length)self.filteredCheatMethods=self.allCheatMethods?:@[];
+ else {
+  NSPredicate *p=[NSPredicate predicateWithBlock:^BOOL(NSDictionary *item,NSDictionary *bindings){
+   (void)bindings;
+   return [[item[@"signature"] lowercaseString] containsString:query];
+  }];
+  self.filteredCheatMethods=[self.allCheatMethods filteredArrayUsingPredicate:p];
+ }
+ [self.methodTable reloadData];
+}
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+ (void)tableView;(void)section;
+ return (NSInteger)self.filteredCheatMethods.count;
+}
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+ UITableViewCell *cell=[tableView dequeueReusableCellWithIdentifier:@"cheatMethod"];
+ if(!cell)cell=[[UITableViewCell alloc]initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"cheatMethod"];
+ NSDictionary *entry=self.filteredCheatMethods[(NSUInteger)indexPath.row];
+ cell.backgroundColor=UIColor.clearColor;
+ cell.textLabel.text=entry[@"method"];
+ cell.textLabel.textColor=UIColor.whiteColor;
+ cell.textLabel.font=[UIFont boldSystemFontOfSize:14];
+ cell.detailTextLabel.text=[NSString stringWithFormat:@"%@ · %@",
+  [entry[@"isStatic"] boolValue]?@"Static":@"Instance",entry[@"signature"]];
+ cell.detailTextLabel.numberOfLines=2;
+ cell.detailTextLabel.font=[UIFont systemFontOfSize:11];
+ cell.detailTextLabel.textColor=[entry[@"supported"] boolValue]?
+  [UIColor colorWithRed:.5 green:.8 blue:.75 alpha:1]:UIColor.lightGrayColor;
+ cell.accessoryType=UITableViewCellAccessoryDisclosureIndicator;
+ return cell;
+}
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+ [tableView deselectRowAtIndexPath:indexPath animated:YES];
+ NSDictionary *entry=self.filteredCheatMethods[(NSUInteger)indexPath.row];
+ NSArray<NSString *> *types=entry[@"types"]?:@[];
+ self.fields[0].text=@"Assembly-CSharp";
+ self.fields[1].text=@"";
+ self.fields[2].text=@"DataCheat";
+ self.fields[3].text=entry[@"method"];
+ self.selectedMethodName=entry[@"method"];
+ self.selectedParamTypes=types;
+ NSMutableArray<NSString *> *defaults=[NSMutableArray array];
+ for(NSString *type in types){
+  if([type isEqualToString:@"System.Boolean"])[defaults addObject:@"false"];
+  else if([type isEqualToString:@"System.String"])[defaults addObject:@""];
+  else [defaults addObject:@"0"];
+ }
+ self.fields[4].text=[defaults componentsJoinedByString:@"|"];
+ self.result.text=[NSString stringWithFormat:@"%@\n%@\n%@",
+  entry[@"signature"],
+  [entry[@"supported"] boolValue]?@"参数类型可由当前调用器处理":@"包含尚不支持的参数类型，禁止盲目执行",
+  @"请检查参数后手动点击「执行方法」"];
+ [self closeMethodBrowser];
 }
 - (void)inspect{[self run:0];}
 - (void)classInfo{[self run:3];}
@@ -556,7 +675,9 @@ static UITextField *MakeField(NSString *placeholder, NSString *value){
   return [self.fields[i].text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]?:@"";
  };
  if(!clean(2).length||!clean(3).length){self.result.text=@"E100：类名和方法名不能为空";return;}
- self.result.text=Invoke(clean(0),clean(1),clean(2),clean(3),clean(4),mode);
+ NSArray<NSString *> *exactTypes=([self.selectedMethodName isEqualToString:clean(3)] &&
+                                  [clean(2) isEqualToString:@"DataCheat"])?self.selectedParamTypes:nil;
+ self.result.text=Invoke(clean(0),clean(1),clean(2),clean(3),clean(4),mode,exactTypes);
  NSLog(@"[1945GM] %@",self.result.text);
 }
 - (BOOL)textFieldShouldReturn:(UITextField *)f{[f resignFirstResponder];return YES;}
