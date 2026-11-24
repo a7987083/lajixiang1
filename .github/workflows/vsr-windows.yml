@@ -1,0 +1,73 @@
+name: VSR Windows CUDA 11.8
+on:
+  push:
+    branches: [vsr-win]
+    paths: ['.github/workflows/vsr-windows.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 180
+    defaults:
+      run:
+        working-directory: vsr
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: YaoFANGUK/video-subtitle-remover
+          ref: e109b9ddc1d0e8f153199dfa05c1d767546906d8
+          path: vsr
+          lfs: true
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - name: Install upstream dependencies
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python -m pip install paddlepaddle==3.0.0
+          python -m pip install -r requirements.txt
+          python -m pip freeze > requirements.txt
+          python -m pip install torch==2.7.0 torchvision==0.22.0 --index-url https://download.pytorch.org/whl/cu118
+          python -m pip install QPT==1.0b8 setuptools
+          python -c "import torch; print(torch.__version__, torch.version.cuda); assert torch.version.cuda == '11.8'"
+      - name: Apply upstream QPT compatibility patch
+        shell: bash
+        run: |
+          set -euxo pipefail
+          SITE_PACKAGES=$(python -c "import sysconfig; print(sysconfig.get_path('purelib'))")
+          SITE_PACKAGES_UNIX=$(cygpath -u "$SITE_PACKAGES")
+          target="$SITE_PACKAGES_UNIX/qpt/kernel/qpackage.py"
+          sed -n '98p' "$target" | grep -F 'dep = pkg.requires()'
+          sed -i '98c\        try:\n            dep = pkg.requires()\n        except TypeError:\n            continue' "$target"
+          python -m py_compile "$target"
+      - name: Package VSR
+        shell: bash
+        env:
+          QPT_Action: "True"
+        run: |
+          set -euxo pipefail
+          python backend/tools/makedist.py --cuda 11.8
+          cp ../vsr_out/Debug/Debug-进入虚拟环境.cmd ../vsr_out/Release/
+          sed -i 's/force=False)/force=False)\n            exit(-1)/g' ../vsr_out/*/Python/Lib/site-packages/qpt/executor.py
+          test -n "$(find ../vsr_out/Release -maxdepth 1 -iname '*.exe' -print -quit)"
+      - name: Compress and verify archive
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p ../dist
+          cd ../vsr_out/Release
+          7z a -t7z -mx=3 -v1900m ../../dist/vsr-windows-cuda-11.8-x64.7z *
+          7z t ../../dist/vsr-windows-cuda-11.8-x64.7z.001
+          cd ../../dist
+          sha256sum *.7z* > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vsr-windows-cuda-11.8-x64
+          path: dist/
+          if-no-files-found: error
+          compression-level: 0
